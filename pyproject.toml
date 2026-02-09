@@ -1,0 +1,20 @@
+[project]
+name = "spinel"
+version = "0.1.0"
+description = "Strain Prediction IN Elastic Lattices"
+authors = [
+    {name = "James McHardy"}
+]
+requires-python = ">=3.12"
+dependencies = [
+    "streamlit (>=1.54.0,<2.0.0)",
+    "lmfit (>=1.3.4,<2.0.0)",
+    "scipy (>=1.17.0,<2.0.0)",
+    "xlsxwriter (>=3.2.9,<4.0.0)",
+    "pyfai (>=2025.12.1,<2026.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
