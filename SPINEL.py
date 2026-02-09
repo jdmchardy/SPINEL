@@ -1051,7 +1051,7 @@ img = Image.open(logo_path)
 col_img, col_title = st.columns([1, 3])
 
 with col_img:
-    st.image(img, width=True)
+    st.image(img, width='stretch')
 
 #st.title("SPINEL (Strain Prediction IN Elastic Lattices)")
 
