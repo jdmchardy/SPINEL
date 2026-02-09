@@ -5,5 +5,4 @@ pandas
 xlsxwriter
 scipy
 lmfit
-mpld3
 pyFAI
