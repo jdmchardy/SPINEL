@@ -1,0 +1,10 @@
+streamlit
+numpy
+matplotlib
+pandas
+xlsxwriter
+scipy
+lmfit
+emcee>=3.0
+mpld3
+pyFAI
