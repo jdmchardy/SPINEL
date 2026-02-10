@@ -1044,7 +1044,7 @@ def compute_bin_indices(x_exp_common, hkl_peak_centers, window_width=0.2):
 st.set_page_config(layout="wide")
 
 BASE_DIR = Path(__file__).parent
-logo_path = BASE_DIR / "logo.png"
+logo_path = BASE_DIR / "spinel_logo.png"
 
 img = Image.open(logo_path)
 
