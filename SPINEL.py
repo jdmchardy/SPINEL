@@ -949,7 +949,7 @@ def run_refinement(params, refine_flags, selected_hkls, selected_indices, intens
         )
 
     # Run optimization
-    result = minimize(wrapped_cost_function, lm_params, method="leastsq", fit_kws={'gtol': 1e-8})
+    result = minimize(wrapped_cost_function, lm_params, method="leastsq", gtol=1e-8,)
     #-------------------------------------------------
 
     return result
