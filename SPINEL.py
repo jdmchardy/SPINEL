@@ -233,6 +233,29 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             [0, 0, 0, 0, c44, 0],
             [c12, -c16, 0, 0, 0, c66]
         ])
+    elif symmetry == "orthorhombic":
+        # Normalize
+        H = h / a
+        K = k / b
+        L = l / c
+        #Unpack the elastic constants
+        c11 = cij_params.get("c11")
+        c22 = cij_params.get("c22")
+        c33 = cij_params.get("c33")
+        c12 = cij_params.get("c12")
+        c13 = cij_params.get("c13")
+        c23 = cij_params.get("c23")
+        c44 = cij_params.get("c44")
+        c55 = cij_params.get("c55")
+        c66 = cij_params.get("c66")
+        elastic = np.array([
+            [c11, c12, c13, 0, 0, 0],
+            [c12, c22, c23, 0, 0, 0],
+            [c13, c23, c33, 0, 0, 0],
+            [0, 0, 0, c44, 0, 0],
+            [0, 0, 0, 0, c55, 0],
+            [0, 0, 0, 0, 0, c66]
+        ])
     else:
         st.write("Error! {} symmetry not supported".format(symmetry))
     elastic_compliance = np.linalg.inv(elastic)
@@ -256,6 +279,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
                 d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
             elif symmetry in ["tetragonal_A","tetragonal_B"]:
                 d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
+            elif symmetry == "orthorhombic":
+                d0 = np.sqrt(1/(h**2/a**2+k**2/b**2+l**2/c**2))
             else:
                 st.write("Support not yet provided for {} symmetry".format(symmetry))
             sin_theta0 = wavelength / (2 * d0)
@@ -278,6 +303,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
                 d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
             elif symmetry in ["tetragonal_A","tetragonal_B"]:
                 d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
+            elif symmetry == "orthorhombic":
+                d0 = np.sqrt(1/(h**2/a**2+k**2/b**2+l**2/c**2))
             else:
                 st.write("Support not yet provided for {} symmetry".format(symmetry))
             sin_theta0 = wavelength / (2 * d0)
@@ -390,6 +417,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
     elif symmetry in ["tetragonal_A","tetragonal_B"]:
         d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
+    elif symmetry == "orthorhombic":
+        d0 = np.sqrt(1/(h**2/a**2+k**2/b**2+l**2/c**2))
     else:
         st.write("No support for {} symmetries".format(symmetry))
         d0 = 0
@@ -607,6 +636,8 @@ def batch_XRD(batch_upload):
             required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13','C44','C66','sig11','sig22','sig33','chi'}
         elif symmetry == "tetragonal_B":
             required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13','C16','C44','C66','sig11','sig22','sig33','chi'}
+        elif symmetry == "orthorhombic":
+            required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C22','C33','C12','C13','C23','C44','C55','C66','sig11','sig22','sig33','chi'}
         else:
             st.error("{} symmetry is not yet supported".format(symmetry))
             required_keys = {}
@@ -836,15 +867,27 @@ def setup_refinement_toggles(lattice_params, **additional_fields):
         pass 
     elif symmetry == "hexagonal":
         p_dict["c_val"] = combined_params["c_val"]
+        p_dict["c33"] = combined_params["c33"]
         p_dict["c13"] = combined_params["c13"]
     elif symmetry == "tetragonal_A":
         p_dict["c_val"] = combined_params["c_val"]
+        p_dict["c33"] = combined_params["c33"]
         p_dict["c13"] = combined_params["c13"]
         p_dict["c66"] = combined_params["c66"]
     elif symmetry == "tetragonal_B":
         p_dict["c_val"] = combined_params["c_val"]
+        p_dict["c33"] = combined_params["c33"]
         p_dict["c13"] = combined_params["c13"]
         p_dict["c16"] = combined_params["c16"]
+        p_dict["c66"] = combined_params["c66"]
+    elif symmetry == "orthorhombic":
+        p_dict["b_val"] = combined_params["b_val"]
+        p_dict["c_val"] = combined_params["c_val"]
+        p_dict["c22"] = combined_params["c22"]
+        p_dict["c33"] = combined_params["c33"]
+        p_dict["c13"] = combined_params["c13"]
+        p_dict["c23"] = combined_params["c23"]
+        p_dict["c55"] = combined_params["c55"]
         p_dict["c66"] = combined_params["c66"]
     else:
         st.error("{} symmetry is not yet supported".format(symmetry))
@@ -951,6 +994,8 @@ def run_refinement(params, refine_flags, selected_hkls, selected_indices, intens
             d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
         elif symmetry in ["tetragonal_A","tetragonal_B"]:
             d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
+        elif symmetry == "orthorhombic":
+            d0 = np.sqrt(1/(h**2/a**2+k**2/b**2+l**2/c**2))
         else:
             st.write("No support for {} symmetries".format(symmetry))
             d0 = 0
@@ -1146,6 +1191,8 @@ if uploaded_file is not None:
         required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13','C44','C66','sig11','sig22','sig33','chi'}
     elif symmetry == "tetragonal_B":
         required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13','C16','C44','C66','sig11','sig22','sig33','chi'}
+    elif symmetry == "orthorhombic":
+        required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C22','C33','C12','C13','C23','C44','C55','C66','sig11','sig22','sig33','chi'}
     else:
         st.error("{} symmetry is not yet supported".format(symmetry))
         required_keys = {}
@@ -1432,7 +1479,7 @@ if uploaded_file is not None:
                     #Compute the cake data
                     cake_dict = {}
                     cake_dict = cake_data(selected_hkls, intensities, symmetry, lattice_params, 
-                                                    wavelength, cijs, sigma_11, sigma_22, sigma_33, chi)
+                                            wavelength, cijs, sigma_11, sigma_22, sigma_33, chi)
                     cake_two_thetas, cake_deltas, cake_intensity = cake_dict_to_2Dcake(cake_dict, broadening=Funamori_broadening)
 
                     fig, ax = plt.subplots()
@@ -1619,7 +1666,8 @@ if uploaded_file is not None:
                             if key in ["b_val", "c_val"]:
                                 if symmetry == "cubic":
                                     st.session_state.params[key] = result.params["a_val"].value
-                                elif key == "b_val":
+                                elif symmetry in ["tetragonal_A", "tetragonal_B"]:
+                                    if key == "b_val":
                                         st.session_state.params[key] = result.params["a_val"].value
                     
                     #Update the t and sigma values
