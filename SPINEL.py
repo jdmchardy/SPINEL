@@ -212,6 +212,27 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             [0, 0, 0, 0, c44, 0],
             [0, 0, 0, 0, 0, c66]
         ])
+    elif symmetry == "tetragonal_B":
+        # Normalize
+        H = h / a
+        K = k / a
+        L = l / c
+        #Unpack the elastic constants
+        c11 = cij_params.get("c11")
+        c12 = cij_params.get("c12")
+        c13 = cij_params.get("c13")
+        c33 = cij_params.get("c33")
+        c44 = cij_params.get("c44")
+        c66 = cij_params.get("c66")
+        c16 = cij_params.get("c16")
+        elastic = np.array([
+            [c11, c12, c13, 0, 0, c16],
+            [c12, c11, c13, 0, 0, -c16],
+            [c13, c13, c33, 0, 0, 0],
+            [0, 0, 0, c44, 0, 0],
+            [0, 0, 0, 0, c44, 0],
+            [c12, -c16, 0, 0, 0, c66]
+        ])
     else:
         st.write("Error! {} symmetry not supported".format(symmetry))
     elastic_compliance = np.linalg.inv(elastic)
@@ -233,7 +254,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
                 d0 = a / np.linalg.norm([h, k, l])
             elif symmetry == "hexagonal":
                 d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
-            elif symmetry == "tetragonal_A":
+            elif symmetry in ["tetragonal_A","tetragonal_B"]:
                 d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
             else:
                 st.write("Support not yet provided for {} symmetry".format(symmetry))
@@ -255,7 +276,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
                 d0 = a / np.linalg.norm([h, k, l])
             elif symmetry == "hexagonal":
                 d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
-            elif symmetry == "tetragonal_A":
+            elif symmetry in ["tetragonal_A","tetragonal_B"]:
                 d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
             else:
                 st.write("Support not yet provided for {} symmetry".format(symmetry))
@@ -367,7 +388,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         d0 = a / np.linalg.norm([h, k, l])
     elif symmetry == "hexagonal":
         d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
-    elif symmetry == "tetragonal_A":
+    elif symmetry in ["tetragonal_A","tetragonal_B"]:
         d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
     else:
         st.write("No support for {} symmetries".format(symmetry))
@@ -378,7 +399,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         two_th = 0
     else:
         # strains
-        d_strain = d0*(1-strain_33_list) #Positive t yields compressed d values
+        d_strain = d0*(1-strain_33_list) #Positive t yields negative strains yields expanded d values
         # 2ths
         sin_th = wavelength / (2 * d_strain)
         two_th = 2 * np.degrees(np.arcsin(sin_th))
@@ -928,7 +949,7 @@ def run_refinement(params, refine_flags, selected_hkls, selected_indices, intens
             d0 = a / np.linalg.norm([h, k, l])
         elif symmetry == "hexagonal":
             d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
-        elif symmetry == "tetragonal_A":
+        elif symmetry in ["tetragonal_A","tetragonal_B"]:
             d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
         else:
             st.write("No support for {} symmetries".format(symmetry))
