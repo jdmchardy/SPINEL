@@ -1308,6 +1308,7 @@ if uploaded_file is not None:
                     delta_list = df["delta (degrees)"]
                     strain_33_list = df["strain_33"]
                     scatter = ax.scatter(delta_list, strain_33_list, color="black", s=0.2, alpha=0.1)
+                    ax.hlines(0,-180,180, color="black", lw=0.8)
 
                     #Plot the mean strain curve
                     unique_delta = np.unique(delta_list)
