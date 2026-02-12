@@ -1251,6 +1251,7 @@ if uploaded_file is not None:
                     results_dict[hkl_label] = df
 
                     scatter = ax.scatter(psi_list, strain_33_list, color="black", s=0.2, alpha=0.1)
+                    ax.hlines(0,0,90, color="black")
                     
                     #Plot the mean strain curve
                     unique_psi = np.unique(psi_list)
