@@ -298,7 +298,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
                 deltas = np.arange(-180,180,10)
             else:
                 #Assume chi is non-zero (radial) and compute a psi for each azimuth bin (delta)
-                deltas = np.arange(-180,180,1)
+                deltas = np.arange(-180,180,10)
                 deltas_rad = np.radians(deltas)
                 chi_rad = np.radians(chi)
                 psi_values = np.arccos(np.sin(chi_rad)*np.cos(deltas_rad)*np.cos(theta0)+np.cos(chi_rad)*np.sin(theta0))
