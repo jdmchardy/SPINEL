@@ -1252,7 +1252,7 @@ if uploaded_file is not None:
 
                     scatter = ax.scatter(psi_list, strain_33_list, color="black", s=0.2, alpha=0.1)
                     ax.hlines(0,0,90, color="black", lw=0.8)
-                    ax.vlines(54.7,np.min(strain_33_list), np.max(strain_33_list),color="black", ls="dashed", lw'0.8)
+                    ax.vlines(54.7,np.min(strain_33_list), np.max(strain_33_list),color="black", ls="dashed", lw=0.8)
                     
                     #Plot the mean strain curve
                     unique_psi = np.unique(psi_list)
