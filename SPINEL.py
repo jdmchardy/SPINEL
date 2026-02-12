@@ -89,6 +89,21 @@ def voigt_to_strain_tensor(e_voigt):
     e_tensor[..., 0, 1] = e_tensor[..., 1, 0] = e12
     return e_tensor
 
+def get_d0(symmetry,h,k,l,a,b,c):
+    """Evaluates the lattice plane spacing"""
+    if symmetry == "cubic":
+        d0 = a / np.linalg.norm([h, k, l])
+    elif symmetry == "hexagonal":
+        d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
+    elif symmetry in ["tetragonal_A","tetragonal_B"]:
+        d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
+    elif symmetry == "orthorhombic":
+        d0 = np.sqrt(1/(h**2/a**2+k**2/b**2+l**2/c**2))
+    else:
+        st.write("Support not yet provided for {} symmetry".format(symmetry))
+        d0 = 0
+    return d0
+    
 def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_params, sigma_11, sigma_22, sigma_33, chi, phi_values, psi_values):
     """
     Evaluates strain_33 component for given hkl reflection.
@@ -273,16 +288,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     #Check if phi_values are given or if it must be calculated for XRD generation
     if isinstance(psi_values, int):
         if psi_values==0: #Standard value for fine resolution XRD generation
-            if symmetry == "cubic":
-                d0 = a / np.linalg.norm([h, k, l])
-            elif symmetry == "hexagonal":
-                d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
-            elif symmetry in ["tetragonal_A","tetragonal_B"]:
-                d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
-            elif symmetry == "orthorhombic":
-                d0 = np.sqrt(1/(h**2/a**2+k**2/b**2+l**2/c**2))
-            else:
-                st.write("Support not yet provided for {} symmetry".format(symmetry))
+            d0 = get_d0(symmetry,h,k,l,a,b,c)
             sin_theta0 = wavelength / (2 * d0)
             theta0 = np.arcsin(sin_theta0)
             #Check if chi value is zero (axial case) or non-zero (radial)
@@ -297,16 +303,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
                 chi_rad = np.radians(chi)
                 psi_values = np.arccos(np.sin(chi_rad)*np.cos(deltas_rad)*np.cos(theta0)+np.cos(chi_rad)*np.sin(theta0))
         else: #A coarser resolution option for XRD refinement (less expensive due to refinement iterations required)
-            if symmetry == "cubic":
-                d0 = a / np.linalg.norm([h, k, l])
-            elif symmetry == "hexagonal":
-                d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
-            elif symmetry in ["tetragonal_A","tetragonal_B"]:
-                d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
-            elif symmetry == "orthorhombic":
-                d0 = np.sqrt(1/(h**2/a**2+k**2/b**2+l**2/c**2))
-            else:
-                st.write("Support not yet provided for {} symmetry".format(symmetry))
+            d0 = get_d0(symmetry,h,k,l,a,b,c)
             sin_theta0 = wavelength / (2 * d0)
             theta0 = np.arcsin(sin_theta0)
             #Check if chi value is zero (axial case) or non-zero (radial)
@@ -411,18 +408,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     delta_list = np.repeat(deltas, len(phi_values))
 
     # d0 and 2th
-    if symmetry == 'cubic':
-        d0 = a / np.linalg.norm([h, k, l])
-    elif symmetry == "hexagonal":
-        d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
-    elif symmetry in ["tetragonal_A","tetragonal_B"]:
-        d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
-    elif symmetry == "orthorhombic":
-        d0 = np.sqrt(1/(h**2/a**2+k**2/b**2+l**2/c**2))
-    else:
-        st.write("No support for {} symmetries".format(symmetry))
-        d0 = 0
-
+    d0 = get_d0(symmetry,h,k,l,a,b,c)
     if d0 == 0:
         d_strain = 0
         two_th = 0
@@ -477,63 +463,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
 
     return hkl_label, df, psi_list, strain_33_list
 
-#def Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, broadening=True):
-#    results_dict = {}
-#    all_dfs = []  # Collect all dfs here
-
-#    for hkl, intensity in zip(selected_hkls, intensities):
-#        hkl_label, df, psi_list, strain_33_list = compute_strain(hkl, intensity, *strain_sim_params)
-#        results_dict[hkl_label] = df
-#        all_dfs.append(df)
-
-#    # Concatenate all dataframes
-#    combined_df = pd.concat(all_dfs, ignore_index=True)
-
-#    # Define constants
-#    sigma_gauss = Gaussian_FWHM / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
-#    # Define common 2-theta range for evaluation
-#    twotheta_min = combined_df["2th"].min() - 1
-#    twotheta_max = combined_df["2th"].max() + 1
-#    twotheta_grid = np.arange(twotheta_min, twotheta_max, 0.01)
-
-#    # Group once by (h, k, l)
-#    grouped = combined_df.groupby(["h", "k", "l"], sort=False)
-    
-#    # Container to store individual peak curves
-#    peak_curves = {}
-#    total_pattern = np.zeros_like(twotheta_grid)
-    
-#    # Loop over unique (h, k, l)
-#    for (h, k, l), group in grouped:
-#        peak_intensity = group["intensity"].iloc[0]
-#        total_gauss = np.zeros_like(twotheta_grid)
-
-#        if broadening:
-#            # --- Vectorized Gaussian summation ---
-#            mus = group["2th"].values  # shape (M,)
-#            # Broadcasting: grid[:, None] vs mus[None, :]
-#            gaussians = Gaussian(twotheta_grid[:, None], mus[None, :], sigma_gauss)
-#            total_gauss = peak_intensity * gaussians.sum(axis=1)
-#            scale = len(mus)
-#        else:
-#            mu = group["Mean two_th"].iloc[0]
-#            total_gauss = peak_intensity * Gaussian(twotheta_grid, mu, sigma_gauss)
-#            scale = 1
-            
-#        avg_gauss = total_gauss / scale
-#        #Add to the total pattern
-#        total_pattern += avg_gauss
-#        #peak_curves[(h, k, l)] = avg_gauss
-        
-#    # Combined total pattern
-#    #total_pattern = sum(peak_curves.values(), axis=0)
-#    total_df = pd.DataFrame({
-#        "2th": twotheta_grid,
-#        "Total Intensity": total_pattern
-#    })
-#    return total_df
-
-#This version uses convolution of delta and Gaussian kernal to speed up massively
+#Uses convolution of delta and Gaussian kernal for fast evaluation
 def Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, broadening=True):
     # --- Compute strain results ---
     all_dfs = [compute_strain(hkl, inten, *strain_sim_params)[1]
@@ -592,16 +522,13 @@ def Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, b
                 range=(twotheta_min, twotheta_max),
                 weights=mean_df["intensity"]
             )
-            
     # Convolve using FFT
     total_pattern = fftconvolve(hist, gaussian_kernel, mode="same")
-
     # Output as DataFrame
     total_df = pd.DataFrame({
         "2th": twotheta_grid[::5],
         "Total Intensity": total_pattern[::5]
     })
-
     return total_df
 
 def batch_XRD(batch_upload):
@@ -939,7 +866,7 @@ def run_refinement(params, refine_flags, selected_hkls, selected_indices, intens
             min_val, max_val = -10, 10
         elif "c" in name.lower():  # elastic constants
             min_val, max_val = 0, 1000
-        elif name == "a_val" or name == "c_val":
+        elif name == "a_val" or name == "b_val" or name == "c_val":
             min_val, max_val = 0.75 * val, 1.25 * val
         elif name == "chi":
             min_val, max_val = -90, 90
@@ -981,6 +908,7 @@ def run_refinement(params, refine_flags, selected_hkls, selected_indices, intens
     #First we need the 2th center positions of each hkl reflection included (use the mean "Singh" position)
     hkl_peak_centers = []
     a = lattice_params.get("a_val")
+    b = lattice_params.get("b_val")
     c = lattice_params.get("c_val")
     for hkl, inten in zip(selected_hkls, intensities_opt):
         df = compute_strain(hkl, inten, *strain_sim_params)[1]
@@ -988,17 +916,7 @@ def run_refinement(params, refine_flags, selected_hkls, selected_indices, intens
         mean_2th = np.mean(df["Mean two_th"])
         h, k, l = hkl
         #Compute d0 and 2th
-        if symmetry == 'cubic':
-            d0 = a / np.linalg.norm([h, k, l])
-        elif symmetry == "hexagonal":
-            d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
-        elif symmetry in ["tetragonal_A","tetragonal_B"]:
-            d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
-        elif symmetry == "orthorhombic":
-            d0 = np.sqrt(1/(h**2/a**2+k**2/b**2+l**2/c**2))
-        else:
-            st.write("No support for {} symmetries".format(symmetry))
-            d0 = 0
+        d0 = get_d0(symmetry,h,k,l,a,b,c)
         #Compute 2ths
         sin_th = wavelength / (2 * d0)
         two_th = 2 * np.degrees(np.arcsin(sin_th))
@@ -1675,14 +1593,6 @@ if uploaded_file is not None:
                     st.session_state.params["sigma_11"] = -t_opt / 3
                     st.session_state.params["sigma_22"] = -t_opt / 3
                     st.session_state.params["sigma_33"] = 2 * t_opt / 3
-    
-                    # --- Handle refined peak intensities if checkbox is selected ---
-                    #if st.session_state.refine_flags.get("peak_intensity", False):
-                    #    intensities_refined = [
-                    #        result.params[f"intensity_{i}"].value for i in selected_indices
-                    #    ]
-                    #else:
-                    #    intensities_refined = intensities
     
                     #Update the intensity widgets and state values
                     
