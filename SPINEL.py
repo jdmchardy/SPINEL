@@ -1314,6 +1314,10 @@ if uploaded_file is not None:
                     unique_delta = np.unique(delta_list)
                     mean_strain_list = [df[df["delta (degrees)"]==d]["Mean strain"].iloc[0] for d in unique_delta]
                     ax.plot(unique_delta, mean_strain_list, color="red", lw=0.8, label="mean strain")
+                    #Add average over all crystallites
+                    complete_mean = np.mean(mean_strain_list)
+                    ax.hlines(complete_mean,-180,180, color="black", ls="dashed", lw=0.8, label="Average")
+                    
                     ax.set_xlabel("azimuth (degrees)")
                     ax.set_ylabel("ε′₃₃")
                     ax.set_title(f"Strain ε′₃₃ for hkl = ({hkl_label})")
