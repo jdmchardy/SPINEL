@@ -455,9 +455,6 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         #Update the mean_strain and mean_two_th column at the correct psi values
         df.loc[df["psi (degrees)"] == psi, ["Mean strain", "Mean two_th"]] = [mean_strain, mean_two_th]
 
-    #Next add a column for the mean strain per hkl (The average over all psi values included)
-    #For axial this gives Singh strain
-
     # Group by hkl label and sort by azimuth
     df = df.sort_values(by=["hkl", "delta (degrees)"], ignore_index=True)
 
@@ -513,11 +510,11 @@ def Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, b
         else: 
             #Compute the mean across all the computed values
             mean_df = combined_df.groupby(["h","k","l"]).agg(
-                {"2th": "mean",        # mean of the actual 2θ values per reflection
+                {"2th": "mean",  # mean of the actual 2θ values per reflection
                 "intensity": "mean"
                 })
             hist, _ = np.histogram(
-                mean_df["2th"],          # use the averaged 2θ here
+                mean_df["2th"],  # the averaged 2θ
                 bins=len(twotheta_grid),
                 range=(twotheta_min, twotheta_max),
                 weights=mean_df["intensity"]
