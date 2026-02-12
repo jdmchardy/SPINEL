@@ -1316,7 +1316,7 @@ if uploaded_file is not None:
                     ax.plot(unique_delta, mean_strain_list, color="red", lw=0.8, label="mean strain (δ)")
                     #Add average over all crystallites
                     complete_mean = np.mean(mean_strain_list)
-                    ax.hlines(complete_mean,-180,180, color="black", ls="dashed", lw=0.8, label="Average:{}".format(np.round(complete_mean,5)))
+                    ax.hlines(complete_mean,-180,180, color="black", ls="dashed", lw=0.8, label="Average:{}".format(np.round(complete_mean,6)))
                     
                     ax.set_xlabel("azimuth (degrees)")
                     ax.set_ylabel("ε′₃₃")
