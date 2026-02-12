@@ -166,9 +166,9 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     gamma = lattice_params.get("gamma")
 
     h, k, l = hkl
-    if h == 0: h = 0.00000001
-    if k == 0: k = 0.00000001
-    if l == 0: l = 0.00000001
+    if h == 0: h = 0.0000000001
+    if k == 0: k = 0.0000000001
+    if l == 0: l = 0.0000000001
 
     if symmetry == "cubic":
         # Normalize
