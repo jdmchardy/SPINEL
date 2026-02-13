@@ -1309,11 +1309,11 @@ if uploaded_file is not None:
                             #Plot only the mean value for each delta
                             deltas = np.unique(df["delta (degrees)"].values)
                             mean_2ths = np.full(len(np.unique(df["delta (degrees)"].values)),df["Mean two_th"].iloc[0])
-                            axs2.scatter(mean_2ths, deltas, color="black", edgecolors='none', marker = '.', s=0.4, alpha=0.3)
+                            axs2.scatter(mean_2ths, deltas, color="black", edgecolors='none', marker = '.', s=0.4, alpha=1)
                     else: #Transverse geometry with broadening off
                         for df in results_dict.values():
                             unique = df.drop_duplicates(subset="delta (degrees)") #Pick out the entries for unique delta values
-                            axs2.scatter(unique["Mean two_th"].values, unique["delta (degrees)"].values, color="black", edgecolors='none', marker = '.', s=0.4, alpha=0.3)
+                            axs2.scatter(unique["Mean two_th"].values, unique["delta (degrees)"].values, color="black", edgecolors='none', marker = '.', s=0.4, alpha=1)
                 #for df in results_dict.values():
                 #    axs2.scatter(df["2th"], df["delta (degrees)"], color="black", edgecolors='none', marker = '.', s=0.4, alpha=0.3)
                 axs2.set_xlabel("2th (degrees)")
