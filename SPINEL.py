@@ -1307,7 +1307,7 @@ if uploaded_file is not None:
                     if chi == 0: #unique option for axial geometry
                         for df in cake_dict.values():
                             #Plot only the mean value for each delta
-                            deltas = np.unique(df["delta (degrees)"].values
+                            deltas = np.unique(df["delta (degrees)"].values)
                             mean_2ths = np.full(len(np.unique(df["delta (degrees)"].values)),df["Mean two_th"].iloc[0])
                             axs2.scatter(mean_2ths, deltas, color="black", edgecolors='none', marker = '.', s=0.4, alpha=0.3)
                     else: #Transverse geometry with broadening off
