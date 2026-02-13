@@ -1305,13 +1305,13 @@ if uploaded_file is not None:
                         axs2.scatter(df["2th"], df["delta (degrees)"], color="black", edgecolors='none', marker = '.', s=0.4, alpha=0.3)
                 else:
                     if chi == 0: #unique option for axial geometry
-                        for df in cake_dict.values():
+                        for df in results_dict.values():
                             #Plot only the mean value for each delta
                             deltas = np.unique(df["delta (degrees)"].values)
                             mean_2ths = np.full(len(np.unique(df["delta (degrees)"].values)),df["Mean two_th"].iloc[0])
                             axs2.scatter(mean_2ths, deltas, color="black", edgecolors='none', marker = '.', s=0.4, alpha=0.3)
                     else: #Transverse geometry with broadening off
-                        for df in cake_dict.values():
+                        for df in results_dict.values():
                             unique = df.drop_duplicates(subset="delta (degrees)") #Pick out the entries for unique delta values
                             axs2.scatter(unique["Mean two_th"].values, unique["delta (degrees)"].values, color="black", edgecolors='none', marker = '.', s=0.4, alpha=0.3)
                 #for df in results_dict.values():
