@@ -1299,7 +1299,7 @@ if uploaded_file is not None:
                 fig, axs = plt.subplots(len(selected_hkls), 1, figsize=(8, 5 * len(selected_hkls)))
                 
                 # Cake plot
-                if broadening == True:
+                if Funamori_broadening == True:
                     for df in results_dict.values():
                         #Plot all the data
                         axs2.scatter(df["2th"], df["delta (degrees)"], color="black", edgecolors='none', marker = '.', s=0.4, alpha=0.3)
