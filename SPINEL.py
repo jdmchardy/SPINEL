@@ -295,7 +295,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             if chi == 0: 
                 # return only one psi_value assuming compression axis aligned with X-rays
                 psi_values = np.asarray([np.pi/2 - theta0])
-                deltas = np.arange(-180,180,1)
+                deltas = np.arange(-180,180,0.5)
+                st.write(deltas)
             else:
                 #Assume chi is non-zero (radial) and compute a psi for each azimuth bin (delta)
                 deltas = np.arange(-180,180,1)
