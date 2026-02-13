@@ -296,7 +296,6 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
                 # return only one psi_value assuming compression axis aligned with X-rays
                 psi_values = np.asarray([np.pi/2 - theta0])
                 deltas = np.arange(-180,180,0.5)
-                st.write(deltas)
             else:
                 #Assume chi is non-zero (radial) and compute a psi for each azimuth bin (delta)
                 deltas = np.arange(-180,180,1)
@@ -1213,7 +1212,6 @@ if uploaded_file is not None:
             total_points = st.number_input("Total points (φ × ψ)", value=5000, min_value=10, step=5000)
             Gaussian_FWHM = st.number_input("Gaussian FWHM", value=0.1, min_value=0.005, step=0.005, format="%.3f")
             Funamori_broadening = st.checkbox("Include broadening", value=True)
-            #selected_psi = st.number_input("Psi slice position (deg)", value=54.7356, min_value=0.0, step=5.0, format="%.4f")
 
         lattice_params = {
             "a_val" : st.session_state.params.get("a_val"),
@@ -1296,9 +1294,20 @@ if uploaded_file is not None:
             if st.button("Cake Plots") and selected_hkls:
                 results_dict = cake_data(selected_hkls, intensities, symmetry, lattice_params, 
                                                     wavelength, cijs, sigma_11, sigma_22, sigma_33, chi)
-
-                fig, axs = plt.subplots(len(selected_hkls), 1, figsize=(8, 5 * len(selected_hkls)))
+                
                 fig2, axs2 = plt.subplots(1, 1, figsize=(8, 5))
+                fig, axs = plt.subplots(len(selected_hkls), 1, figsize=(8, 5 * len(selected_hkls)))
+                
+                # Cake plot
+                for df in results_dict.values():
+                    axs2.scatter(df["2th"], df["delta (degrees)"], color="black", edgecolors='none', marker = '.', s=0.4, alpha=0.3)
+                axs2.set_xlabel("2th (degrees)")
+                axs2.set_ylabel("azimuth (degrees)")
+                axs2.set_title("Cake")
+                axs2.set_ylim(-180, 180)
+                plt.tight_layout()
+                st.pyplot(fig2)
+            
                 if len(selected_hkls) == 1:
                     axs = [axs]
                 for ax, hkl_label in zip(axs, results_dict.keys()):
@@ -1321,16 +1330,6 @@ if uploaded_file is not None:
                     ax.set_title(f"Strain ε′₃₃ for hkl = ({hkl_label})")
                     plt.tight_layout()
                     ax.legend()
-
-                # Cake plot
-                for df in results_dict.values():
-                    axs2.scatter(df["2th"], df["delta (degrees)"], color="black", edgecolors='none', marker = '.', s=0.4, alpha=0.3)
-                axs2.set_xlabel("2th (degrees)")
-                axs2.set_ylabel("azimuth (degrees)")
-                axs2.set_title("Cake")
-                axs2.set_ylim(-180, 180)
-                plt.tight_layout()
-                st.pyplot(fig2)
                 st.pyplot(fig)
                 
                 if results_dict != {}:
