@@ -332,17 +332,30 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     # Create meshgrids for broadcasting
     cos_phi, cos_psi = np.meshgrid(cos_phi, cos_psi, indexing='ij')
     sin_phi, sin_psi = np.meshgrid(sin_phi, sin_psi, indexing='ij')
-    
+
+    #This is the Singh rotation matrix setup - rotate around x2 by psi and then x3' by phi
     # Rotation matrix A (shape: [n_phi, n_psi, 3, 3])
+    #A = np.empty((cos_phi.shape[0], cos_phi.shape[1], 3, 3))
+    #A[..., 0, 0] = cos_phi * cos_psi
+    #A[..., 0, 1] = -sin_phi
+    #A[..., 0, 2] = cos_phi * sin_psi
+    #A[..., 1, 0] = sin_phi * cos_psi
+    #A[..., 1, 1] = cos_phi
+    #A[..., 1, 2] = sin_phi * sin_psi
+    #A[..., 2, 0] = -sin_psi
+    #A[..., 2, 1] = 0
+    #A[..., 2, 2] = cos_psi
+
+    #This is the Uchida rotation definition - rotate around x1 by psi and then x3' by phi
     A = np.empty((cos_phi.shape[0], cos_phi.shape[1], 3, 3))
-    A[..., 0, 0] = cos_phi * cos_psi
-    A[..., 0, 1] = -sin_phi
-    A[..., 0, 2] = cos_phi * sin_psi
-    A[..., 1, 0] = sin_phi * cos_psi
-    A[..., 1, 1] = cos_phi
-    A[..., 1, 2] = sin_phi * sin_psi
-    A[..., 2, 0] = -sin_psi
-    A[..., 2, 1] = 0
+    A[..., 0, 0] = cos_phi
+    A[..., 0, 1] = -sin_phi*cos_psi
+    A[..., 0, 2] = sin_phi * sin_psi
+    A[..., 1, 0] = sin_phi
+    A[..., 1, 1] = cos_phi * cos_psi
+    A[..., 1, 2] = -cos_phi * sin_psi
+    A[..., 2, 0] = 0
+    A[..., 2, 1] = sin_psi
     A[..., 2, 2] = cos_psi
     
     # Matrix B is constant
