@@ -1151,7 +1151,7 @@ if uploaded_file is not None:
     elif symmetry == "orthorhombic":
         required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C22','C33','C12','C13','C23','C44','C55','C66','sig11','sig22','sig33','chi'}
     elif symmetry == "trigonal_A":
-        required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13', C14,'C44','sig11','sig22','sig33','chi'}
+        required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13', 'C14','C44','sig11','sig22','sig33','chi'}
     else:
         st.error("{} symmetry is not yet supported".format(symmetry))
         required_keys = {}
