@@ -99,6 +99,8 @@ def get_d0(symmetry,h,k,l,a,b,c):
         d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
     elif symmetry == "orthorhombic":
         d0 = np.sqrt(1/(h**2/a**2+k**2/b**2+l**2/c**2))
+    elif symmetry == "trigonal_A":
+        d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
     else:
         st.write("Support not yet provided for {} symmetry".format(symmetry))
         d0 = 0
@@ -270,6 +272,26 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             [0, 0, 0, c44, 0, 0],
             [0, 0, 0, 0, c55, 0],
             [0, 0, 0, 0, 0, c66]
+        ])
+    elif symmetry == "trigonal_A":
+        # Normalize
+        H = h / a
+        K = (h+2*k) / (np.sqrt(3)*a)
+        L = l / c
+        #Unpack the elastic constants
+        c11 = cij_params.get("c11")
+        c12 = cij_params.get("c12")
+        c13 = cij_params.get("c13")
+        c14 = cij_params.get("c14")
+        c33 = cij_params.get("c33")
+        c44 = cij_params.get("c44")
+        elastic = np.array([
+            [c11, c12, c13, c14, 0, 0],
+            [c12, c11, c13, -c14, 0, 0],
+            [c13, c13, c33, 0, 0, 0],
+            [c14, -c14, 0, c44, 0, 0],
+            [0, 0, 0, 0, c44, c14],
+            [0, 0, 0, 0, c14, 0.5*(c11-c12)]
         ])
     else:
         st.write("Error! {} symmetry not supported".format(symmetry))
@@ -575,6 +597,8 @@ def batch_XRD(batch_upload):
             required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13','C16','C44','C66','sig11','sig22','sig33','chi'}
         elif symmetry == "orthorhombic":
             required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C22','C33','C12','C13','C23','C44','C55','C66','sig11','sig22','sig33','chi'}
+        elif symmetry == "trigonal+A":
+            required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13','C14','C44','sig11','sig22','sig33','chi'}
         else:
             st.error("{} symmetry is not yet supported".format(symmetry))
             required_keys = {}
@@ -826,6 +850,11 @@ def setup_refinement_toggles(lattice_params, **additional_fields):
         p_dict["c23"] = combined_params["c23"]
         p_dict["c55"] = combined_params["c55"]
         p_dict["c66"] = combined_params["c66"]
+    elif symmetry == "trigonal_A":
+        p_dict["c_val"] = combined_params["c_val"]
+        p_dict["c33"] = combined_params["c33"]
+        p_dict["c13"] = combined_params["c13"]
+        p_dict["c13"] = combined_params["c14"]
     else:
         st.error("{} symmetry is not yet supported".format(symmetry))
         
@@ -1121,6 +1150,8 @@ if uploaded_file is not None:
         required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13','C16','C44','C66','sig11','sig22','sig33','chi'}
     elif symmetry == "orthorhombic":
         required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C22','C33','C12','C13','C23','C44','C55','C66','sig11','sig22','sig33','chi'}
+    elif symmetry == "trigonal_A":
+        required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13', C14,'C44','sig11','sig22','sig33','chi'}
     else:
         st.error("{} symmetry is not yet supported".format(symmetry))
         required_keys = {}
