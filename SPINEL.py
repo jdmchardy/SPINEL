@@ -1171,11 +1171,6 @@ col_img, col_title = st.columns([1, 3])
 with col_img:
     st.image(img, width='stretch')
 
-#st.title("SPINEL (Strain Prediction IN Elastic Lattices)")
-
-
-#st.title("SPINEL (Strain Prediction IN Elastic Lattices")
-
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
@@ -1415,7 +1410,7 @@ if uploaded_file is not None:
                         file_name="strain_results.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
-            #Code for generating cake plots
+            #Generating cake plots
             if st.button("Cake Plots") and selected_hkls:
                 results_dict = cake_data(selected_hkls, intensities, symmetry, lattice_params, 
                                                     wavelength, cijs, sigma_11, sigma_22, sigma_33, chi)
@@ -1440,6 +1435,14 @@ if uploaded_file is not None:
                         file_name="cakes_results.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
+
+            #Plotting preferred orientation
+            if PO_toggle:
+                st.subheader("Preferred Orientation")
+                if st.button("Plot PO Model"):
+                    PO_MODEL = PO.PO_Model()
+                
+                
                     
             st.subheader("Generate XRD patterns")
             if st.button("Generate 1D-XRD") and selected_hkls:
