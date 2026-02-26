@@ -1271,6 +1271,8 @@ if uploaded_file is not None:
                     st.session_state.params["weight"] = st.number_input("weight", value=0.0, step=5.0, format="%.1f")
                 else:
                     st.write("{} model is not supported".format(po_model))
+                    st.write("Choose from the options below:")
+                    st.write("March-Dollase")
         lattice_params = {
             "a_val" : st.session_state.params.get("a_val"),
             "b_val" : st.session_state.params.get("b_val"),
