@@ -1259,6 +1259,9 @@ if uploaded_file is not None:
             total_points = st.number_input("Total points (φ × ψ)", value=5000, min_value=10, step=5000)
             Gaussian_FWHM = st.number_input("Gaussian FWHM", value=0.1, min_value=0.005, step=0.005, format="%.3f")
             Funamori_broadening = st.checkbox("Include broadening", value=True)
+        with col8:
+            PO_toggle = st.checkbox("Preferred Orientation", value=False)
+        
 
         lattice_params = {
             "a_val" : st.session_state.params.get("a_val"),
