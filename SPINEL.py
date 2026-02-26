@@ -1101,21 +1101,21 @@ if uploaded_file is not None:
         st.subheader("")
         twoD_XRD = st.file_uploader("2D XRD tiff", type=["tiff"])
 
-    col1, col2, col3, col4, col5, col6 = st.columns([2,2,3,1,1,1])
+    col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([2,3,1,1,1,1,1,1])
     with col1:
         st.subheader("Reflections/Intensities")
     with col2:
-        st.subheader("Reflections/Intensities")
-    with col3:
         st.subheader("Material")
-    with col4:
+    with col3:
         st.subheader("Elastic")
-    with col5:
+    with col4:
         st.subheader("Stress")
-    with col6:
+    with col5:
         st.subheader("Computation")
+    with col6:
+        st.subheader("Preferred Orientation")
 
-col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([2,2,1,1,1,1,1,1])
+col1, col2, col3, col4, col5, col6, col7, col8, col9, col10 = st.columns([2,1,1,1,1,1,1,1,1,1])
 
 if uploaded_file is not None:
     st.session_state["uploaded_file"] = uploaded_file
@@ -1200,7 +1200,7 @@ if uploaded_file is not None:
                 "sigma_22": metadata["sig22"],
                 "sigma_33": metadata["sig33"]
             }
-        with col2:
+        with col1:
             for i, hkl in enumerate(hkl_list):
                     # Find matching row to get intensity
                     h_match = (hkl_df['h'] == hkl[0]) & (hkl_df['k'] == hkl[1]) & (hkl_df['l'] == hkl[2])
@@ -1230,19 +1230,19 @@ if uploaded_file is not None:
                     selected_indices.append(i)  # Save which index was selected
                     intensities.append(st.session_state.intensities[f"intensity_{i}"])
 
-        with col3:
+        with col2:
             symmetry = st.text_input("Symmetry", value=metadata['symmetry'])
             st.session_state.params["wavelength"] = st.number_input("Wavelength (Å)", value=st.session_state.params["wavelength"], step=0.01, format="%.4f")
             st.session_state.params["chi"] = st.number_input("Chi angle (deg)", value=st.session_state.params["chi"], step=0.01, format="%.3f")            
-        with col4:
+        with col3:
             st.session_state.params["a_val"] = st.number_input("Lattice a (Å)", value=st.session_state.params["a_val"], step=0.01, format="%.4f")
             st.session_state.params["b_val"] = st.number_input("Lattice b (Å)", value=st.session_state.params["b_val"], step=0.01, format="%.4f")
             st.session_state.params["c_val"] = st.number_input("Lattice c (Å)", value=st.session_state.params["c_val"], step=0.01, format="%.4f")
-        with col5:
+        with col4:
             st.session_state.params["alpha"] = st.number_input("alpha (deg)", value=st.session_state.params["alpha"], step=0.1, format="%.3f")
             st.session_state.params["beta"] = st.number_input("beta (deg)", value=st.session_state.params["beta"], step=0.1, format="%.3f")
             st.session_state.params["gamma"] = st.number_input("gamma (deg)", value=st.session_state.params["gamma"], step=0.1, format="%.3f")
-        with col6:
+        with col5:
             # Dynamically build the list of Cij keys present in params
             c_keys = [key for key in st.session_state.params.keys() if key.startswith('c') and key not in ["c_val", "chi"]]
             cijs = {}
@@ -1250,12 +1250,12 @@ if uploaded_file is not None:
                 #var_name = key.lower()  # changes variables to lower case e.g. c11, c12, etc.
                 st.session_state.params[key] = st.number_input(key, value=st.session_state.params[key])
                 cijs[key] = st.session_state.params.get(key)
-        with col7:
+        with col6:
             st.session_state.params["sigma_11"] = st.number_input("σ₁₁", value=st.session_state.params["sigma_11"], step=0.1, format="%.3f")
             st.session_state.params["sigma_22"] = st.number_input("σ₂₂", value=st.session_state.params["sigma_22"], step=0.1, format="%.3f")
             st.session_state.params["sigma_33"] = st.number_input("σ₃₃", value=st.session_state.params["sigma_33"], step=0.1, format="%.3f")
             st.markdown("t: {}".format(round(st.session_state.params["sigma_33"] - st.session_state.params["sigma_11"],3)))
-        with col8:
+        with col7:
             total_points = st.number_input("Total points (φ × ψ)", value=5000, min_value=10, step=5000)
             Gaussian_FWHM = st.number_input("Gaussian FWHM", value=0.1, min_value=0.005, step=0.005, format="%.3f")
             Funamori_broadening = st.checkbox("Include broadening", value=True)
@@ -1284,6 +1284,7 @@ if uploaded_file is not None:
             
         col1, col2 = st.columns(2)
         with col1:
+            st.subheader("Execute Calculations")
             if st.button("ε-ψ Curves") and selected_hkls:
                 fig, axs = plt.subplots(len(selected_hkls), 1, figsize=(8, 5 * len(selected_hkls)))
                 if len(selected_hkls) == 1:
