@@ -36,6 +36,29 @@ class PO_Model:
         self.chi = np.radians(chi_deg) #Convert to radians
         self.pref_directions = self.build_preferred_directions()
 
+    def X_matrix(self, omega_deg, chi_deg):
+        """Maps from xray coordinates to stress coordinates"""
+    
+        chi = np.radians(chi_deg)
+        omega = np.radians(omega_deg)
+    
+        cos_chi = np.cos(chi)
+        sin_chi = np.sin(chi)
+        cos_omega = np.cos(omega)
+        sin_omega = np.sin(omega)
+
+        X = np.array([
+            [cos_omega, sin_omega, 0],
+            [-1*cos_chi*sin_omega, cos_chi*cos_omega, -1*sin_chi],
+            [sin_chi*sin_omega, sin_chi*cos_omega, cos_chi]
+        ])
+        return X
+
+    def transform_stress_2_xray(self, X, vector):
+        """Transform a vector specified in stress coordinates to x-ray coordinates"""
+        vector = vector/np.linalg.norm(vector) #normlise vector
+        return np.linalg.inv(X) @ vector
+
     def make_polar_vector(self, tilt, rot):
         """
         tilt  = tilt from lab z-axis (radians)
@@ -47,11 +70,6 @@ class PO_Model:
             np.cos(tilt)
         ], axis=-1)
 
-    def transform_stress_2_xray(self, X, vector):
-        """Transform a vector specified in stress coordinates to x-ray coordinates"""
-        vector = vector/np.linalg.norm(vector) #normlise vector
-        return np.linalg.inv(X) @ vector
-
     def build_preferred_directions(self):
         """
         Generates the preferred directions in the xray coordinate system
@@ -62,7 +80,7 @@ class PO_Model:
         components = self.components
     
         #Compute X matrix
-        X = self.X_matrix(self, 0, chi_deg)
+        X = self.X_matrix(0, chi_deg)
     
         for comp in components:
             tau = np.radians(comp["tau"])
