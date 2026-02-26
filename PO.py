@@ -94,13 +94,13 @@ class PO_Model:
             })
         return pref_dirs
 
-    def equal_area_projection(beta, gamma):
+    def equal_area_projection(self, beta, gamma):
         r = 2 * np.sin(beta / 2) #With this scaling the circle radius is sqrt(2) giving area = 2pi (equal to the hemispere surface area for unit sphere)
         x = r * np.cos(gamma)
         y = r * np.sin(gamma)
         return x, y
 
-    def spherical_to_vector(beta, gamma):
+    def spherical_to_vector(self, beta, gamma):
         return np.stack([
             np.sin(beta) * np.cos(gamma),
             np.sin(beta) * np.sin(gamma),
