@@ -41,6 +41,47 @@ class PO_Model:
         y = r * np.sin(gamma)
         return x, y
 
+    def spherical_to_vector(beta, gamma):
+        return np.stack([
+            np.sin(beta) * np.cos(gamma),
+            np.sin(beta) * np.sin(gamma),
+            np.cos(beta)
+        ], axis=-1)
+
+    def compute_upper_lower_pole_data(self,
+                                      n_psi=181,
+                                      n_gamma=360
+                                     ):
+    
+        gamma = np.linspace(0, 2*np.pi, n_gamma)
+        # -------------------------
+        # Upper hemisphere (north)
+        # -------------------------
+        beta_upper = np.linspace(0, np.pi/2, n_psi)
+        BETA_u, GAMMA_u = np.meshgrid(beta_upper, gamma, indexing="ij")
+    
+        vectors_u = self.spherical_to_vector(BETA_u, GAMMA_u)
+    
+        intensity_u = self.intensity_from_directions(self,vectors_u)
+    
+        X_u, Y_u = self.equal_area_projection(BETA_u, GAMMA_u)
+    
+        # -------------------------
+        # Lower hemisphere (south)
+        # -------------------------
+        beta_lower_geo = np.linspace(np.pi/2, np.pi, n_psi)
+        BETA_l, GAMMA_l = np.meshgrid(beta_lower_geo, gamma, indexing="ij")
+    
+        vectors_l = self.spherical_to_vector(BETA_l, GAMMA_l)
+    
+        intensity_l = self.intensity_from_directions(self, vectors_l)
+    
+        # distance from SOUTH pole for projection
+        beta_from_south = np.pi - BETA_l
+        X_l, Y_l = self.equal_area_projection(beta_from_south, GAMMA_l)
+    
+        return (X_u, Y_u, intensity_u), (X_l, Y_l, intensity_l)
+
     def draw_polar_grid(ax,
                         beta_step_deg=15,
                         gamma_step_deg=30,
@@ -67,41 +108,29 @@ class PO_Model:
             ax.plot(X, Y, color="white", linewidth=0.6, alpha=0.9)
 
     def plot_intensity_pole_figure(self):
-
-        (X_u, Y_u, I_u) = upper
-        (X_l, Y_l, I_l) = lower
+        upper, lower = self.compute_upper_lower_pole_data()
     
         fig, axes = plt.subplots(1, 2, figsize=(8, 4), constrained_layout=True)
     
         radius = np.sqrt(2)
-    
-        # -------- upper --------
+        # -------- upper hemisphere--------
         cf1 = axes[0].contourf(X_u, Y_u, I_u, levels=100, cmap="viridis", vmin=0)
         axes[0].add_artist(plt.Circle((0, 0), radius, fill=False, linewidth=1.5))
-    
-        self.draw_polar_grid(axes[0])
-    
-        axes[0].set_aspect("equal")
         axes[0].set_title("Upper hemisphere")
-        axes[0].set_xlabel("X")
-        axes[0].set_ylabel("Y")
     
-        # -------- lower --------
+        # -------- lower hemisphere--------
         cf2 = axes[1].contourf(X_l, Y_l, I_l, levels=100, cmap="viridis", vmin=0)
         axes[1].add_artist(plt.Circle((0, 0), radius, fill=False, linewidth=1.5))
-    
-        self.draw_polar_grid(axes[1])
-    
-        axes[1].set_aspect("equal")
         axes[1].set_title("Lower hemisphere")
-        axes[1].set_xlabel("X")
-        axes[1].set_ylabel("Y")
-    
-        lim = radius
-        axes[0].set_xlim(-lim, lim)
-        axes[0].set_ylim(-lim, lim)
-        axes[1].set_xlim(-lim, lim)
-        axes[1].set_ylim(-lim, lim)
+        
+        #Format plots
+        for ax in axes:
+            self.draw_polar_grid(ax)
+            ax.set_xlim(-radius, radius)
+            ax.set_ylim(-radius, radius)
+            ax.set_xlabel("X")
+            ax.set_ylabel("Y")
+            ax.set_aspect("equal")
         
         fig.colorbar(cf1, ax=axes, label="Intensity")
         fig.suptitle("Intensity Pole Figure")
