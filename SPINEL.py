@@ -14,6 +14,9 @@ import tempfile
 from PIL import Image
 from pathlib import Path
 
+#Import personal modules
+import PO #Preferred Orientation Model
+
 st.markdown("""
 <style>
 html, body, [class*="css"]  {
