@@ -1103,7 +1103,7 @@ if uploaded_file is not None:
 
     col1, col2, col3, col4, col5, col6 = st.columns([2,2,3,1,1,1])
     with col1:
-        st.subheader("Execute calculations")
+        
     with col2:
         st.subheader("Reflections/Intensities")
     with col3:
@@ -1281,6 +1281,9 @@ if uploaded_file is not None:
 
         #col1, col2, col3 = st.columns(3)
         with col1:
+            
+        col1, col2 = st.columns(2)
+        with col1:
             if st.button("ε-ψ Curves") and selected_hkls:
                 fig, axs = plt.subplots(len(selected_hkls), 1, figsize=(8, 5 * len(selected_hkls)))
                 if len(selected_hkls) == 1:
@@ -1412,8 +1415,6 @@ if uploaded_file is not None:
                         file_name="cakes_results.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
-        col1, col2 = st.columns(2)
-        with col1:
             st.subheader("Generate XRD patterns")
             if st.button("Generate 1D-XRD") and selected_hkls:
                 phi_values = np.radians(np.arange(0, 360, 2))
