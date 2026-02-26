@@ -1441,11 +1441,9 @@ if uploaded_file is not None:
                 st.subheader("Preferred Orientation")
                 if st.button("Plot PO Model"):
                     PO_MODEL = PO.PO_Model()
-                    fig = PO_MODEL.plot_PO_distribution()
+                    fig = PO_MODEL.plot_intensity_pole_figure()
                     st.pyplot(fig)
                 
-                
-                    
             st.subheader("Generate XRD patterns")
             if st.button("Generate 1D-XRD") and selected_hkls:
                 phi_values = np.radians(np.arange(0, 360, 2))
