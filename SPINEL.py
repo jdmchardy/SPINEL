@@ -1442,7 +1442,7 @@ if uploaded_file is not None:
                 st.subheader("Preferred Orientation")
                 if st.button("Plot PO Model"):
                     components = [
-                        {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R" st.session_state.params.get("R"): , "weight" st.session_state.params.get("weight"):
+                        {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
                         }
                     ]
                     PO_MODEL = PO.PO_Model(po_model=po_model,
