@@ -186,7 +186,7 @@ class PO_Model:
     
         vectors_u = self.spherical_to_vector(BETA_u, GAMMA_u)
     
-        intensity_u = self.intensity_from_directions(self,vectors_u)
+        intensity_u = self.intensity_from_directions(vectors_u)
     
         X_u, Y_u = self.equal_area_projection(BETA_u, GAMMA_u)
     
@@ -198,7 +198,7 @@ class PO_Model:
     
         vectors_l = self.spherical_to_vector(BETA_l, GAMMA_l)
     
-        intensity_l = self.intensity_from_directions(self, vectors_l)
+        intensity_l = self.intensity_from_directions(vectors_l)
     
         # distance from SOUTH pole for projection
         beta_from_south = np.pi - BETA_l
