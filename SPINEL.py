@@ -1349,7 +1349,8 @@ if uploaded_file is not None:
         with col8:
             PO_toggle = st.checkbox("Preferred Orientation", value=False)
             if PO_toggle == True:
-                po_model = st.text_input("PO Model", value="March-Dollase")
+                po_model = st.selectbox("PO Model:",["March-Dollase"])
+                #po_model = st.text_input("PO Model", value="March-Dollase")
                 if po_model == "March-Dollase":
                     st.session_state.params["baseline"] = st.number_input("baseline", value=0.0, step=0.1, format="%.2f")
                     st.session_state.params["R"] = st.number_input("R", value=1.0, step=0.1, format="%.2f")
@@ -1440,7 +1441,15 @@ if uploaded_file is not None:
             if PO_toggle:
                 st.subheader("Preferred Orientation")
                 if st.button("Plot PO Model"):
-                    PO_MODEL = PO.PO_Model()
+                    components = [
+                        {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R" st.session_state.params.get("R"): , "weight" st.session_state.params.get("weight"):
+                        }
+                    ]
+                    PO_MODEL = PO.PO_Model(po_model=po_model,
+                                           components=components,
+                                           baseline=st.session_state.params.get("baseline"),
+                                           chi_deg = chi
+                                          )
                     fig = PO_MODEL.plot_intensity_pole_figure()
                     st.pyplot(fig)
                 
