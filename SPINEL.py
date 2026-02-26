@@ -1103,7 +1103,7 @@ if uploaded_file is not None:
 
     col1, col2, col3, col4, col5, col6 = st.columns([2,2,3,1,1,1])
     with col1:
-        
+        st.subheader("Reflections/Intensities")
     with col2:
         st.subheader("Reflections/Intensities")
     with col3:
