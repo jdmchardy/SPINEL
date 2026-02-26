@@ -1065,6 +1065,60 @@ def compute_bin_indices(x_exp_common, hkl_peak_centers, window_width=0.2):
 
     return bin_indices
 
+### Figure Generation --------------------------------------------------
+
+def generate_cake_figures(results_dict, selected_hkls, broadening):
+
+    fig, axs = plt.subplots(1, 1, figsize=(8, 5))
+    fig2, axs2 = plt.subplots(len(selected_hkls), 1, figsize=(8, 5 * len(selected_hkls)))
+    
+    # Cake plot
+    if broadening == True:
+        for df in results_dict.values():
+            #Plot all the data
+            axs.scatter(df["2th"], df["delta (degrees)"], color="black", edgecolors='none', marker = '.', s=0.4, alpha=0.3)
+    else:
+        if chi == 0: #unique option for axial geometry
+            for df in results_dict.values():
+                #Plot only the mean value for each delta
+                deltas = np.unique(df["delta (degrees)"].values)
+                mean_2ths = np.full(len(np.unique(df["delta (degrees)"].values)),df["Mean two_th"].iloc[0])
+                axs.scatter(mean_2ths, deltas, color="black", edgecolors='none', marker = '.', s=0.4, alpha=1)
+        else: #Transverse geometry with broadening off
+            for df in results_dict.values():
+                unique = df.drop_duplicates(subset="delta (degrees)") #Pick out the entries for unique delta values
+                axs.scatter(unique["Mean two_th"].values, unique["delta (degrees)"].values, color="black", edgecolors='none', marker = '.', s=0.4, alpha=1)
+    axs.set_xlabel("2th (degrees)")
+    axs.set_ylabel("azimuth (degrees)")
+    axs.set_title("Cake")
+    axs.set_ylim(-180, 180)
+    plt.tight_layout()
+    st.pyplot(fig)
+    
+    if len(selected_hkls) == 1:
+        axs2 = [axs2]
+    for ax, hkl_label in zip(axs2, results_dict.keys()):
+        df = results_dict[hkl_label]
+        delta_list = df["delta (degrees)"]
+        strain_33_list = df["strain_33"]
+        scatter = ax.scatter(delta_list, strain_33_list, color="black", s=0.2, alpha=0.1)
+        ax.hlines(0,-180,180, color="black", lw=0.8)
+
+        #Plot the mean strain curve
+        unique_delta = np.unique(delta_list)
+        mean_strain_list = [df[df["delta (degrees)"]==d]["Mean strain"].iloc[0] for d in unique_delta]
+        ax.plot(unique_delta, mean_strain_list, color="red", lw=0.8, label="mean strain (δ)")
+        #Add average over all crystallites
+        complete_mean = np.mean(mean_strain_list)
+        ax.hlines(complete_mean,-180,180, color="black", ls="dashed", lw=0.8, label="Average:{}".format(np.round(complete_mean,6)))
+        
+        ax.set_xlabel("azimuth (degrees)")
+        ax.set_ylabel("ε′₃₃")
+        ax.set_title(f"Strain ε′₃₃ for hkl = ({hkl_label})")
+        plt.tight_layout()
+        ax.legend()
+    st.pyplot(fig)
+
 #### Main App logic -----------------------------------------------------
     
 st.set_page_config(layout="wide")
@@ -1358,57 +1412,8 @@ if uploaded_file is not None:
             if st.button("Cake Plots") and selected_hkls:
                 results_dict = cake_data(selected_hkls, intensities, symmetry, lattice_params, 
                                                     wavelength, cijs, sigma_11, sigma_22, sigma_33, chi)
-                
-                fig2, axs2 = plt.subplots(1, 1, figsize=(8, 5))
-                fig, axs = plt.subplots(len(selected_hkls), 1, figsize=(8, 5 * len(selected_hkls)))
-                
-                # Cake plot
-                if Funamori_broadening == True:
-                    for df in results_dict.values():
-                        #Plot all the data
-                        axs2.scatter(df["2th"], df["delta (degrees)"], color="black", edgecolors='none', marker = '.', s=0.4, alpha=0.3)
-                else:
-                    if chi == 0: #unique option for axial geometry
-                        for df in results_dict.values():
-                            #Plot only the mean value for each delta
-                            deltas = np.unique(df["delta (degrees)"].values)
-                            mean_2ths = np.full(len(np.unique(df["delta (degrees)"].values)),df["Mean two_th"].iloc[0])
-                            axs2.scatter(mean_2ths, deltas, color="black", edgecolors='none', marker = '.', s=0.4, alpha=1)
-                    else: #Transverse geometry with broadening off
-                        for df in results_dict.values():
-                            unique = df.drop_duplicates(subset="delta (degrees)") #Pick out the entries for unique delta values
-                            axs2.scatter(unique["Mean two_th"].values, unique["delta (degrees)"].values, color="black", edgecolors='none', marker = '.', s=0.4, alpha=1)
-                #for df in results_dict.values():
-                #    axs2.scatter(df["2th"], df["delta (degrees)"], color="black", edgecolors='none', marker = '.', s=0.4, alpha=0.3)
-                axs2.set_xlabel("2th (degrees)")
-                axs2.set_ylabel("azimuth (degrees)")
-                axs2.set_title("Cake")
-                axs2.set_ylim(-180, 180)
-                plt.tight_layout()
-                st.pyplot(fig2)
-                if len(selected_hkls) == 1:
-                    axs = [axs]
-                for ax, hkl_label in zip(axs, results_dict.keys()):
-                    df = results_dict[hkl_label]
-                    delta_list = df["delta (degrees)"]
-                    strain_33_list = df["strain_33"]
-                    scatter = ax.scatter(delta_list, strain_33_list, color="black", s=0.2, alpha=0.1)
-                    ax.hlines(0,-180,180, color="black", lw=0.8)
 
-                    #Plot the mean strain curve
-                    unique_delta = np.unique(delta_list)
-                    mean_strain_list = [df[df["delta (degrees)"]==d]["Mean strain"].iloc[0] for d in unique_delta]
-                    ax.plot(unique_delta, mean_strain_list, color="red", lw=0.8, label="mean strain (δ)")
-                    #Add average over all crystallites
-                    complete_mean = np.mean(mean_strain_list)
-                    ax.hlines(complete_mean,-180,180, color="black", ls="dashed", lw=0.8, label="Average:{}".format(np.round(complete_mean,6)))
-                    
-                    ax.set_xlabel("azimuth (degrees)")
-                    ax.set_ylabel("ε′₃₃")
-                    ax.set_title(f"Strain ε′₃₃ for hkl = ({hkl_label})")
-                    plt.tight_layout()
-                    ax.legend()
-                st.pyplot(fig)
+                generate_cake_figures(results_dict, selected_hkls, Funamori_broadening)
                 
                 if results_dict != {}:
                     st.subheader("Download Computed Data")
