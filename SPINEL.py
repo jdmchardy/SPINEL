@@ -1356,7 +1356,7 @@ if uploaded_file is not None:
                     st.session_state.params["R"] = st.number_input("R", value=1.0, step=0.1, format="%.2f")
                     st.session_state.params["tau"] = st.number_input("tau (deg)", value=0.0, step=5.0, format="%.1f")
                     st.session_state.params["rho"] = st.number_input("rho (deg)", value=0.0, step=5.0, format="%.1f")
-                    st.session_state.params["weight"] = st.number_input("weight", value=0.0, step=5.0, format="%.1f")
+                    st.session_state.params["weight"] = st.number_input("weight", value=1.0, step=0.1, format="%.1f")
                 else:
                     st.write("{} model is not supported".format(po_model))
                     st.write("Choose from below:")
