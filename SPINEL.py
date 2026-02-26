@@ -947,7 +947,7 @@ def run_refinement(params, refine_flags, selected_hkls, selected_indices, intens
     y_exp_common = y_exp[mask]
 
     #Here we also determine the x_indices definining the binning around each peak for residual weighting
-    #First we need the 2th center positions of each hkl reflection included (use the mean "Singh" position)
+    #First we need the 2th center positions of each hkl reflection d (use the mean "Singh" position)
     hkl_peak_centers = []
     a = lattice_params.get("a_val")
     b = lattice_params.get("b_val")
@@ -1256,13 +1256,19 @@ if uploaded_file is not None:
             st.session_state.params["sigma_33"] = st.number_input("σ₃₃", value=st.session_state.params["sigma_33"], step=0.1, format="%.3f")
             st.markdown("t: {}".format(round(st.session_state.params["sigma_33"] - st.session_state.params["sigma_11"],3)))
         with col7:
+            Funamori_broadening = st.checkbox("Include broadening", value=True)
             total_points = st.number_input("Total points (φ × ψ)", value=5000, min_value=10, step=5000)
             Gaussian_FWHM = st.number_input("Gaussian FWHM", value=0.1, min_value=0.005, step=0.005, format="%.3f")
-            Funamori_broadening = st.checkbox("Include broadening", value=True)
         with col8:
             PO_toggle = st.checkbox("Preferred Orientation", value=False)
-        
-
+            if PO_toggle == True:
+                po_model = st.text_input("PO Model", value="March-Dollase")
+                if po_model == "March-Dollase":
+                    st.session_state.params["baseline"] = st.number_input("baseline", value=0, step=0.1, format="%.3f")
+                    st.session_state.params["R"] = st.number_input("R", value=1, step=0.1, format="%.3f")
+                    st.session_state.params["tau"] = st.number_input("tau (deg)", value=0, step=5, format="%.3f")
+                    st.session_state.params["rho"] = st.number_input("rho (deg)", value=0, step=5, format="%.3f")
+                    st.session_state.params["weight"] = st.number_input("weight", value=0, step=5, format="%.3f")
         lattice_params = {
             "a_val" : st.session_state.params.get("a_val"),
             "b_val" : st.session_state.params.get("b_val"),
