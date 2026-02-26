@@ -234,7 +234,7 @@ class PO_Model:
             ax.plot(X, Y, color="white", linewidth=0.6, alpha=0.9)
 
     def plot_intensity_pole_figure(self):
-        upper, lower = self.compute_upper_lower_pole_data()
+        (X_u, Y_u, I_u), (X_l, Y_l, I_l) = self.compute_upper_lower_pole_data()
     
         fig, axes = plt.subplots(1, 2, figsize=(8, 4), constrained_layout=True)
     
