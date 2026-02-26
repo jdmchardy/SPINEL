@@ -34,6 +34,47 @@ class PO_Model:
         self.components = components
         self.baseline = baseline
         self.chi = np.radians(chi_deg) #Convert to radians
+        self.pref_directions = self.build_preferred_directions()
+
+    def make_polar_vector(self, tilt, rot):
+        """
+        tilt  = tilt from lab z-axis (radians)
+        rot = rotation around z-axis (radians)
+        """
+        return np.stack([
+            np.sin(tilt) * np.cos(rot),
+            np.sin(tilt) * np.sin(rot),
+            np.cos(tilt)
+        ], axis=-1)
+
+    def transform_stress_2_xray(self, X, vector):
+        """Transform a vector specified in stress coordinates to x-ray coordinates"""
+        vector = vector/np.linalg.norm(vector) #normlise vector
+        return np.linalg.inv(X) @ vector
+
+    def build_preferred_directions(self):
+        """
+        Generates the preferred directions in the xray coordinate system
+        """
+        pref_dirs = []
+
+        chi_deg = np.degrees(self.chi)
+        components = self.components
+    
+        #Compute X matrix
+        X = self.X_matrix(self, 0, chi_deg)
+    
+        for comp in components:
+            tau = np.radians(comp["tau"])
+            rho = np.radians(comp["rho"])
+            vec = self.make_polar_vector(tau, rho) #Vector in the stress coordinates
+            vec_xray = self.transform_stress_2_xray(X, vec) #vector transformed to the xray coordinates (rotation of chi)
+            pref_dirs.append({
+                "vector": vec_xray,
+                "R": comp["R"],
+                "weight": comp["weight"]
+            })
+        return pref_dirs
 
     def equal_area_projection(beta, gamma):
         r = 2 * np.sin(beta / 2) #With this scaling the circle radius is sqrt(2) giving area = 2pi (equal to the hemispere surface area for unit sphere)
@@ -47,6 +88,71 @@ class PO_Model:
             np.sin(beta) * np.sin(gamma),
             np.cos(beta)
         ], axis=-1)
+
+    def MD_func(self, alpha, R):
+        """
+        March-Dollase function.
+        alpha: array-like of angles in radians
+        R: scalar or array-like broadcastable to alpha
+        Returns: MD values elementwise
+        """
+        alpha = np.asarray(alpha)
+        return ((np.sin(alpha)**2)/R + (R**2)*(np.cos(alpha)**2))**(-3/2)
+
+    def multi_MD_PO_model(self, angle_array, R_array, weight_array):
+        """
+        Vectorized March-Dollase sum over preferred directions.
+    
+        angle_array: (..., n_pref) array of angles in radians
+        R_array: (n_pref,) array of March-Dollase parameters
+        weight_array: (n_pref,) array of weights
+    
+        Returns: (...,) array of intensities for each input vector
+        """
+        angle_array = np.asarray(angle_array)
+        R_array = np.asarray(R_array)
+        weight_array = np.asarray(weight_array)
+        baseline = self.baseline
+    
+        # Normalize weights over preferred directions only
+        weights_normed = weight_array / (np.sum(weight_array) + baseline)
+    
+        # Compute normalization factor for each preferred direction
+        #This step is not required for the MD function
+        #norm_factors = np.array([PO_normalization(R) for R in R_array])  # shape (n_pref,)
+        
+        # Evaluate MD function elementwise (broadcasting over last axis)
+        P_alpha = self.MD_func(angle_array, R_array)  # (..., n_pref)
+    
+        # Weighted sum over preferred directions (last axis)
+        return baseline + np.sum(P_alpha * weights_normed, axis=-1)
+
+    def intensity_from_directions(self, vectors):
+        """
+        Vectorized intensity computation using multi_MD_PO_model.
+    
+        vectors: (..., 3)
+        """
+        vectors = vectors / np.linalg.norm(vectors, axis=-1, keepdims=True)
+        pref_dirs = self.pref_directions
+    
+        # Extract arrays
+        pref_vectors = np.array([d["vector"] for d in pref_dirs])  # (n_pref, 3)
+        Rs = np.array([d["R"] for d in pref_dirs])         # (n_pref,)
+        weights = np.array([d["weight"] for d in pref_dirs])       # (n_pref,)
+    
+        # Normalize preferred vectors
+        pref_vectors = pref_vectors / np.linalg.norm(pref_vectors, axis=-1, keepdims=True)
+    
+        # Compute cos(angle) using einsum (broadcasting)
+        cosang = np.einsum('...i,ji->...j', vectors, pref_vectors)
+        cosang = np.clip(cosang, -1, 1)
+        angles = np.arccos(cosang)  # (..., n_pref)
+    
+        # Compute intensity using vectorized multi_MD_PO_model
+        I = self.multi_MD_PO_model(angles, Rs, weights)
+    
+        return I
 
     def compute_upper_lower_pole_data(self,
                                       n_psi=181,
@@ -82,7 +188,8 @@ class PO_Model:
     
         return (X_u, Y_u, intensity_u), (X_l, Y_l, intensity_l)
 
-    def draw_polar_grid(ax,
+    def draw_polar_grid(self, 
+                        ax,
                         beta_step_deg=15,
                         gamma_step_deg=30,
                         n_curve=400):
