@@ -1441,6 +1441,8 @@ if uploaded_file is not None:
                 st.subheader("Preferred Orientation")
                 if st.button("Plot PO Model"):
                     PO_MODEL = PO.PO_Model()
+                    fig = PO_MODEL.plot_PO_distribution()
+                    st.pyplot(fig)
                 
                 
                     
