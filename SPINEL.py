@@ -1117,7 +1117,7 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
         ax.set_title(f"Strain ε′₃₃ for hkl = ({hkl_label})")
         plt.tight_layout()
         ax.legend()
-    st.pyplot(fig)
+    st.pyplot(fig2)
 
 #### Main App logic -----------------------------------------------------
     
