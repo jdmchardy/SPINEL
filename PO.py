@@ -248,6 +248,17 @@ class PO_Model:
         #Compute the psi values from deltas
         psi = self.get_psi(delta)
 
+        #Convert to radians
+        phi = np.radians(phi)
+        psi = np.radians(psi)
+        delta = np.radians(delta)
+
+        #Compute sin and cosine
+        cos_phi = np.cos(phi)
+        sin_phi = np.sin(phi)
+        cos_psi = np.cos(psi)
+        sin_psi = np.sin(psi)
+
         #Make meshgrids
         phi_grid, psi_grid = np.meshgrid(phi, psi, indexing="ij")
         delta_grid = np.broadcast_to(delta, psi_grid.shape)
