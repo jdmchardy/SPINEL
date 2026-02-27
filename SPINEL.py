@@ -1626,6 +1626,19 @@ if uploaded_file is not None:
                                           )
                     fig = PO_MODEL.make_intensity_pole_figure()
                     st.pyplot(fig)
+
+                    if st.button("TEST PO Model"):
+                        components = [
+                        {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
+                        }
+                        ]
+                        PO_MODEL = PO.PO_Model(po_model=po_model,
+                                               components=components,
+                                               baseline=st.session_state.params.get("baseline"),
+                                               chi_deg = chi
+                                              )
+
+                        intensity_for_hkl(self, hkl, phi, delta)
                 
             st.subheader("Generate XRD patterns")
             if st.button("Generate 1D-XRD") and selected_hkls:
