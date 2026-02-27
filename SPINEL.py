@@ -445,8 +445,6 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         # Normal case — psi and phi already form a meshgrid
         phi_grid, psi_grid = np.meshgrid(phi_values, psi_values, indexing='ij')
         x, delta_grid = np.meshgrid(phi_values, deltas, indexing='ij') #Generate delta_grid needed for PO
-    
-    st.write(delta_grid)
 
     # Convert psi and phi grid to degrees for output
     psi_deg_grid = np.degrees(psi_grid)
@@ -532,13 +530,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         #Evaluate the PO intensity
         x = phi_grid_PO[:, 0] 
         y = delta_grid_PO[0, :] #Confusing but works
-        st.write(x)
-        st.write(y)
         interp_func = RegularGridInterpolator((x, y), I_grid)
-        st.write(np.min(phi_deg_grid))
-        st.write(np.max(phi_deg_grid))
-        st.write(np.min(delta_deg_grid))
-        st.write(np.max(delta_deg_grid))
         new_points = np.stack([phi_deg_grid.ravel(), delta_deg_grid.ravel()], axis=-1)
         I_new = interp_func(new_points).reshape(len(phi_values), len(deltas))
         df["PO_intensity"] = I_new.ravel(order='F')
