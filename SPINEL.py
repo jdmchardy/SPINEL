@@ -513,7 +513,12 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         PO_MODEL = PO.PO_Model(po_model=po_model,
                                components=components,
                                baseline=st.session_state.params.get("baseline"),
-                               chi_deg = chi
+                               symmetry = symmetry,
+                               wavelength = wavelength,
+                               lattice_params = lattice_params,
+                               chi_deg = chi,
+                               POD_xtal = (0,0,1)
+                              )
         
         phi_PO = np.linspace(0,360,16)
         delta_PO = np.linspace(-180,180,16)                   )
@@ -522,7 +527,10 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         #Evaluate the PO intensity
         x = phi_grid[:, 0]
         y = delta_grid[0, :]
-        z = I_grid
+        interp_func = RegularGridInterpolator((x, y), I_grid)
+        new_points = np.stack([psi_deg_grid.ravel(), delta_deg_grid.ravel()], axis=-1)
+        I_new = interp_func(new_points).reshape(len(phi_values), len(deltas))
+        df["PO_intensity"] = I_new.ravel(order='F')
 
     # Group by hkl label and sort by azimuth
     df = df.sort_values(by=["hkl", "delta (degrees)"], ignore_index=True)
