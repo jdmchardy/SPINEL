@@ -1225,7 +1225,7 @@ def generate_1D_XRD_plot(XRD_df):
     twotheta_grid = XRD_df["2th"]
     total_pattern = XRD_df["Total Intensity"]
 
-    fig = go.Figure(height=500)
+    fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=twotheta_grid,
         y=total_pattern,
@@ -1237,7 +1237,7 @@ def generate_1D_XRD_plot(XRD_df):
     xmin = np.min(twotheta_grid)
     xmax = np.max(twotheta_grid)
     # Scale axes
-    #fig.update_layout(height=500)
+    fig.update_layout(height=500)
 
     fig.update_xaxes(title="2th (degrees)", title_font=dict(size=18), tickfont=dict(size=14))
     fig.update_yaxes(title="Intensity (arb. u.)", title_font=dict(size=18), tickfont=dict(size=14))
