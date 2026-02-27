@@ -497,6 +497,9 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         #Update the mean_strain and mean_two_th column at the correct psi values
         df.loc[df["psi (degrees)"] == psi, ["Mean strain", "Mean two_th"]] = [mean_strain, mean_two_th]
 
+    #Insert a placeholder column for the intensity for each phi, psi pair computed from the PO model
+    df["Intensity PO"] = np.ones(np.shape(delta_list)) #It will have the shape of the delta_list
+
     # Group by hkl label and sort by azimuth
     df = df.sort_values(by=["hkl", "delta (degrees)"], ignore_index=True)
 
