@@ -1219,7 +1219,7 @@ def generate_1D_XRD_plot(XRD_df):
         x=twotheta_grid,
         y=total_pattern,
         mode="lines",
-        line=dict(width=2, color="black"),
+        line=dict(width=1, color="black"),
         name="Simulated XRD"
     ))
 
@@ -1269,6 +1269,22 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
         row_heights=[3, 1],
         vertical_spacing=0.05
     )
+    #Plot the simulated data
+    fig.add_trace(go.Scatter(x=x_exp_common,
+                             y=y_sim_common,
+                             mode="lines",
+                             line=dict(width=1, color="red"),
+                             name="Simulated XRD"),
+                  row=1, col=1
+        )
+    #Plot the experimental data
+    fig.add_trace(go.Scatter(x=x_exp_common,
+                             y=y_exp_common,
+                             mode="lines",
+                             line=dict(width=1, color="black"),
+                             name="Experimental"),
+                  row=1, col=1
+        )
 
     st.plotly_chart(fig, use_container_width=True)
     
