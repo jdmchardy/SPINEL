@@ -498,7 +498,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         df.loc[df["psi (degrees)"] == psi, ["Mean strain", "Mean two_th"]] = [mean_strain, mean_two_th]
 
     #Insert a placeholder column for the intensity for each phi, psi pair computed from the PO model
-    df["Intensity PO"] = np.ones(np.shape(delta_list)) #It will have the shape of the delta_list
+    df["PO_intensity"] = np.ones(np.shape(delta_list)) #It will have the shape of the delta_list
 
     # Group by hkl label and sort by azimuth
     df = df.sort_values(by=["hkl", "delta (degrees)"], ignore_index=True)
@@ -506,10 +506,15 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     return hkl_label, df, psi_list, strain_33_list
 
 #Uses convolution of delta and Gaussian kernal for fast evaluation
-def Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, broadening=True):
+def Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, PO_model, broadening=True):
     # --- Compute strain results ---
     all_dfs = [compute_strain(hkl, inten, *strain_sim_params)[1]
                for hkl, inten in zip(selected_hkls, intensities)]
+
+    #Iterate through and compute the intensity based on the PO model
+    for df in all_dfs:
+        continue
+    
     combined_df = pd.concat(all_dfs, ignore_index=True)
 
     # --- Define grid ---
@@ -533,7 +538,7 @@ def Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, b
         counts = combined_df.groupby(["h","k","l"])['intensity'].transform('size')
         
         # Vectorized weights: intensity / count
-        weights = combined_df['intensity'] / counts
+        weights = combined_df['intensity']*combined_df['PO_intensity'] / counts
         
         # Build histogram
         hist, _ = np.histogram(
