@@ -530,7 +530,11 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         #Evaluate the PO intensity
         x = phi_grid[0, :]
         y = delta_grid[:, 0]
+        st.write(x)
+        st.write(y)
         interp_func = RegularGridInterpolator((x, y), I_grid)
+        st.write(np.min(phi_deg_grid))
+        st.write(np.max(phi_deg_grid))
         new_points = np.stack([phi_deg_grid.ravel(), delta_deg_grid.ravel()], axis=-1)
         I_new = interp_func(new_points).reshape(len(phi_values), len(deltas))
         df["PO_intensity"] = I_new.ravel(order='F')
