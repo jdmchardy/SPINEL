@@ -525,8 +525,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         I_grid, delta_grid, phi_grid = PO_MODEL.intensity_for_hkl(hkl, phi_PO, delta_PO)
 
         #Evaluate the PO intensity
-        x = phi_grid[:, 0]
-        y = delta_grid[0, :]
+        x = phi_grid[0, :]
+        y = delta_grid[:, 0]
         st.write(x)
         st.write(y)
         st.write("test")
