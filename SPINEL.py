@@ -506,6 +506,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     df["PO_intensity"] = np.ones(np.shape(delta_list)) #It will have the shape of the delta_list
 
     if PO_toggle:
+        st.write("test")
         components = [
             {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
             }
