@@ -402,6 +402,11 @@ class PO_Model:
         POD_stress = self.transform_diffraction_2_stress_vectorised(A, POD_diff_plane)
         #Transform to xray coordinates
         POD_xray = self.transform_stress_2_xray_vectorised(X, POD_stress)
+
+        I = self.intensity_from_directions(POD_xray)
+
+        st.write(np.shape(I))
+        st.write(I)
         
     def intensity_from_directions(self, vectors):
         """
