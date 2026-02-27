@@ -24,6 +24,8 @@ import PO #Preferred Orientation Model
 #3d plotting
 from mpl_toolkits.mplot3d import Axes3D
 
+from scipy.interpolate import RegularGridInterpolator
+
 st.markdown("""
 <style>
 html, body, [class*="css"]  {
@@ -502,6 +504,25 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
 
     #Insert a placeholder column for the intensity for each phi, psi pair computed from the PO model
     df["PO_intensity"] = np.ones(np.shape(delta_list)) #It will have the shape of the delta_list
+
+    if PO_toggle:
+        components = [
+            {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
+            }
+        ]
+        PO_MODEL = PO.PO_Model(po_model=po_model,
+                               components=components,
+                               baseline=st.session_state.params.get("baseline"),
+                               chi_deg = chi
+        
+        phi_PO = np.linspace(0,360,16)
+        delta_PO = np.linspace(-180,180,16)                   )
+        I_grid, delta_grid, phi_grid = PO_MODEL.intensity_for_hkl(hkl, phi_PO, delta_PO)
+
+        #Evaluate the PO intensity
+        x = phi_grid[:, 0]
+        y = delta_grid[0, :]
+        z = I_grid
 
     # Group by hkl label and sort by azimuth
     df = df.sort_values(by=["hkl", "delta (degrees)"], ignore_index=True)
