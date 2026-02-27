@@ -411,6 +411,7 @@ class PO_Model:
 
         #Remove the multiplicity scaling
         I = I/num_perms
+        st.write(I)
         return I
         
     def intensity_from_directions(self, vectors):
