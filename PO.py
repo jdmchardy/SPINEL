@@ -411,7 +411,7 @@ class PO_Model:
 
         #Remove the multiplicity scaling
         I = I/num_perms
-        return I, phi_grid, delta_grid
+        return I, np.degrees(phi_grid), np.degrees(delta_grid)
         
     def intensity_from_directions(self, vectors):
         """
