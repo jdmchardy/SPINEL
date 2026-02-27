@@ -1071,6 +1071,109 @@ def compute_bin_indices(x_exp_common, hkl_peak_centers, window_width=0.2):
 
 ### Figure Generation --------------------------------------------------
 
+def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
+
+    results_dict = {}
+    phi_values = np.linspace(0, 2 * np.pi, phi_steps)
+    psi_values = np.linspace(0, np.pi / 2, psi_steps)
+
+    fig = make_subplots(
+        rows=len(selected_hkls),
+        cols=1,
+        shared_xaxes=False,
+        vertical_spacing=0.06,
+        subplot_titles=[f"ε′₃₃ [hkl = ({hkl})]" for hkl in selected_hkls]
+    )
+
+    for i, (hkl, intensity) in enumerate(zip(selected_hkls, intensities), start=1):
+        hkl_label, df, psi_list, strain_33_list = compute_strain(hkl, intensity, symmetry, lattice_params,
+                                                                 wavelength, cijs,
+                                                                 sigma_11, sigma_22, sigma_33,
+                                                                 chi, phi_values, psi_values
+        )
+
+        results_dict[hkl_label] = df
+        psi_array = np.asarray(psi_list)
+        strain_array = np.asarray(strain_33_list)
+
+        fig.add_trace(
+            go.Scattergl(
+                x=psi_array,
+                y=strain_array,
+                mode="markers",
+                marker=dict(size=2, color="black"),
+                opacity=0.15,
+                showlegend=False
+            ),
+            row=i, col=1
+        )
+
+        # Plot the mean strain curve (vectorised)
+        mean_df = (df.groupby("psi (degrees)", sort=True)["Mean strain"].first().reset_index())
+
+        fig.add_trace(go.Scatter(x=mean_df["psi (degrees)"],
+                                 y=mean_df["Mean strain"],
+                                 mode="lines",
+                                 line=dict(width=2, color="red"),
+                                 name="Mean strain" if i == 1 else None,
+                                 showlegend=(i == 1)),
+                      row=i, col=1
+        )
+        # Reference lines
+        fig.add_hline(y=0, line_width=1, row=i, col=1)
+        fig.add_vline(x=54.7, line_dash="dash", line_width=1, row=i, col=1) #Magic angle
+        
+        fig.update_yaxes(autorange=True, row=i, col=1)
+
+    fig.update_xaxes(title="ψ (degrees)", title_font=dict(size=18), tickfont=dict(size=14), range=[0, 90])
+    fig.update_yaxes(title="ε′₃₃", title_font=dict(size=18), tickfont=dict(size=14))
+    fig.update_layout(height=450 * len(selected_hkls),hovermode="closest")
+
+    st.plotly_chart(fig,
+                    use_container_width=True,
+                    config={"scrollZoom": False}  # Disables wheel zoom
+    )
+    return results_dict
+
+#Old matplotlib iplementation
+#def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
+#    fig, axs = plt.subplots(len(selected_hkls), 1, figsize=(8, 5 * len(selected_hkls)))
+#    if len(selected_hkls) == 1:
+#        axs = [axs]
+
+#    results_dict = {} #Generate empty dictionary to hold results
+
+#    phi_values = np.linspace(0, 2 * np.pi, phi_steps)
+#    psi_values = np.linspace(0, np.pi/2, psi_steps)
+
+#    for ax, hkl, intensity in zip(axs, selected_hkls, intensities):
+#        hkl_label, df, psi_list, strain_33_list = compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cijs, sigma_11, sigma_22, sigma_33, chi, phi_values, psi_values)
+#        results_dict[hkl_label] = df
+
+#        scatter = ax.scatter(psi_list, strain_33_list, color="black", s=0.2, alpha=0.1)
+#        ax.hlines(0,0,90, color="black", lw=0.8)
+#        ax.vlines(54.7,np.min(strain_33_list), np.max(strain_33_list),color="black", ls="dashed", lw=0.8)
+        
+#        #Plot the mean strain curve
+#        unique_psi = np.unique(psi_list)
+#        mean_strain_list = []
+#       for psi in np.unique(psi_list):
+#           #Obtain all the strains at this particular psi
+#           mask = df["psi (degrees)"] == psi
+#           strains = strain_33_list[mask]
+#            mean_strain = df["Mean strain"][mask].iloc[0]
+#            #Append to list
+#            mean_strain_list.append(mean_strain)
+#        ax.plot(unique_psi, mean_strain_list, color="red", lw=0.8, label="mean strain")
+#        ax.set_xlabel("ψ (degrees)")
+#        ax.set_ylabel("ε′₃₃")
+#        ax.set_xlim(0,90)
+#        ax.set_title(f"ε′₃₃ [hkl = ({hkl_label})]")
+#        ax.legend()
+#        plt.tight_layout()
+#    st.pyplot(fig)
+#    return results_dict
+
 def generate_cake_figures(results_dict, selected_hkls, broadening):
 
     fig, axs = plt.subplots(1, 1, figsize=(8, 5))
@@ -1122,122 +1225,43 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
         plt.tight_layout()
         ax.legend()
     st.pyplot(fig2)
+    
+def generate_1D_XRD_plot(XRD_df):
+    twotheta_grid = XRD_df["2th"]
+    total_pattern = XRD_df["Total Intensity"]
 
-#Old matplotlib iplementation
-#def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
-#    fig, axs = plt.subplots(len(selected_hkls), 1, figsize=(8, 5 * len(selected_hkls)))
-#    if len(selected_hkls) == 1:
-#        axs = [axs]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=twotheta_grid,
+        y=total_pattern,
+        mode="lines",
+        line=dict(width=2, color="black"),
+        name="Simulated XRD"
+    ))
 
-#    results_dict = {} #Generate empty dictionary to hold results
-
-#    phi_values = np.linspace(0, 2 * np.pi, phi_steps)
-#    psi_values = np.linspace(0, np.pi/2, psi_steps)
-
-#    for ax, hkl, intensity in zip(axs, selected_hkls, intensities):
-#        hkl_label, df, psi_list, strain_33_list = compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cijs, sigma_11, sigma_22, sigma_33, chi, phi_values, psi_values)
-#        results_dict[hkl_label] = df
-
-#        scatter = ax.scatter(psi_list, strain_33_list, color="black", s=0.2, alpha=0.1)
-#        ax.hlines(0,0,90, color="black", lw=0.8)
-#        ax.vlines(54.7,np.min(strain_33_list), np.max(strain_33_list),color="black", ls="dashed", lw=0.8)
-        
-#        #Plot the mean strain curve
-#        unique_psi = np.unique(psi_list)
-#        mean_strain_list = []
-#       for psi in np.unique(psi_list):
-#           #Obtain all the strains at this particular psi
-#           mask = df["psi (degrees)"] == psi
-#           strains = strain_33_list[mask]
-#            mean_strain = df["Mean strain"][mask].iloc[0]
-#            #Append to list
-#            mean_strain_list.append(mean_strain)
-#        ax.plot(unique_psi, mean_strain_list, color="red", lw=0.8, label="mean strain")
-#        ax.set_xlabel("ψ (degrees)")
-#        ax.set_ylabel("ε′₃₃")
-#        ax.set_xlim(0,90)
-#        ax.set_title(f"ε′₃₃ [hkl = ({hkl_label})]")
-#        ax.legend()
-#        plt.tight_layout()
-#    st.pyplot(fig)
-#    return results_dict
-
-def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
-
-    results_dict = {}
-
-    phi_values = np.linspace(0, 2 * np.pi, phi_steps)
-    psi_values = np.linspace(0, np.pi / 2, psi_steps)
-
-    fig = make_subplots(
-        rows=len(selected_hkls),
-        cols=1,
-        shared_xaxes=False,
-        vertical_spacing=0.06,
-        subplot_titles=[f"ε′₃₃ [hkl = ({hkl})]" for hkl in selected_hkls]
+    xmin = np.min(twotheta_grid)
+    xmax = np.max(twotheta_grid)
+    # Scale axes
+    fig.update_layout(
+        #xaxis=dict(range=[xmin, xmax]),
+        #yaxis=dict(autorange=True),
+        height=500
     )
 
-    for i, (hkl, intensity) in enumerate(zip(selected_hkls, intensities), start=1):
+    fig.update_xaxes(title="2th (degrees)", title_font=dict(size=18), tickfont=dict(size=14))
+    fig.update_yaxes(title="Intensity (arb. u.)", title_font=dict(size=18), tickfont=dict(size=14))
+    st.plotly_chart(fig, use_container_width=True)
 
-        hkl_label, df, psi_list, strain_33_list = compute_strain(
-            hkl, intensity, symmetry, lattice_params,
-            wavelength, cijs,
-            sigma_11, sigma_22, sigma_33,
-            chi, phi_values, psi_values
-        )
 
-        results_dict[hkl_label] = df
 
-        psi_array = np.asarray(psi_list)
-        strain_array = np.asarray(strain_33_list)
-
-        # --- FAST WebGL scatter ---
-        fig.add_trace(
-            go.Scattergl(
-                x=psi_array,
-                y=strain_array,
-                mode="markers",
-                marker=dict(size=2, color="black"),
-                opacity=0.15,
-                showlegend=False
-            ),
-            row=i, col=1
-        )
-
-        # #Plot the mean strain curve (vectorised)
-        mean_df = (
-            df.groupby("psi (degrees)", sort=True)["Mean strain"]
-            .first()
-            .reset_index()
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=mean_df["psi (degrees)"],
-                y=mean_df["Mean strain"],
-                mode="lines",
-                line=dict(width=2, color="red"),
-                name="Mean strain" if i == 1 else None,
-                showlegend=(i == 1)
-            ),
-            row=i, col=1
-        )
-
-        # Reference lines
-        fig.add_hline(y=0, line_width=1, row=i, col=1)
-        fig.add_vline(x=54.7, line_dash="dash", line_width=1, row=i, col=1)
-
-        fig.update_yaxes(autorange=True, row=i, col=1)
-
-    fig.update_xaxes(title="ψ (degrees)", title_font=dict(size=18), tickfont=dict(size=14), range=[0, 90])
-    fig.update_yaxes(title="ε′₃₃", title_font=dict(size=18), tickfont=dict(size=14))
-    fig.update_layout(height=450 * len(selected_hkls),hovermode="closest")
-
-    st.plotly_chart(fig,
-                    use_container_width=True,
-                    config={"scrollZoom": False}  # Disables wheel zoom
-    )
-    return results_dict
+    # Plotting the total pattern
+    #fig, ax = plt.subplots(figsize=(8, 4))
+    #ax.plot(twotheta_grid, total_pattern, label="Simulated XRD", lw=0.5, color="black")
+    #ax.set_xlabel("2θ (deg)")
+    #ax.set_ylabel("Intensity (a.u.)")
+    #ax.set_title("Simulated XRD Pattern")
+    #ax.legend()
+    #st.pyplot(fig)
 
 #### Main App logic -----------------------------------------------------
     
@@ -1549,17 +1573,8 @@ if uploaded_file is not None:
                 strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_11, sigma_22, sigma_33, chi, phi_values, psi_values)
 
                 XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, Funamori_broadening)
-                twotheta_grid = XRD_df["2th"]
-                total_pattern = XRD_df["Total Intensity"]
 
-                # Plotting the total pattern
-                fig, ax = plt.subplots(figsize=(8, 4))
-                ax.plot(twotheta_grid, total_pattern, label="Simulated XRD", lw=0.5, color="black")
-                ax.set_xlabel("2θ (deg)")
-                ax.set_ylabel("Intensity (a.u.)")
-                ax.set_title("Simulated XRD Pattern")
-                ax.legend()
-                st.pyplot(fig)
+                generate_1D_XRD_plot(XRD_df)
 
                 #Prepare .xy file
                 # .xy format is two columns, 2th and intensity
