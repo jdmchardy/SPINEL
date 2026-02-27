@@ -6,3 +6,4 @@ xlsxwriter
 scipy
 lmfit
 pyFAI
+plotly
