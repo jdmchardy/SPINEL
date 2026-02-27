@@ -1672,8 +1672,8 @@ if uploaded_file is not None:
                                            baseline=st.session_state.params.get("baseline"),
                                            chi_deg = chi
                                           )
-                    phi = np.linspace(0,360,16)
-                    delta = np.linspace(-180,180,16)
+                    phi = np.linspace(0,360,32)
+                    delta = np.linspace(-180,180,32)
                     I_grid, delta_grid, phi_grid = PO_MODEL.intensity_for_hkl((1,0,0), phi, delta)
                     #Plot the intensity distribution
                     fig = plt.figure(figsize=(6, 4))
