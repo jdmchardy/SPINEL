@@ -521,7 +521,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
                               )
         
         phi_PO = np.linspace(0,360,16)
-        delta_PO = np.linspace(-180,180,16)                   )
+        delta_PO = np.linspace(-180,180,16)                   
         I_grid, delta_grid, phi_grid = PO_MODEL.intensity_for_hkl(hkl, phi_PO, delta_PO)
 
         #Evaluate the PO intensity
