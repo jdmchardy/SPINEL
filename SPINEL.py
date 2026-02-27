@@ -1264,7 +1264,6 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
         shared_xaxes=True,
         row_heights=[3, 1],
         vertical_spacing=0.05,
-        height=500
     )
     #Plot the simulated data
     fig.add_trace(go.Scatter(x=x_exp_common,
@@ -1294,12 +1293,12 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
 
     # Top subplot (XRD patterns)
     fig.update_yaxes(title_text="Intensity (a.u.)", title_font=dict(size=18), tickfont=dict(size=14), row=1, col=1)
-    
     # Bottom subplot (Residuals)
     fig.update_yaxes(title_text="Residuals", title_font=dict(size=18), tickfont=dict(size=14), row=2, col=1)
-    
     # Shared X-axis label (only needs to be set once)
     fig.update_xaxes(title_text="2θ (degrees)", title_font=dict(size=18), tickfont=dict(size=14), row=2, col=1)
+
+    fig.update_layout(height=500)
 
     st.plotly_chart(fig, use_container_width=True)
     
