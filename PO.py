@@ -388,26 +388,31 @@ class PO_Model:
 
         #Make B matrix
         B = self.B_matrix(hkl)
-        #Make A matrix
-        A = self.A_matrix_vectorised(phi,psi)
-        #Make X matrix
-        X = self.X_matrix_vectorised(phi,delta)
+        #Initialise intensity grid
+        I = np.zeros_like(phi_grid, dtype=float)
+        for hkl_perm in all_permutations:
+            #Make A matrix
+            A = self.A_matrix_vectorised(phi,psi)
+            #Make X matrix
+            X = self.X_matrix_vectorised(phi,delta)
+    
+            #Define POD vector in crystal coordinates
+            POD_xtal = self.POD_xtal
+            POD_xtal = POD_xtal/np.linalg.norm(POD_xtal) #Confirm its normalised
+            #Transform to diffraction plane coordiantes
+            POD_diff_plane = B @ POD_xtal
+            #Transform to stress coordinates
+            POD_stress = self.transform_diffraction_2_stress_vectorised(A, POD_diff_plane)
+            #Transform to xray coordinates
+            POD_xray = self.transform_stress_2_xray_vectorised(X, POD_stress)
+            #Evaluate intensity grid
+            I_hkl = self.intensity_from_directions(POD_xray)
+            #Add to intensity grid
+            I = np.add(I, I_hkl)
 
-        #Define POD vector in crystal coordinates
-        POD_xtal = self.POD_xtal
-        POD_xtal = POD_xtal/np.linalg.norm(POD_xtal) #Confirm its normalised
-        #Transform to diffraction plane coordiantes
-        POD_diff_plane = B @ POD_xtal
-        #Transform to stress coordinates
-        POD_stress = self.transform_diffraction_2_stress_vectorised(A, POD_diff_plane)
-        #Transform to xray coordinates
-        POD_xray = self.transform_stress_2_xray_vectorised(X, POD_stress)
-
-        I = self.intensity_from_directions(POD_xray)
-
-        st.write(np.shape(I))
-        st.write(I)
-        st.write("test")
+        #Remove the multiplicity scaling
+        I = I/num_perms
+        return I
         
     def intensity_from_directions(self, vectors):
         """
