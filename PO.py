@@ -383,7 +383,7 @@ class PO_Model:
         delta = np.radians(delta)
 
         #Make meshgrids
-        phi_grid, psi_grid = np.meshgrid(phi, psi, indexing="ij")
+        phi_grid, delta_grid = np.meshgrid(phi, delta, indexing="ij")
 
         #Make B matrix
         B = self.B_matrix(hkl)
@@ -411,8 +411,7 @@ class PO_Model:
 
         #Remove the multiplicity scaling
         I = I/num_perms
-        st.write(I)
-        return I
+        return I, phi_grid, delta_grid
         
     def intensity_from_directions(self, vectors):
         """
