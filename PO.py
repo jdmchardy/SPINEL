@@ -18,7 +18,8 @@ class PO_Model:
                                    "beta": 90,
                                    "gamma":90
                                   },
-                 chi_deg = 0
+                 chi_deg = 0,
+                 POD_xtal = (0,0,1) #Define the plane normal for POD in xtal coordinates (default is z-axis)
                 ):
         """
         Parameters
@@ -56,6 +57,7 @@ class PO_Model:
         self. wavelength = wavelength
         self.lattice_params = lattice_params
         self.chi = np.radians(chi_deg) #Convert to radians
+        self.POD_xtal = POD_xtal
 
     def get_permutations(self, hkl):
         """Generates all the permutaions given some seed hkl)"""
@@ -372,6 +374,7 @@ class PO_Model:
 
         #Define POD vector in crystal coordinates
         POD_xtal = self.POD_xtal
+        POD_xtal = POD_xtal/np.linalg.norm(POD_xtal) #Confirm its normalised
         #Transform to diffraction plane coordiantes
         POD_diff_plane = B @ POD_xtal
     
