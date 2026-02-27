@@ -451,7 +451,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     # Convert psi and phi grid to degrees for output
     psi_deg_grid = np.degrees(psi_grid)
     phi_deg_grid = np.degrees(phi_grid)
-    delta_deg_grid = np.degrees(delta_grid)
+    delta_deg_grid = delta_grid
     psi_list = psi_deg_grid.ravel(order='F')
     phi_list = phi_deg_grid.ravel(order='F')
     strain_33_list = strain_33_prime.ravel(order='F')
@@ -527,18 +527,18 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         
         phi_PO = np.linspace(0,360,16)
         delta_PO = np.linspace(-180,180,16)                   
-        I_grid, delta_grid, phi_grid = PO_MODEL.intensity_for_hkl(hkl, phi_PO, delta_PO)
+        I_grid, phi_grid_PO, delta_grid_PO, = PO_MODEL.intensity_for_hkl(hkl, phi_PO, delta_PO)
 
         #Evaluate the PO intensity
-        y = phi_grid[0, :] 
-        x = delta_grid[:, 0] #Confusing but works
+        x = phi_grid_PO[0, :] 
+        y = delta_grid_PO[:, 0] #Confusing but works
         st.write(x)
         st.write(y)
         interp_func = RegularGridInterpolator((x, y), I_grid)
         st.write(np.min(phi_deg_grid))
         st.write(np.max(phi_deg_grid))
-        st.write(np.min(delta_grid))
-        st.write(np.max(delta_grid))
+        st.write(np.min(delta_deg_grid))
+        st.write(np.max(delta_deg_grid))
         new_points = np.stack([phi_deg_grid.ravel(), delta_deg_grid.ravel()], axis=-1)
         I_new = interp_func(new_points).reshape(len(phi_values), len(deltas))
         df["PO_intensity"] = I_new.ravel(order='F')
