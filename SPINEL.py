@@ -1549,9 +1549,6 @@ if uploaded_file is not None:
         psi_steps = int(2 * np.sqrt(total_points))
         phi_steps = int(np.sqrt(total_points) / 2)
         results_dict = {}  # Store results per HKL reflection
-
-        #col1, col2, col3 = st.columns(3)
-        #with col1:
             
         col1, col2 = st.columns(2)
         with col1:
@@ -1620,7 +1617,7 @@ if uploaded_file is not None:
                                            baseline=st.session_state.params.get("baseline"),
                                            chi_deg = chi
                                           )
-                    fig = PO_MODEL.plot_intensity_pole_figure()
+                    fig = PO_MODEL.make_intensity_pole_figure()
                     st.pyplot(fig)
                 
             st.subheader("Generate XRD patterns")
