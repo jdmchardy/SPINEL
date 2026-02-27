@@ -259,6 +259,10 @@ class PO_Model:
         cos_psi = np.cos(psi)
         sin_psi = np.sin(psi)
 
+        #Create mesgrids
+        cos_phi, cos_psi = np.meshgrid(cos_phi, cos_psi, indexing='ij')
+        sin_phi, sin_psi = np.meshgrid(sin_phi, sin_psi, indexing='ij')
+
         #Make meshgrids
         phi_grid, psi_grid = np.meshgrid(phi, psi, indexing="ij")
         delta_grid = np.broadcast_to(delta, psi_grid.shape)
