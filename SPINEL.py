@@ -1496,7 +1496,6 @@ if uploaded_file is not None:
                 default_index = 0  # fallback
                 st.write("{} symmetry not supported. Choose from the options below". format(metadata['symmetry']))
             symmetry = st.selectbox("Symmetry:",symmetry_options, index=default_index)
-            symmetry = st.text_input("Symmetry", value=metadata['symmetry'])
             st.session_state.params["wavelength"] = st.number_input("Wavelength (Å)", value=st.session_state.params["wavelength"], step=0.01, format="%.4f")
             st.session_state.params["chi"] = st.number_input("Chi angle (deg)", value=st.session_state.params["chi"], step=0.01, format="%.3f")            
         with col3:
