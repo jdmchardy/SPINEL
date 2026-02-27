@@ -110,11 +110,9 @@ class PO_Model:
 
     def get_psi(self, hkl, delta_deg):
         d0 = self.get_d0(hkl)
-        st.write(d0.dtype)
-        #st.write(d0)
         theta0 = self.get_theta(d0)
         chi = self.chi
-        deltas = np.radians(deltas_deg)
+        deltas = np.radians(delta_deg)
     
         cos_psi = np.sin(chi)*np.cos(theta0)*np.cos(deltas)+np.cos(chi)*np.sin(theta0)
         psi = np.degrees(np.arccos(cos_psi))
