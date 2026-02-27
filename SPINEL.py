@@ -1641,7 +1641,8 @@ if uploaded_file is not None:
                     delta = np.linspace(-180,180,16)
                     I_grid, delta_grid, phi_grid = PO_MODEL.intensity_for_hkl((1,0,0), phi, delta)
                     #Plot the intensity distribution
-                    fig, ax_3d = plt.subplots(1, 1, figsize=(6, 4), projection='3d')
+                    fig = plt.figure(1, 1, figsize=(6, 4))
+                    ax_3d = fig.add_subplot(1, 1, projection='3d')
                     ax_3d.view_init(elev=30, azim=-30)
                     surf = ax_3d.plot_surface(
                     delta_grid, phi_grid, intensity_grid,
