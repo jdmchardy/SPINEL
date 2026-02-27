@@ -1638,7 +1638,7 @@ if uploaded_file is not None:
                                            chi_deg = chi
                                           )
 
-                    intensity_for_hkl(self, hkl, phi, delta)
+                    PO_MODEL.intensity_for_hkl(self, hkl, phi, delta)
                 
             st.subheader("Generate XRD patterns")
             if st.button("Generate 1D-XRD") and selected_hkls:
