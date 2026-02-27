@@ -1400,7 +1400,13 @@ if uploaded_file is not None:
                     intensities.append(st.session_state.intensities[f"intensity_{i}"])
 
         with col2:
-            symmetry = st.selectbox("Symmetry:",["cubic", "hexagonal", "tetragonal_A", "tetragonal_B", "orthorhombic", "trigonal_A"], value=metadata['symmetry'])
+            symmetry_options = ["cubic", "hexagonal", "tetragonal_A", "tetragonal_B", "orthorhombic", "trigonal_A"]
+            if metadata['symmetry'] in symmetry_options:
+                default_index = symmetry_options.index(metadata['symmetry'])
+            else:
+                default_index = 0  # fallback
+                st.write("{} symmetry not supported. Choose from the options below". format(metadata['symmetry']))
+            symmetry = st.selectbox("Symmetry:",symmetry_options, index=default_index)
             symmetry = st.text_input("Symmetry", value=metadata['symmetry'])
             st.session_state.params["wavelength"] = st.number_input("Wavelength (Å)", value=st.session_state.params["wavelength"], step=0.01, format="%.4f")
             st.session_state.params["chi"] = st.number_input("Chi angle (deg)", value=st.session_state.params["chi"], step=0.01, format="%.3f")            
