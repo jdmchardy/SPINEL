@@ -1214,7 +1214,7 @@ def generate_1D_XRD_plot(XRD_df):
     twotheta_grid = XRD_df["2th"]
     total_pattern = XRD_df["Total Intensity"]
 
-    fig = go.Figure()
+    fig = go.Figure(height=500)
     fig.add_trace(go.Scatter(
         x=twotheta_grid,
         y=total_pattern,
@@ -1226,11 +1226,7 @@ def generate_1D_XRD_plot(XRD_df):
     xmin = np.min(twotheta_grid)
     xmax = np.max(twotheta_grid)
     # Scale axes
-    fig.update_layout(
-        #xaxis=dict(range=[xmin, xmax]),
-        #yaxis=dict(autorange=True),
-        height=500
-    )
+    #fig.update_layout(height=500)
 
     fig.update_xaxes(title="2th (degrees)", title_font=dict(size=18), tickfont=dict(size=14))
     fig.update_yaxes(title="Intensity (arb. u.)", title_font=dict(size=18), tickfont=dict(size=14))
@@ -1267,7 +1263,8 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
         cols=1,
         shared_xaxes=True,
         row_heights=[3, 1],
-        vertical_spacing=0.05
+        vertical_spacing=0.05,
+        height=500
     )
     #Plot the simulated data
     fig.add_trace(go.Scatter(x=x_exp_common,
@@ -1286,8 +1283,27 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
                   row=1, col=1
         )
 
+    #Plot the residual data
+    fig.add_trace(go.Scatter(x=x_exp_common,
+                             y=residuals,
+                             mode="lines",
+                             line=dict(width=1, color="black"),
+                             name="Experimental"),
+                  row=2, col=1
+        )
+
+    # Top subplot (XRD patterns)
+    fig.update_yaxes(title_text="Intensity (a.u.)", title_font=dict(size=18), tickfont=dict(size=14), row=1, col=1)
+    
+    # Bottom subplot (Residuals)
+    fig.update_yaxes(title_text="Residuals", title_font=dict(size=18), tickfont=dict(size=14), row=2, col=1)
+    
+    # Shared X-axis label (only needs to be set once)
+    fig.update_xaxes(title_text="2θ (degrees)", title_font=dict(size=18), tickfont=dict(size=14), row=2, col=1)
+
     st.plotly_chart(fig, use_container_width=True)
     
+#Old matplotlib implementation
     #fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
     #ax1.plot(x_exp, y_exp, label="Experimental", color='black', lw=0.5)
     #ax1.plot(x_exp, y_sim, label="Simulated", linestyle='--', color='red', lw=0.5)
