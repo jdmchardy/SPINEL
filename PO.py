@@ -12,7 +12,7 @@ class PO_Model:
                  components=[{"tau": 0,  "rho": 0,  "R": 1, "weight": 1}], #default of one component direction (R=1 is isotropic = no PO) aligned with stress z-axis
                  baseline=0, #A constant baseline value
                  symmetry = "cubic", 
-                 wavelength = "0.4",
+                 wavelength = 0.4,
                  lattice_params = {"a_val": 3,
                                    "b_val": 3,
                                    "c_val": 3,
