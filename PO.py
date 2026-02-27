@@ -256,6 +256,16 @@ class PO_Model:
         vector = vector/np.linalg.norm(vector) #normlise vector
         return np.linalg.inv(X) @ vector
 
+    def transform_stress_2_xray_vectorised(self, X, vector_matrix):
+        """Transform a matrix of vectors (N,M,3) specified in stress coordinates to x-ray coordinates"""
+        vector_matrix = vector_matrix/ np.linalg.norm(vector_matrix, axis=-1, keepdims=True) #Ensure vectors are normalised
+        X_inv = np.linalg.inv(X) 
+        #Explaination 
+        #B[..., None] makes shape (N,M,3,1) from (N,M,3)
+        #Then do matrix multiplication since A_inv is shape (N,M,3,3) and drop last dimention of result
+        result = (X_inv @ vector_matrix[..., None])[..., 0]
+        return result
+
     def make_polar_vector(self, tilt, rot):
         """
         tilt  = tilt from lab z-axis (radians)
@@ -390,10 +400,9 @@ class PO_Model:
         POD_diff_plane = B @ POD_xtal
         #Transform to stress coordinates
         POD_stress = self.transform_diffraction_2_stress_vectorised(A, POD_diff_plane)
-        st.write(np.shape(POD_stress))
+        #Transform to xray coordinates
+        POD_xray = self.transform_stress_2_xray_vectorised(X, POD_stress)
         
-        
-    
     def intensity_from_directions(self, vectors):
         """
         Vectorized intensity computation using multi_MD_PO_model.
