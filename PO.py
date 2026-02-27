@@ -407,6 +407,7 @@ class PO_Model:
 
         st.write(np.shape(I))
         st.write(I)
+        st.write("test")
         
     def intensity_from_directions(self, vectors):
         """
