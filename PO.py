@@ -359,7 +359,7 @@ class PO_Model:
         num_perms, all_permutations = self.get_permutations(hkl)
 
         #Compute the psi values from deltas
-        psi = self.get_psi(delta)
+        psi = self.get_psi(hkl, delta)
 
         #Convert to radians
         phi = np.radians(phi)
