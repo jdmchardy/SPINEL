@@ -1639,7 +1639,19 @@ if uploaded_file is not None:
                                           )
                     phi = np.linspace(0,360,16)
                     delta = np.linspace(-180,180,16)
-                    PO_MODEL.intensity_for_hkl((1,0,0), phi, delta)
+                    I_grid, delta_grid, phi_grid = PO_MODEL.intensity_for_hkl((1,0,0), phi, delta)
+                    #Plot the intensity distribution
+                    fig, ax_3d = plt.subplots(1, 1, figsize=(6, 4))
+                    ax_3d.view_init(elev=30, azim=-30)
+                    surf = ax_3d.plot_surface(
+                    delta_grid, phi_grid, intensity_grid,
+                    cmap='viridis', edgecolor='k', alpha=0.9
+                    )
+
+    ax_3d.set_xlabel("delta")
+    ax_3d.set_ylabel("phi")
+    ax_3d.set_zlabel("intensity")
+            
                 
             st.subheader("Generate XRD patterns")
             if st.button("Generate 1D-XRD") and selected_hkls:
