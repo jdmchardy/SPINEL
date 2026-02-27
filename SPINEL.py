@@ -1154,7 +1154,8 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
         ax.set_title(f"ε′₃₃ [hkl = ({hkl_label})]")
         ax.legend()
         plt.tight_layout()
-    st.pyplot(fig)
+    #st.pyplot(fig)
+    st.plotly_chart(fig, use_container_width=True)
     return results_dict
 
 #### Main App logic -----------------------------------------------------
