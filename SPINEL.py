@@ -11,6 +11,10 @@ from lmfit import Parameters, minimize, fit_report
 from pyFAI import AzimuthalIntegrator
 import tempfile
 
+#For interactive plotting
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
 from PIL import Image
 from pathlib import Path
 
@@ -1119,43 +1123,124 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
         ax.legend()
     st.pyplot(fig2)
 
-def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
-    fig, axs = plt.subplots(len(selected_hkls), 1, figsize=(8, 5 * len(selected_hkls)))
-    if len(selected_hkls) == 1:
-        axs = [axs]
+#Old matplotlib iplementation
+#def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
+#    fig, axs = plt.subplots(len(selected_hkls), 1, figsize=(8, 5 * len(selected_hkls)))
+#    if len(selected_hkls) == 1:
+#        axs = [axs]
 
-    results_dict = {} #Generate empty dictionary to hold results
+#    results_dict = {} #Generate empty dictionary to hold results
+
+#    phi_values = np.linspace(0, 2 * np.pi, phi_steps)
+#    psi_values = np.linspace(0, np.pi/2, psi_steps)
+
+#    for ax, hkl, intensity in zip(axs, selected_hkls, intensities):
+#        hkl_label, df, psi_list, strain_33_list = compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cijs, sigma_11, sigma_22, sigma_33, chi, phi_values, psi_values)
+#        results_dict[hkl_label] = df
+
+#        scatter = ax.scatter(psi_list, strain_33_list, color="black", s=0.2, alpha=0.1)
+#        ax.hlines(0,0,90, color="black", lw=0.8)
+#        ax.vlines(54.7,np.min(strain_33_list), np.max(strain_33_list),color="black", ls="dashed", lw=0.8)
+        
+#        #Plot the mean strain curve
+#        unique_psi = np.unique(psi_list)
+#        mean_strain_list = []
+#       for psi in np.unique(psi_list):
+#           #Obtain all the strains at this particular psi
+#           mask = df["psi (degrees)"] == psi
+#           strains = strain_33_list[mask]
+#            mean_strain = df["Mean strain"][mask].iloc[0]
+#            #Append to list
+#            mean_strain_list.append(mean_strain)
+#        ax.plot(unique_psi, mean_strain_list, color="red", lw=0.8, label="mean strain")
+#        ax.set_xlabel("ψ (degrees)")
+#        ax.set_ylabel("ε′₃₃")
+#        ax.set_xlim(0,90)
+#        ax.set_title(f"ε′₃₃ [hkl = ({hkl_label})]")
+#        ax.legend()
+#        plt.tight_layout()
+#    st.pyplot(fig)
+#    return results_dict
+
+def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
+
+    results_dict = {}
 
     phi_values = np.linspace(0, 2 * np.pi, phi_steps)
-    psi_values = np.linspace(0, np.pi/2, psi_steps)
+    psi_values = np.linspace(0, np.pi / 2, psi_steps)
 
-    for ax, hkl, intensity in zip(axs, selected_hkls, intensities):
-        hkl_label, df, psi_list, strain_33_list = compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cijs, sigma_11, sigma_22, sigma_33, chi, phi_values, psi_values)
+    fig = make_subplots(
+        rows=len(selected_hkls),
+        cols=1,
+        shared_xaxes=True,  # Better for comparison
+        vertical_spacing=0.06,
+        subplot_titles=[f"ε′₃₃ [hkl = ({hkl})]" for hkl in selected_hkls]
+    )
+
+    for i, (hkl, intensity) in enumerate(zip(selected_hkls, intensities), start=1):
+
+        hkl_label, df, psi_list, strain_33_list = compute_strain(
+            hkl, intensity, symmetry, lattice_params,
+            wavelength, cijs,
+            sigma_11, sigma_22, sigma_33,
+            chi, phi_values, psi_values
+        )
+
         results_dict[hkl_label] = df
 
-        scatter = ax.scatter(psi_list, strain_33_list, color="black", s=0.2, alpha=0.1)
-        ax.hlines(0,0,90, color="black", lw=0.8)
-        ax.vlines(54.7,np.min(strain_33_list), np.max(strain_33_list),color="black", ls="dashed", lw=0.8)
-        
-        #Plot the mean strain curve
-        unique_psi = np.unique(psi_list)
-        mean_strain_list = []
-        for psi in np.unique(psi_list):
-            #Obtain all the strains at this particular psi
-            mask = df["psi (degrees)"] == psi
-            strains = strain_33_list[mask]
-            mean_strain = df["Mean strain"][mask].iloc[0]
-            #Append to list
-            mean_strain_list.append(mean_strain)
-        ax.plot(unique_psi, mean_strain_list, color="red", lw=0.8, label="mean strain")
-        ax.set_xlabel("ψ (degrees)")
-        ax.set_ylabel("ε′₃₃")
-        ax.set_xlim(0,90)
-        ax.set_title(f"ε′₃₃ [hkl = ({hkl_label})]")
-        ax.legend()
-        plt.tight_layout()
-    #st.pyplot(fig)
-    st.plotly_chart(fig, use_container_width=True)
+        psi_array = np.asarray(psi_list)
+        strain_array = np.asarray(strain_33_list)
+
+        # --- FAST WebGL scatter ---
+        fig.add_trace(
+            go.Scattergl(
+                x=psi_array,
+                y=strain_array,
+                mode="markers",
+                marker=dict(size=2),
+                opacity=0.15,
+                showlegend=False
+            ),
+            row=i, col=1
+        )
+
+        # --- Vectorized mean curve ---
+        mean_df = (
+            df.groupby("psi (degrees)", sort=True)["Mean strain"]
+            .first()
+            .reset_index()
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=mean_df["psi (degrees)"],
+                y=mean_df["Mean strain"],
+                mode="lines",
+                line=dict(width=2),
+                name="Mean strain" if i == 1 else None,
+                showlegend=(i == 1)
+            ),
+            row=i, col=1
+        )
+
+        # Reference lines
+        fig.add_hline(y=0, line_width=1, row=i, col=1)
+        fig.add_vline(x=54.7, line_dash="dash", line_width=1, row=i, col=1)
+
+        fig.update_yaxes(autorange=True, row=i, col=1)
+
+    fig.update_xaxes(title="ψ (degrees)", range=[0, 90])
+    fig.update_layout(
+        height=450 * len(selected_hkls),
+        hovermode="closest"
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        config={"scrollZoom": True}  # Enables wheel zoom
+    )
+
     return results_dict
 
 #### Main App logic -----------------------------------------------------
