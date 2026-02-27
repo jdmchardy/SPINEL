@@ -168,6 +168,9 @@ class PO_Model:
             K = k / a
             L = l / c
         elif symmetry == "hexagonal":
+            H = h / a
+            K = (h+2*k) / (np.sqrt(3)*a)
+            L = l / c
         elif symmetry == "orthorhombic":
         elif symmetry == "trigonal_A":
             
