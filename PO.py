@@ -212,7 +212,7 @@ class PO_Model:
         sin_chi, sin_delta = np.meshgrid(sin_chi, sin_delta, indexing='ij')
         
         #Based on the same principle as constructing the A matix. Should have analogous shape.
-        X = np.empty((cos_phi.shape[0], cos_phi.shape[1], 3, 3))
+        X = np.empty((cos_chi.shape[0], cos_chi.shape[1], 3, 3))
         X[..., 0, 0] = cos_delta
         X[..., 0, 1] = sin_delta
         X[..., 0, 2] = 0
@@ -386,8 +386,6 @@ class PO_Model:
         POD_stress = self.transform_diffraction_2_stress(A, POD_diff_plane)
         st.write(np.shape(POD_stress))
     
-
-
     def intensity_from_directions(self, vectors):
         """
         Vectorized intensity computation using multi_MD_PO_model.
