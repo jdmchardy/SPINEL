@@ -243,7 +243,7 @@ class PO_Model:
         return X
 
     def transform_diffraction_2_stress_vectorised(self, A, vector_matrix):
-        vector_matrix = vector/np.linalg.norm(vector) #normlise vector
+        vector_matrix = vector_matrix/ np.linalg.norm(vector_matrix, axis=-1, keepdims=True) #Ensure vectors are normalised
         A_inv = np.linalg.inv(A) 
         #Explaination 
         #B[..., None] makes shape (N,M,3,1) from (N,M,3)
