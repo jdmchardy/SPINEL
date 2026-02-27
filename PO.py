@@ -51,13 +51,13 @@ class PO_Model:
         self.po_model = po_model
         self.components = components
         self.baseline = baseline
-        self.pref_directions = self.build_preferred_directions()
         #Crystal/geometry parameters
         self.symmetry = symmetry
         self. wavelength = wavelength
         self.lattice_params = lattice_params
         self.chi = np.radians(chi_deg) #Convert to radians
         self.POD_xtal = POD_xtal
+        self.pref_directions = self.build_preferred_directions()
 
     def get_permutations(self, hkl):
         """Generates all the permutaions given some seed hkl)"""
