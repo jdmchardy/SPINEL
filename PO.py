@@ -116,10 +116,10 @@ class PO_Model:
 
     def A_matrix_vectorised(self, phi, psi):
         """
-        phi : 1d_array (radians)
-        psi : 1d_array (radians)
         Matrix to transform from diffraction plane to stress coordinates (Uchida matrix)
         Has shape (N,M,3,3) where N,M are the length of the phi,psi 1d arrays
+        phi : 1d_array (radians)
+        psi : 1d_array (radians)
         """
         #Compute sin and cosine
         cos_phi = np.cos(phi)
@@ -144,7 +144,9 @@ class PO_Model:
         return A
 
     def B_matrix(self, hkl):
-
+        """
+        Matrix to transform from crystal coordinates to diffraction plane coordinates
+        """
         a = self.lattice_params.get("a_val")
         b = self.lattice_params.get("b_val")
         c = self.lattice_params.get("c_val")
@@ -172,9 +174,14 @@ class PO_Model:
             K = (h+2*k) / (np.sqrt(3)*a)
             L = l / c
         elif symmetry == "orthorhombic":
+            H = h / a
+            K = k / b
+            L = l / c
         elif symmetry == "trigonal_A":
+            H = h / a
+            K = (h+2*k) / (np.sqrt(3)*a)
+            L = l / c
             
-    
         # N and M from normalised hkls
         N = np.sqrt(K**2 + L**2)
         M = np.sqrt(H**2 + K**2 + L**2)
