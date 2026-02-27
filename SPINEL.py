@@ -1637,8 +1637,9 @@ if uploaded_file is not None:
                                            baseline=st.session_state.params.get("baseline"),
                                            chi_deg = chi
                                           )
-
-                    PO_MODEL.intensity_for_hkl(self, hkl, phi, delta)
+                    phi = np.linspace(0,360,16)
+                    delta = np.linspace(-180,180,16)
+                    PO_MODEL.intensity_for_hkl((1,0,0), phi, delta)
                 
             st.subheader("Generate XRD patterns")
             if st.button("Generate 1D-XRD") and selected_hkls:
