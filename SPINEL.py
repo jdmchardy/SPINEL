@@ -445,6 +445,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         # Normal case — psi and phi already form a meshgrid
         phi_grid, psi_grid = np.meshgrid(phi_values, psi_values, indexing='ij')
         x, delta_grid = np.meshgrid(phi_values, deltas, indexing='ij') #Generate delta_grid needed for PO
+        st.write(delta_grid)
 
     # Convert psi and phi grid to degrees for output
     psi_deg_grid = np.degrees(psi_grid)
