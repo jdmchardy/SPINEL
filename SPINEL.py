@@ -1252,9 +1252,7 @@ def generate_1D_XRD_plot(XRD_df):
     fig.update_yaxes(title="Intensity (arb. u.)", title_font=dict(size=18), tickfont=dict(size=14))
     st.plotly_chart(fig, use_container_width=True)
 
-
-
-    # Plotting the total pattern
+    # Old matplotlib implementation
     #fig, ax = plt.subplots(figsize=(8, 4))
     #ax.plot(twotheta_grid, total_pattern, label="Simulated XRD", lw=0.5, color="black")
     #ax.set_xlabel("2θ (deg)")
@@ -1575,6 +1573,9 @@ if uploaded_file is not None:
                 XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, Funamori_broadening)
 
                 generate_1D_XRD_plot(XRD_df)
+
+                twotheta_grid = XRD_df["2th"]
+                total_pattern = XRD_df["Total Intensity"]
 
                 #Prepare .xy file
                 # .xy format is two columns, 2th and intensity
