@@ -193,7 +193,7 @@ class PO_Model:
         ])
         return B
 
-    def X_matrix(self, phi, delta):
+    def X_matrix_vectorised(self, phi, delta):
         """Maps from xray coordinates to stress coordinates"""
 
         chi = np.full(np.shape(phi), self.chi) #make array of chi values same shape as phi to ensure mesh grids are same shape
@@ -359,22 +359,21 @@ class PO_Model:
         psi = np.radians(psi)
         delta = np.radians(delta)
 
-        #cos_delta = np.cos(delta)
-        #sin_delta = np.sin(delta)
-        #x, cos_delta = np.meshgrid(cos_phi, cos_delta, indexing='ij')
-        #x, sin_delta = np.meshgrid(cos_phi, sin_delta, indexing='ij')
-
         #Make meshgrids
         #phi_grid, psi_grid = np.meshgrid(phi, psi, indexing="ij")
         #delta_grid = np.broadcast_to(delta, psi_grid.shape)
 
         #Make B matrix
         B = B_matrix(hkl)
-
         #Make A matrix
         A = A_matrix_vectorised(phi,psi)
         #Make X matrix
-        X = 1
+        X = X_matrix_vectorised(phi,delta)
+
+        #Define POD vector in crystal coordinates
+        POD_xtal = self.POD_xtal
+        #Transform to diffraction plane coordiantes
+        POD_diff_plane = B @ POD_xtal
     
 
 
