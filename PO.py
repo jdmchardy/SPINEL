@@ -240,6 +240,10 @@ class PO_Model:
         ])
         return X
 
+    def transform_diffraction_2_stress(self, A, vector):
+        vector = vector/np.linalg.norm(vector) #normlise vector
+        return np.linalg.inv(A) @ vector
+
     def transform_stress_2_xray(self, X, vector):
         """Transform a vector specified in stress coordinates to x-ray coordinates"""
         vector = vector/np.linalg.norm(vector) #normlise vector
@@ -377,6 +381,8 @@ class PO_Model:
         POD_xtal = POD_xtal/np.linalg.norm(POD_xtal) #Confirm its normalised
         #Transform to diffraction plane coordiantes
         POD_diff_plane = B @ POD_xtal
+        POD_stress = transform_diffraction_2_stress(A, POD_diff_plane)
+        st.write(np.shape(POD_stress))
     
 
 
