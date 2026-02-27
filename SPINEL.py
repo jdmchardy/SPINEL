@@ -1531,7 +1531,7 @@ if uploaded_file is not None:
                 #po_model = st.text_input("PO Model", value="March-Dollase")
                 if po_model == "March-Dollase":
                     st.session_state.params["baseline"] = st.number_input("baseline", value=0.0, step=0.1, format="%.2f")
-                    st.session_state.params["R"] = st.number_input("R", value=1.0, step=0.1, format="%.2f")
+                    st.session_state.params["R"] = st.number_input("R", value=0.5, step=0.1, format="%.2f")
                     st.session_state.params["tau"] = st.number_input("tau (deg)", value=0.0, step=5.0, format="%.1f")
                     st.session_state.params["rho"] = st.number_input("rho (deg)", value=0.0, step=5.0, format="%.1f")
                     st.session_state.params["weight"] = st.number_input("weight", value=1.0, step=0.1, format="%.1f")
