@@ -1286,7 +1286,7 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
     fig.add_trace(go.Scatter(x=x_exp_common,
                              y=residuals,
                              mode="lines",
-                             line=dict(width=1, color="blue", dash="dash"),
+                             line=dict(width=1, color="blue"),
                              name="Residual"),
                   row=2, col=1
         )
