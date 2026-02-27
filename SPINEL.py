@@ -1655,7 +1655,7 @@ if uploaded_file is not None:
                     ax_3d.set_xlabel("delta")
                     ax_3d.set_ylabel("phi")
                     ax_3d.set_zlabel("intensity")
-                    st.pyplot(ax_3d)
+                    st.pyplot(fig)
             
                 
             st.subheader("Generate XRD patterns")
