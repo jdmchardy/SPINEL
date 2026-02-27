@@ -37,6 +37,26 @@ class PO_Model:
         self.chi = np.radians(chi_deg) #Convert to radians
         self.pref_directions = self.build_preferred_directions()
 
+    def get_permutations(self, hkl):
+        """Generates all the permutaions given some seed hkl)"""
+        
+        # Step 1: generate all sign variations for each hkl
+        signed_variations = [(n, -n) for n in hkl]
+        
+        # Step 2: generate Cartesian product of all sign combinations
+        all_sign_combinations = itertools.product(*signed_variations)
+        
+        # Step 3: generate permutations for each combination
+        all_permutations = set()
+        for combo in all_sign_combinations:
+            for perm in itertools.permutations(combo):
+                all_permutations.add(perm)
+        
+        # Convert set to list and print
+        all_permutations = list(all_permutations)
+        num_perms = len(all_permutations)
+        return num_perms, all_permutations
+
     def X_matrix(self, omega_deg, chi_deg):
         """Maps from xray coordinates to stress coordinates"""
     
@@ -145,6 +165,31 @@ class PO_Model:
     
         # Weighted sum over preferred directions (last axis)
         return baseline + np.sum(P_alpha * weights_normed, axis=-1)
+
+    def intensity_for_hkl(self, hkl, phi, delta):
+        """
+        Computes the intensities over a grid of phi x delta values, averaged across all hkl permutations
+        Parameters: 
+        ---------------
+        hkl : tuple
+            (h,k,l) giving the miller indice of the unique reflection
+        phi : 1d.array
+            The phi values
+        delta : 1d.array
+            The delta (azimuth) values
+        Returns:
+        ---------------
+        I : mesh_grid object (tuple of intensity value arrays of shape (phi, delta))
+        """
+
+        #Unpack the tuple
+        h,k,l = hkl
+
+        #Compute the hkl permutations
+        num_perms, all_permutations = self.get_permutations(hkl)
+        
+    
+
 
     def intensity_from_directions(self, vectors):
         """
