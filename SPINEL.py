@@ -1229,8 +1229,8 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
 
         fig.update_yaxes(autorange=True, row=i, col=1)
 
-    fig.update_xaxes(title="ψ (degrees)", range=[0, 90])
-    fig.update_yaxes(title="ε′₃₃")
+    fig.update_xaxes(title="ψ (degrees)", range=[0, 90], title_font=dict(size=18), tickfont=dict(size=14))
+    fig.update_yaxes(title="ε′₃₃", title_font=dict(size=18), tickfont=dict(size=14))
     fig.update_layout(height=450 * len(selected_hkls),hovermode="closest")
 
     st.plotly_chart(fig,
