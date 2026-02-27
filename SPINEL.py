@@ -787,22 +787,6 @@ def cake_dict_to_2Dcake(cake_dict, step_2th=0.1, step_delta=2, broadening=True):
 
     return grid_2th, grid_delta, intensity_grid
 
-def plot_overlay(x_exp, y_exp, x_sim, y_sim, title="XRD Overlay"):
-    residuals = y_exp - y_sim
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
-    ax1.plot(x_exp, y_exp, label="Experimental", color='black', lw=0.5)
-    ax1.plot(x_exp, y_sim, label="Simulated", linestyle='--', color='red', lw=0.5)
-    ax1.set_ylabel("Intensity")
-    ax1.legend()
-    ax1.set_title(title)
-
-    ax2.plot(x_exp, residuals, color='blue', lw=0.5)
-    ax2.axhline(0, color='gray', lw=0.5)
-    ax2.set_xlabel("2θ (degrees)")
-    ax2.set_ylabel("Residuals")
-
-    st.pyplot(fig)
-
 def setup_refinement_toggles(lattice_params, **additional_fields):
     """
     Returns editable parameter fields and refinement toggles dynamically.
@@ -1252,13 +1236,53 @@ def generate_1D_XRD_plot(XRD_df):
     fig.update_yaxes(title="Intensity (arb. u.)", title_font=dict(size=18), tickfont=dict(size=14))
     st.plotly_chart(fig, use_container_width=True)
 
-    # Old matplotlib implementation
+# Old matplotlib implementation
     #fig, ax = plt.subplots(figsize=(8, 4))
     #ax.plot(twotheta_grid, total_pattern, label="Simulated XRD", lw=0.5, color="black")
     #ax.set_xlabel("2θ (deg)")
     #ax.set_ylabel("Intensity (a.u.)")
     #ax.set_title("Simulated XRD Pattern")
     #ax.legend()
+    #st.pyplot(fig)
+
+def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
+    
+    twoth_sim = XRD_df["2th"]
+    intensity_sim = XRD_df["Total Intensity"]
+    
+    #Determine common data and interpolate
+    x_min_sim = np.min(twoth_sim)
+    x_max_sim = np.max(twoth_sim)
+    mask = (x_exp >= x_min_sim) & (x_exp <= x_max_sim)
+    x_exp_common = x_exp[mask]
+    y_exp_common = y_exp[mask]
+    interp_sim = interp1d(twoth_sim, intensity_sim, bounds_error=False, fill_value=np.nan)
+    y_sim_common = interp_sim(x_exp_common)
+    #Compute residuals
+    residuals = y_exp - y_sim
+    #Generate plotly figure
+
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        gridspec_kw={'height_ratios': [3, 1]}
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+    
+    #fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+    #ax1.plot(x_exp, y_exp, label="Experimental", color='black', lw=0.5)
+    #ax1.plot(x_exp, y_sim, label="Simulated", linestyle='--', color='red', lw=0.5)
+    #ax1.legend()
+    #ax1.set_ylabel("Intensity")
+    #ax1.set_title(title)
+
+    #ax2.plot(x_exp, residuals, color='blue', lw=0.5)
+    #ax2.axhline(0, color='gray', lw=0.5)
+    #ax2.set_xlabel("2θ (degrees)")
+    #ax2.set_ylabel("Residuals")
+
     #st.pyplot(fig)
 
 #### Main App logic -----------------------------------------------------
@@ -1733,7 +1757,7 @@ if uploaded_file is not None:
                 #st.write("Parameters", parameters_df)
                 #st.write("Results", results_df)
 
-    ### XRD Refinement ----------------------------------------------------------------
+    ### XRD Comparison/Refinement ----------------------------------------------------------------
     with col2:
         st.subheader("Overlay/refine with XRD")
         uploaded_XRD = st.file_uploader("Upload .xy experimental XRD file", type=[".xy"])
@@ -1754,18 +1778,7 @@ if uploaded_file is not None:
                 t = sigma_33 - sigma_11
                 strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_11, sigma_22, sigma_33, chi, phi_values, psi_values)
                 XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, Funamori_broadening)
-                twoth_sim = XRD_df["2th"]
-                intensity_sim = XRD_df["Total Intensity"]
-                
-                #Determine common data and interpolate
-                x_min_sim = np.min(twoth_sim)
-                x_max_sim = np.max(twoth_sim)
-                mask = (x_exp >= x_min_sim) & (x_exp <= x_max_sim)
-                x_exp_common = x_exp[mask]
-                y_exp_common = y_exp[mask]
-                interp_sim = interp1d(twoth_sim, intensity_sim, bounds_error=False, fill_value=np.nan)
-                y_sim_common = interp_sim(x_exp_common)
-                plot_overlay(x_exp_common, y_exp_common, x_exp_common, y_sim_common)
+                generate_1D_XRD_overlay(XRD_df, x_exp, y_exp)
         
             #Construct the default parameter dictionary for refinement
             stress = {"sigma_11": sigma_11,
