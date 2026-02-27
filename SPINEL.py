@@ -1292,13 +1292,13 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
         )
 
     # Top subplot (XRD patterns)
-    fig.update_yaxes(title_text="Intensity (a.u.)", title_font=dict(size=18), tickfont=dict(size=14), row=1, col=1)
+    fig.update_yaxes(title_text="Intensity (arb.u.)", title_font=dict(size=18), tickfont=dict(size=14), row=1, col=1)
     # Bottom subplot (Residuals)
     fig.update_yaxes(title_text="Residuals", title_font=dict(size=18), tickfont=dict(size=14), row=2, col=1)
     # Shared X-axis label (only needs to be set once)
     fig.update_xaxes(title_text="2θ (degrees)", title_font=dict(size=18), tickfont=dict(size=14), row=2, col=1)
 
-    fig.update_layout(height=700)
+    fig.update_layout(height=700, legend=dict(font=dict(size=14)))
 
     st.plotly_chart(fig, use_container_width=True)
     
