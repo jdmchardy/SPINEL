@@ -1259,7 +1259,7 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
     interp_sim = interp1d(twoth_sim, intensity_sim, bounds_error=False, fill_value=np.nan)
     y_sim_common = interp_sim(x_exp_common)
     #Compute residuals
-    residuals = y_exp - y_sim
+    residuals = y_exp_common - y_sim_common
     #Generate plotly figure
 
     fig = make_subplots(
