@@ -506,14 +506,17 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     return hkl_label, df, psi_list, strain_33_list
 
 #Uses convolution of delta and Gaussian kernal for fast evaluation
-def Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, PO_model, broadening=True):
+def Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, PO_model=False, broadening=True):
     # --- Compute strain results ---
     all_dfs = [compute_strain(hkl, inten, *strain_sim_params)[1]
                for hkl, inten in zip(selected_hkls, intensities)]
 
-    #Iterate through and compute the intensity based on the PO model
-    for df in all_dfs:
-        continue
+    if PO_model == False:
+        pass
+    else:
+        #Iterate through and compute the intensity based on the PO model
+        for df in all_dfs:
+            continue
     
     combined_df = pd.concat(all_dfs, ignore_index=True)
 
