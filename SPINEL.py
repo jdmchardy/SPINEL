@@ -1172,7 +1172,7 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
     fig = make_subplots(
         rows=len(selected_hkls),
         cols=1,
-        shared_xaxes=True,  # Better for comparison
+        shared_xaxes=False,
         vertical_spacing=0.06,
         subplot_titles=[f"ε′₃₃ [hkl = ({hkl})]" for hkl in selected_hkls]
     )
