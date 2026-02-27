@@ -1648,9 +1648,9 @@ if uploaded_file is not None:
                     cmap='viridis', edgecolor='k', alpha=0.9
                     )
 
-    ax_3d.set_xlabel("delta")
-    ax_3d.set_ylabel("phi")
-    ax_3d.set_zlabel("intensity")
+                    ax_3d.set_xlabel("delta")
+                    ax_3d.set_ylabel("phi")
+                    ax_3d.set_zlabel("intensity")
             
                 
             st.subheader("Generate XRD patterns")
