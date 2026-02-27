@@ -242,9 +242,14 @@ class PO_Model:
         ])
         return X
 
-    def transform_diffraction_2_stress(self, A, vector):
-        vector = vector/np.linalg.norm(vector) #normlise vector
-        return np.linalg.inv(A) @ vector
+    def transform_diffraction_2_stress_vectorised(self, A, vector_matrix):
+        vector_matrix = vector/np.linalg.norm(vector) #normlise vector
+        A_inv = np.linalg.inv(A) 
+        #Explaination 
+        #B[..., None] makes shape (N,M,3,1) from (N,M,3)
+        #Then do matrix multiplication since A_inv is shape (N,M,3,3) and drop last dimention of result
+        result = (A_inv @ vector_matrix[..., None])[..., 0]
+        return result
 
     def transform_stress_2_xray(self, X, vector):
         """Transform a vector specified in stress coordinates to x-ray coordinates"""
@@ -383,8 +388,11 @@ class PO_Model:
         POD_xtal = POD_xtal/np.linalg.norm(POD_xtal) #Confirm its normalised
         #Transform to diffraction plane coordiantes
         POD_diff_plane = B @ POD_xtal
-        POD_stress = self.transform_diffraction_2_stress(A, POD_diff_plane)
+        #Transform to stress coordinates
+        POD_stress = self.transform_diffraction_2_stress_vectorised(A, POD_diff_plane)
         st.write(np.shape(POD_stress))
+        
+        
     
     def intensity_from_directions(self, vectors):
         """
