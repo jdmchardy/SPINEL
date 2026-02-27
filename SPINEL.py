@@ -1266,7 +1266,8 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
         rows=2,
         cols=1,
         shared_xaxes=True,
-        gridspec_kw={'height_ratios': [3, 1]}
+        row_heights=[3, 1],
+        vertical_spacing=0.05
     )
 
     st.plotly_chart(fig, use_container_width=True)
