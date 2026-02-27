@@ -1648,7 +1648,7 @@ if uploaded_file is not None:
                     ax_3d = fig.add_subplot(111, projection='3d')
                     ax_3d.view_init(elev=30, azim=-30)
                     surf = ax_3d.plot_surface(
-                    delta_grid, phi_grid, intensity_grid,
+                    delta_grid, phi_grid, I_grid,
                     cmap='viridis', edgecolor='k', alpha=0.9
                     )
 
