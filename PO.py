@@ -383,8 +383,7 @@ class PO_Model:
         delta = np.radians(delta)
 
         #Make meshgrids
-        #phi_grid, psi_grid = np.meshgrid(phi, psi, indexing="ij")
-        #delta_grid = np.broadcast_to(delta, psi_grid.shape)
+        phi_grid, psi_grid = np.meshgrid(phi, psi, indexing="ij")
 
         #Make B matrix
         B = self.B_matrix(hkl)
