@@ -372,18 +372,18 @@ class PO_Model:
         #delta_grid = np.broadcast_to(delta, psi_grid.shape)
 
         #Make B matrix
-        B = B_matrix(hkl)
+        B = self.B_matrix(hkl)
         #Make A matrix
-        A = A_matrix_vectorised(phi,psi)
+        A = self.A_matrix_vectorised(phi,psi)
         #Make X matrix
-        X = X_matrix_vectorised(phi,delta)
+        X = self.X_matrix_vectorised(phi,delta)
 
         #Define POD vector in crystal coordinates
         POD_xtal = self.POD_xtal
         POD_xtal = POD_xtal/np.linalg.norm(POD_xtal) #Confirm its normalised
         #Transform to diffraction plane coordiantes
         POD_diff_plane = B @ POD_xtal
-        POD_stress = transform_diffraction_2_stress(A, POD_diff_plane)
+        POD_stress = self.transform_diffraction_2_stress(A, POD_diff_plane)
         st.write(np.shape(POD_stress))
     
 
