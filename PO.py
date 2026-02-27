@@ -11,7 +11,13 @@ class PO_Model:
                  baseline=0, #A constant baseline value
                  symmetry = "cubic", 
                  wavelength = "0.4",
-                 lattice_params = {},
+                 lattice_params = {"a_val": 3,
+                                   "b_val": 3,
+                                   "c_val": 3,
+                                   "alpha": 90,
+                                   "beta": 90,
+                                   "gamma":90
+                                  },
                  chi_deg = 0
                 ):
         """
@@ -31,17 +37,25 @@ class PO_Model:
                   The relative weight of the component.
         baseline : float
             A constant baseline value for the intensity. Between 0 and 1
+        symmetry : str
+            Crystal symmetry
+        wavelength : float
+            X-ray wavelength (Ang)
         lattice_params : dict
             The lattice parameter dictionary
         chi_deg : float (degrees)
             The chi angle between stress axis and x-ray axis
         """
+        #PO model parameters
         self.po_model = po_model
         self.components = components
         self.baseline = baseline
-        self.chi = np.radians(chi_deg) #Convert to radians
         self.pref_directions = self.build_preferred_directions()
+        #Crystal/geometry parameters
+        self.symmetry = symmetry
+        self. wavelength = wavelength
         self.lattice_params = lattice_params
+        self.chi = np.radians(chi_deg) #Convert to radians
 
     def get_permutations(self, hkl):
         """Generates all the permutaions given some seed hkl)"""
@@ -63,15 +77,37 @@ class PO_Model:
         num_perms = len(all_permutations)
         return num_perms, all_permutations
 
-    def get_psi(self, deltas_deg, symmetry, wavelength, hkl, lattice_params, chi_deg):
+    def get_d0(self, hkl):
+        """Evaluates the lattice plane spacing"""
+        symmetry = self.symmetry
         a = self.lattice_params.get("a_val")
         b = self.lattice_params.get("b_val")
         c = self.lattice_params.get("c_val")
-        d0 = self.get_d0(symmetry, hkl, a,b,c)
-        theta0_deg = self.get_theta(wavelength, d0)
-    
-        theta0 = np.radians(theta0_deg)
-        chi = np.radians(chi_deg)
+        h,k,l = hkl
+        if symmetry == "cubic":
+            d0 = a / np.linalg.norm([h, k, l])
+        elif symmetry == "hexagonal":
+            d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
+        elif symmetry in ["tetragonal_A","tetragonal_B"]:
+            d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
+        elif symmetry == "orthorhombic":
+            d0 = np.sqrt(1/(h**2/a**2+k**2/b**2+l**2/c**2))
+        else:
+            st.write("Support not yet provided for {} symmetry".format(symmetry))
+            d0 = 0
+        return d0
+
+    def get_theta(self, d):
+        #Returns theta (Bragg angle) in radians
+        wavelength = self.wavelength
+        sin_theta = wavelength / (2 * d)
+        theta = np.arcsin(sin_theta)
+        return theta
+
+    def get_psi(self, hkl, delta_deg):
+        d0 = self.get_d0(hkl)
+        theta0 = self.get_theta(d0)
+        chi = self.chi
         deltas = np.radians(deltas_deg)
     
         cos_psi = np.sin(chi)*np.cos(theta0)*np.cos(deltas)+np.cos(chi)*np.sin(theta0)
