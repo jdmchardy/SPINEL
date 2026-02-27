@@ -9,6 +9,9 @@ class PO_Model:
     def __init__(self, po_model="MarchDollase",
                  components=[{"tau": 0,  "rho": 0,  "R": 1, "weight": 1}], #default of one component direction (R=1 is isotropic = no PO) aligned with stress z-axis
                  baseline=0, #A constant baseline value
+                 symmetry = "cubic", 
+                 wavelength = "0.4",
+                 lattice_params = {},
                  chi_deg = 0
                 ):
         """
@@ -28,6 +31,8 @@ class PO_Model:
                   The relative weight of the component.
         baseline : float
             A constant baseline value for the intensity. Between 0 and 1
+        lattice_params : dict
+            The lattice parameter dictionary
         chi_deg : float (degrees)
             The chi angle between stress axis and x-ray axis
         """
@@ -36,6 +41,7 @@ class PO_Model:
         self.baseline = baseline
         self.chi = np.radians(chi_deg) #Convert to radians
         self.pref_directions = self.build_preferred_directions()
+        self.lattice_params = lattice_params
 
     def get_permutations(self, hkl):
         """Generates all the permutaions given some seed hkl)"""
@@ -56,6 +62,21 @@ class PO_Model:
         all_permutations = list(all_permutations)
         num_perms = len(all_permutations)
         return num_perms, all_permutations
+
+    def get_psi(self, deltas_deg, symmetry, wavelength, hkl, lattice_params, chi_deg):
+        a = self.lattice_params.get("a_val")
+        b = self.lattice_params.get("b_val")
+        c = self.lattice_params.get("c_val")
+        d0 = self.get_d0(symmetry, hkl, a,b,c)
+        theta0_deg = self.get_theta(wavelength, d0)
+    
+        theta0 = np.radians(theta0_deg)
+        chi = np.radians(chi_deg)
+        deltas = np.radians(deltas_deg)
+    
+        cos_psi = np.sin(chi)*np.cos(theta0)*np.cos(deltas)+np.cos(chi)*np.sin(theta0)
+        psi = np.degrees(np.arccos(cos_psi))
+        return psi
 
     def X_matrix(self, omega_deg, chi_deg):
         """Maps from xray coordinates to stress coordinates"""
@@ -187,6 +208,9 @@ class PO_Model:
 
         #Compute the hkl permutations
         num_perms, all_permutations = self.get_permutations(hkl)
+
+        #Compute the psi values from deltas
+        psi = self.get_psi(delta)
         
     
 
