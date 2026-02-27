@@ -440,13 +440,16 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         # Also replicate psi and phi grids so they align with deltas
         psi_grid = np.full((n_phi, n_delta), psi_values[0])
         phi_grid = np.tile(phi_values[:, np.newaxis], (1, n_delta))
+        delta_grid = np.tile(deltas, (n_phi, 1))
     else:
         # Normal case — psi and phi already form a meshgrid
         phi_grid, psi_grid = np.meshgrid(phi_values, psi_values, indexing='ij')
+        x, delta_grid = np.meshgrid(phi_values, deltas, indexing='ij') #Generate delta_grid needed for PO
 
     # Convert psi and phi grid to degrees for output
     psi_deg_grid = np.degrees(psi_grid)
     phi_deg_grid = np.degrees(phi_grid)
+    delta_deg_grid = np.degrees(delta_grid)
     psi_list = psi_deg_grid.ravel(order='F')
     phi_list = phi_deg_grid.ravel(order='F')
     strain_33_list = strain_33_prime.ravel(order='F')
