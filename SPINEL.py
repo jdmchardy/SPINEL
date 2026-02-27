@@ -1286,8 +1286,8 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
     fig.add_trace(go.Scatter(x=x_exp_common,
                              y=residuals,
                              mode="lines",
-                             line=dict(width=1, color="black"),
-                             name="Experimental"),
+                             line=dict(width=1, color="blue", dash="dash"),
+                             name="Residual"),
                   row=2, col=1
         )
 
@@ -1298,7 +1298,7 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
     # Shared X-axis label (only needs to be set once)
     fig.update_xaxes(title_text="2θ (degrees)", title_font=dict(size=18), tickfont=dict(size=14), row=2, col=1)
 
-    fig.update_layout(height=500)
+    fig.update_layout(height=700)
 
     st.plotly_chart(fig, use_container_width=True)
     
