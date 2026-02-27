@@ -231,9 +231,9 @@ class PO_Model:
         hkl : tuple
             (h,k,l) giving the miller indice of the unique reflection
         phi : 1d.array
-            The phi values
+            The phi values (degrees)
         delta : 1d.array
-            The delta (azimuth) values
+            The delta (azimuth) values (degrees)
         Returns:
         ---------------
         I : mesh_grid object (tuple of intensity value arrays of shape (phi, delta))
@@ -247,6 +247,10 @@ class PO_Model:
 
         #Compute the psi values from deltas
         psi = self.get_psi(delta)
+
+        #Make meshgrids
+        phi_grid, psi_grid = np.meshgrid(phi, psi, indexing="ij")
+        delta_grid = np.broadcast_to(delta, psi_grid.shape)
         
     
 
