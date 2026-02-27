@@ -143,6 +143,46 @@ class PO_Model:
         A[..., 2, 2] = cos_psi
         return A
 
+    def B_matrix(self, hkl):
+
+        a = self.lattice_params.get("a_val")
+        b = self.lattice_params.get("b_val")
+        c = self.lattice_params.get("c_val")
+        alpha = self.lattice_params.get("alpha")
+        beta = self.lattice_params.get("beta")
+        gamma = self.lattice_params.get("gamma")
+        
+        h, k, l = hkl
+        if h == 0: h = 0.0000000001
+        if k == 0: k = 0.0000000001
+        if l == 0: l = 0.0000000001
+
+        symmetry = self.symmetry
+            
+        if symmetry == "cubic":
+            H = h / a
+            K = k / a
+            L = l / a
+        elif symmetry in ["tetragonal_A", "tetragonal_B"]:
+            H = h / a
+            K = k / a
+            L = l / c
+        elif symmetry == "hexagonal":
+        elif symmetry == "orthorhombic":
+        elif symmetry == "trigonal_A":
+            
+    
+        # N and M from normalised hkls
+        N = np.sqrt(K**2 + L**2)
+        M = np.sqrt(H**2 + K**2 + L**2)
+        
+        B = np.array([
+            [N/M, 0, H/M],
+            [-H*K/(N*M), L/N, K/M],
+            [-H*L/(N*M), -K/N, L/M]
+        ])
+        return B
+
     def X_matrix(self, omega_deg, chi_deg):
         """Maps from xray coordinates to stress coordinates"""
     
