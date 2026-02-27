@@ -1197,9 +1197,8 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
                 x=psi_array,
                 y=strain_array,
                 mode="markers",
-                marker=dict(size=2),
+                marker=dict(size=2, color="black"),
                 opacity=0.15,
-                color="black",
                 showlegend=False
             ),
             row=i, col=1
@@ -1217,8 +1216,7 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
                 x=mean_df["psi (degrees)"],
                 y=mean_df["Mean strain"],
                 mode="lines",
-                line=dict(width=2),
-                color="red",
+                line=dict(width=2, color="red"),
                 name="Mean strain" if i == 1 else None,
                 showlegend=(i == 1)
             ),
