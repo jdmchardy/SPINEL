@@ -233,7 +233,7 @@ class PO_Model:
             X, Y = self.equal_area_projection(beta, GAMMA)
             ax.plot(X, Y, color="white", linewidth=0.6, alpha=0.9)
 
-    def plot_intensity_pole_figure(self):
+    def make_intensity_pole_figure(self):
         (X_u, Y_u, I_u), (X_l, Y_l, I_l) = self.compute_upper_lower_pole_data()
     
         fig, axes = plt.subplots(1, 2, figsize=(8, 4), constrained_layout=True)
