@@ -1215,11 +1215,11 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
     if broadening == True:
         for df in results_dict.values():
             #Normalise the intensities to get the opacity
-            combined_I = df["Intensity"]*df["PO_intensity"]
+            combined_I = df["intensity"]*df["PO_intensity"]
             max_I = np.max(combined_I)
             normed_I = combined_I/max_I
             #Plot all the data
-            axs.scatter(df["2th"], df["delta (degrees)"], color="black", edgecolors='none', marker = '.', s=0.4, normed_I=0.3)
+            axs.scatter(df["2th"], df["delta (degrees)"], color="black", edgecolors='none', marker = '.', s=0.4, alpha=normed_I)
     else:
         if chi == 0: #unique option for axial geometry
             for df in results_dict.values():
