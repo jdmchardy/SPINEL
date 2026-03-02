@@ -1146,7 +1146,7 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
         fig.add_trace(go.Scatter(x=mean_df["psi (degrees)"],
                                  y=mean_df["Mean strain"],
                                  mode="lines",
-                                 line=dict(width=2, color="red"),
+                                 line=dict(width=1, color="red"),
                                  name="Mean strain" if i == 1 else None,
                                  showlegend=(i == 1)),
                       row=i, col=1
@@ -1214,8 +1214,12 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
     # Cake plot
     if broadening == True:
         for df in results_dict.values():
+            #Normalise the intensities to get the opacity
+            combined_I = df["Intensity"]*df["PO_intensity"]
+            max_I = np.max(combined_I)
+            normed_I = combined_I/max_I
             #Plot all the data
-            axs.scatter(df["2th"], df["delta (degrees)"], color="black", edgecolors='none', marker = '.', s=0.4, alpha=0.3)
+            axs.scatter(df["2th"], df["delta (degrees)"], color="black", edgecolors='none', marker = '.', s=0.4, normed_I=0.3)
     else:
         if chi == 0: #unique option for axial geometry
             for df in results_dict.values():
