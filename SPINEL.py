@@ -1568,7 +1568,7 @@ if uploaded_file is not None:
                 if po_model == "March-Dollase":
                     POD_hkl_input = st.text_input("POD hkl", value="001")
                     #Convert hkl_POD to tuple
-                    if len(hkl_POD_input) != 3 or not hkl_POD_input.isdigit():
+                    if len(POD_hkl_input) != 3 or not POD_hkl_input.isdigit():
                         st.write("hkl of POD must be three digets.")
                         st.session_state.params["hkl_POD"] = (0,0,1)
                     else:
