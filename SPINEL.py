@@ -1128,13 +1128,18 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
         psi_array = np.asarray(psi_list)
         strain_array = np.asarray(strain_33_list)
 
+        #Get the combined intensity from PO model and ideal intensity
+        combined_I = df["intensity"]*df["PO_intensity"]
+        max_I = np.max(combined_I)
+        normed_I = combined_I/max_I
+
         fig.add_trace(
             go.Scattergl(
                 x=psi_array,
                 y=strain_array,
                 mode="markers",
                 marker=dict(size=2, color="black"),
-                opacity=0.15,
+                opacity=normed_I,
                 showlegend=False
             ),
             row=i, col=1
