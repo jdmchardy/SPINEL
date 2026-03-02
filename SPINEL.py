@@ -1655,10 +1655,17 @@ if uploaded_file is not None:
                         {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
                         }
                     ]
+                    #Convert hkl_POD to tuple
+                    hkl_POD_input = st.session_state.params.get("hkl_POD")
+                    if len(hkl_POD_input) != 3 or not hkl_POD_input.isdigit():
+                        st.write("hkl of POD must be three digets.")
+                    else:
+                        hkl_POD = tuple(map(int, st.session_state.params.get("hkl_POD")))
                     PO_MODEL = PO.PO_Model(po_model=po_model,
                                            components=components,
                                            baseline=st.session_state.params.get("baseline"),
-                                           chi_deg = chi
+                                           chi_deg = chi,
+                                           POD_xtal=hkl_POD
                                           )
                     fig = PO_MODEL.make_intensity_pole_figure()
                     st.pyplot(fig)
@@ -1678,7 +1685,7 @@ if uploaded_file is not None:
                                            components=components,
                                            baseline=st.session_state.params.get("baseline"),
                                            chi_deg = chi,
-                                           hkl_POD=hkl_POD
+                                           POD_xtal=hkl_POD
                                           )
                     phi = np.linspace(0,360,32)
                     delta = np.linspace(-180,180,32)
