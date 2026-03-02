@@ -339,12 +339,8 @@ class PO_Model:
         weight_array = np.asarray(weight_array)
         baseline = self.baseline
     
-        # Normalize weights over preferred directions only
-        weights_normed = weight_array / (np.sum(weight_array) + baseline)
-    
-        # Compute normalization factor for each preferred direction
-        #This step is not required for the MD function
-        #norm_factors = np.array([PO_normalization(R) for R in R_array])  # shape (n_pref,)
+        # Normalize weights to account for baseline fraction
+        weights_normed = weight_array * (1-baseline) / np.sum(weight_array)
         
         # Evaluate MD function elementwise (broadcasting over last axis)
         P_alpha = self.MD_func(angle_array, R_array)  # (..., n_pref)
