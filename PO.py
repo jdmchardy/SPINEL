@@ -342,7 +342,7 @@ class PO_Model:
     
         # Normalize weights to account for baseline fraction
         tol = 1e-6
-        if math.isclose(np.sum(weight_array), 0.0, abs_tol=tol)
+        if math.isclose(np.sum(weight_array), 0.0, abs_tol=tol):
             #Normalise baseline to 1 
             baseline = 1
             weights_normed = weight_array*0
