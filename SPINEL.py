@@ -1147,7 +1147,6 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
                     cmax=1,
                     showscale=False
                 ),
-                opacity = 0.2,
                 showlegend=False
             ),
             row=i, col=1
