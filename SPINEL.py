@@ -1133,19 +1133,18 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
         max_I = np.max(combined_I)
         normed_I = combined_I/max_I
 
-        #Uses a color scale to show the point intensity
+        rgba_colors = [
+            f"rgba(0,0,0,{alpha})" for alpha in normed_I
+        ]
+        
         fig.add_trace(
             go.Scattergl(
                 x=psi_array,
                 y=strain_array,
                 mode="markers",
                 marker=dict(
-                    size=1,
-                    color=normed_I,
-                    colorscale="Greys",
-                    cmin=0,
-                    cmax=1,
-                    showscale=False
+                    size=2,
+                    color=rgba_colors  # per-point opacity here
                 ),
                 showlegend=False
             ),
