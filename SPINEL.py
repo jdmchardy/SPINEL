@@ -485,28 +485,9 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         "intensity": intensity
     })
 
-    #Insert a placeholder column for the average strain at each psi
-    df["Mean strain"] = np.nan
-    df["Mean two_th"] = np.nan
-    #Initialise a list of the mean strains
-    mean_strain_list = []
-    mean_2th_list = []
-    #Compute the average strains and append to df
-    for psi in np.unique(psi_list):
-        #Obtain all the strains at this particular psi
-        mask = psi_list == psi
-        strains = strain_33_list[mask]
-        mean_strain = np.mean(strains)
-        mean_dstrain = d0*(1-mean_strain)
-        mean_sin_th = wavelength / (2 * mean_dstrain)
-        mean_two_th = 2 * np.degrees(np.arcsin(mean_sin_th))
-        #Append to list
-        mean_strain_list.append(mean_strain)
-        #Update the mean_strain and mean_two_th column at the correct psi values
-        df.loc[df["psi (degrees)"] == psi, ["Mean strain", "Mean two_th"]] = [mean_strain, mean_two_th]
-
     #Insert a placeholder column for the intensity for each phi, psi pair computed from the PO model
-    df["PO_intensity"] = np.ones(np.shape(delta_list)) #It will have the shape of the delta_list
+    I_list = np.ones(np.shape(delta_list)) #It will have the shape of the delta_list
+    df["PO_intensity"] = I_list
 
     if PO_toggle:
         components = [
@@ -534,7 +515,33 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         interp_func = RegularGridInterpolator((x, y), I_grid)
         new_points = np.stack([phi_deg_grid.ravel(), delta_deg_grid.ravel()], axis=-1)
         I_new = interp_func(new_points).reshape(len(phi_values), len(deltas))
-        df["PO_intensity"] = I_new.ravel(order='F')
+        I_list = I_new.ravel(order='F')
+        df["PO_intensity"] = I_list
+
+    #Insert a placeholder column for the average strain at each psi
+    df["Mean strain"] = np.nan
+    df["Mean two_th"] = np.nan
+    df["Mean intensity"] = np.nan
+    #Initialise a list of the mean strains
+    #mean_strain_list = []
+    #mean_2th_list = []
+    #mean_I_list = []
+    #Compute the average strains and append to df
+    for psi in np.unique(psi_list):
+        #Obtain all the strains at this particular psi
+        mask = psi_list == psi
+        strains = strain_33_list[mask]
+        mean_strain = np.mean(strains)
+        mean_dstrain = d0*(1-mean_strain)
+        mean_sin_th = wavelength / (2 * mean_dstrain)
+        mean_two_th = 2 * np.degrees(np.arcsin(mean_sin_th))
+        #Append to list
+        #mean_strain_list.append(mean_strain)
+        #Evaluate the mean intensity
+        select_I = I_list[mask]
+        av_I = np.mean(select_I)*intensity
+        #Update the mean_strain, mean_two_th column, and mean_I at the correct psi values
+        df.loc[df["psi (degrees)"] == psi, ["Mean strain", "Mean two_th", Mean intensity]] = [mean_strain, mean_two_th, av_I]
 
     # Group by hkl label and sort by azimuth
     df = df.sort_values(by=["hkl", "delta (degrees)"], ignore_index=True)
@@ -587,19 +594,20 @@ def Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, P
                 mean_df['Mean two_th'],
                 bins=len(twotheta_grid),
                 range=(twotheta_min, twotheta_max),
-                weights=mean_df['intensity']
+                weights=mean_df['Mean intensity']
             )
         else: 
             #Compute the mean across all the computed values
             mean_df = combined_df.groupby(["h","k","l"]).agg(
                 {"2th": "mean",  # mean of the actual 2θ values per reflection
-                "intensity": "mean"
+                "intensity": "mean", 
+                "PO_intensity": "mean"
                 })
             hist, _ = np.histogram(
                 mean_df["2th"],  # the averaged 2θ
                 bins=len(twotheta_grid),
                 range=(twotheta_min, twotheta_max),
-                weights=mean_df["intensity"]
+                weights=mean_df["intensity"]*mean_df["PO_intensity"]
             )
     # Convolve using FFT
     total_pattern = fftconvolve(hist, gaussian_kernel, mode="same")
@@ -644,7 +652,7 @@ def batch_XRD(batch_upload):
             required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13','C16','C44','C66','sig11','sig22','sig33','chi'}
         elif symmetry == "orthorhombic":
             required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C22','C33','C12','C13','C23','C44','C55','C66','sig11','sig22','sig33','chi'}
-        elif symmetry == "trigonal+A":
+        elif symmetry == "trigonal_A":
             required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13','C14','C44','sig11','sig22','sig33','chi'}
         else:
             st.error("{} symmetry is not yet supported".format(symmetry))
