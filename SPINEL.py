@@ -513,6 +513,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
             }
         ]
+        hkl_POD = st.session_state.params.get("hkl_POD")
         PO_MODEL = PO.PO_Model(po_model=po_model,
                                components=components,
                                baseline=st.session_state.params.get("baseline"),
@@ -520,7 +521,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
                                wavelength = wavelength,
                                lattice_params = lattice_params,
                                chi_deg = chi,
-                               POD_xtal = (0,0,1)
+                               POD_xtal = hkl_POD
                               )
         
         phi_PO = np.linspace(0,360,32)
@@ -529,7 +530,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
 
         #Evaluate the PO intensity
         x = phi_grid_PO[:, 0] 
-        y = delta_grid_PO[0, :] #Confusing but works
+        y = delta_grid_PO[0, :] 
         interp_func = RegularGridInterpolator((x, y), I_grid)
         new_points = np.stack([phi_deg_grid.ravel(), delta_deg_grid.ravel()], axis=-1)
         I_new = interp_func(new_points).reshape(len(phi_values), len(deltas))
@@ -545,13 +546,6 @@ def Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, P
     # --- Compute strain results ---
     all_dfs = [compute_strain(hkl, inten, *strain_sim_params)[1]
                for hkl, inten in zip(selected_hkls, intensities)]
-
-    if PO_model == False:
-        pass
-    else:
-        #Iterate through and compute the intensity based on the PO model
-        for df in all_dfs:
-            continue
     
     combined_df = pd.concat(all_dfs, ignore_index=True)
 
@@ -1564,7 +1558,13 @@ if uploaded_file is not None:
                 po_model = st.selectbox("PO Model:",["March-Dollase"])
                 #po_model = st.text_input("PO Model", value="March-Dollase")
                 if po_model == "March-Dollase":
-                    st.session_state.params["hkl_POD"] = st.text_input("POD hkl", value="001")
+                    POD_hkl_input = st.text_input("POD hkl", value="001")
+                    #Convert hkl_POD to tuple
+                    if len(hkl_POD_input) != 3 or not hkl_POD_input.isdigit():
+                        st.write("hkl of POD must be three digets.")
+                        st.session_state.params["hkl_POD"] = (0,0,1)
+                    else:
+                        st.session_state.params["hkl_POD"] =  = tuple(map(int, st.session_state.params.get("hkl_POD")))
                     st.session_state.params["baseline"] = st.number_input("Baseline (between 0 and 1)", value=0.0, step=0.1, format="%.2f")
                     st.session_state.params["R"] = st.number_input("R", value=0.5, step=0.1, format="%.2f")
                     st.session_state.params["tau"] = st.number_input("tau (deg)", value=0.0, step=5.0, format="%.1f")
@@ -1655,12 +1655,7 @@ if uploaded_file is not None:
                         {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
                         }
                     ]
-                    #Convert hkl_POD to tuple
-                    hkl_POD_input = st.session_state.params.get("hkl_POD")
-                    if len(hkl_POD_input) != 3 or not hkl_POD_input.isdigit():
-                        st.write("hkl of POD must be three digets.")
-                    else:
-                        hkl_POD = tuple(map(int, st.session_state.params.get("hkl_POD")))
+                    hkl_POD = st.session_state.params.get("hkl_POD")
                     PO_MODEL = PO.PO_Model(po_model=po_model,
                                            components=components,
                                            baseline=st.session_state.params.get("baseline"),
@@ -1675,12 +1670,7 @@ if uploaded_file is not None:
                     {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
                     }
                     ]
-                    #Convert hkl_POD to tuple
-                    hkl_POD_input = st.session_state.params.get("hkl_POD")
-                    if len(hkl_POD_input) != 3 or not hkl_POD_input.isdigit():
-                        st.write("hkl of POD must be three digets.")
-                    else:
-                        hkl_POD = tuple(map(int, st.session_state.params.get("hkl_POD")))
+                    hkl_POD = st.session_state.params.get("hkl_POD")
                     PO_MODEL = PO.PO_Model(po_model=po_model,
                                            components=components,
                                            baseline=st.session_state.params.get("baseline"),
