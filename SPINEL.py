@@ -1219,18 +1219,18 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
             max_I = np.max(combined_I)
             normed_I = combined_I/max_I
             #Plot all the data
-            axs.scatter(df["2th"], df["delta (degrees)"], color="black", edgecolors='none', marker = '.', s=1, alpha=normed_I)
+            axs.scatter(df["2th"], df["delta (degrees)"], color="black", edgecolors='none', marker = '.', s=2, alpha=normed_I)
     else:
         if chi == 0: #unique option for axial geometry
             for df in results_dict.values():
                 #Plot only the mean value for each delta
                 deltas = np.unique(df["delta (degrees)"].values)
                 mean_2ths = np.full(len(np.unique(df["delta (degrees)"].values)),df["Mean two_th"].iloc[0])
-                axs.scatter(mean_2ths, deltas, color="black", edgecolors='none', marker = '.', s=1, alpha=1)
+                axs.scatter(mean_2ths, deltas, color="black", edgecolors='none', marker = '.', s=2, alpha=1)
         else: #Transverse geometry with broadening off
             for df in results_dict.values():
                 unique = df.drop_duplicates(subset="delta (degrees)") #Pick out the entries for unique delta values
-                axs.scatter(unique["Mean two_th"].values, unique["delta (degrees)"].values, color="black", edgecolors='none', marker = '.', s=1, alpha=1)
+                axs.scatter(unique["Mean two_th"].values, unique["delta (degrees)"].values, color="black", edgecolors='none', marker = '.', s=2, alpha=1)
     axs.set_xlabel("2th (degrees)")
     axs.set_ylabel("azimuth (degrees)")
     axs.set_title("Cake")
