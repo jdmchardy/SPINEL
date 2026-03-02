@@ -1140,7 +1140,7 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
                 y=strain_array,
                 mode="markers",
                 marker=dict(
-                    size=3,
+                    size=1,
                     color=normed_I,
                     colorscale="Greys",
                     cmin=0,
@@ -1159,7 +1159,7 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
         fig.add_trace(go.Scatter(x=mean_df["psi (degrees)"],
                                  y=mean_df["Mean strain"],
                                  mode="lines",
-                                 line=dict(width=1, color="red"),
+                                 line=dict(width=2, color="red"),
                                  name="Mean strain" if i == 1 else None,
                                  showlegend=(i == 1)),
                       row=i, col=1
