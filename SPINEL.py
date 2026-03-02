@@ -1572,7 +1572,7 @@ if uploaded_file is not None:
                         st.write("hkl of POD must be three digets.")
                         st.session_state.params["hkl_POD"] = (0,0,1)
                     else:
-                        st.session_state.params["hkl_POD"] =  = tuple(map(int, st.session_state.params.get("hkl_POD")))
+                        st.session_state.params["hkl_POD"] = tuple(map(int, st.session_state.params.get("hkl_POD")))
                     st.session_state.params["baseline"] = st.number_input("Baseline (between 0 and 1)", value=0.0, step=0.1, format="%.2f")
                     st.session_state.params["R"] = st.number_input("R", value=0.5, step=0.1, format="%.2f")
                     st.session_state.params["tau"] = st.number_input("tau (deg)", value=0.0, step=5.0, format="%.1f")
