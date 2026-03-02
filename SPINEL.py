@@ -1140,7 +1140,7 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
                 y=strain_array,
                 mode="markers",
                 marker=dict(
-                    size=2,
+                    size=5,
                     color=normed_I,
                     colorscale="Greys",
                     cmin=0,
