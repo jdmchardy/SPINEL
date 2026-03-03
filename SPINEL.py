@@ -1251,15 +1251,14 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                       .reindex(deltas)  # ensure same order as deltas
                       .values
                 )
-                
-                # --- Normalize intensities between 0 and 1 --
+
                 norm = Normalize(vmin=0, vmax=np.max(mean_PO_intensity))
                 normed_I = norm(mean_PO_intensity)
-                cmap = cm.get_cmap("binary") # binary colormap
-                colors = cmap(normed_I, vmin=0, vmax=1)
-                st.write(len(normed_I))
                 axs.scatter(mean_2ths, deltas, 
-                            c=colors,
+                            c=normed_I
+                            cmap="binary",
+                            vmin=0,
+                            vmax=1,
                             marker = '.', 
                             s=5
                            )
