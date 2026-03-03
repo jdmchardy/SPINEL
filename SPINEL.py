@@ -775,6 +775,7 @@ def cake_dict_to_2Dcake(cake_dict, step_2th=0.1, step_delta=2, broadening=True):
             n_points = unique.shape[0]
             if ideal_I == 0 or n_points == 0:
                 continue
+            deltas = unique["delta (degrees)"].values
             # Average PO_intensity across phi for each delta
             mean_PO_intensity = (
                 df.groupby("delta (degrees)")["PO_intensity"]
