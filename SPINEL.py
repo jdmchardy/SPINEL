@@ -1242,8 +1242,26 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                 #Plot only the mean value for each delta
                 deltas = np.unique(df["delta (degrees)"].values)
                 mean_2ths = np.full(len(np.unique(df["delta (degrees)"].values)),df["Mean two_th"].iloc[0])
+                #Need to average the intensities across phi for each delta
+                # --- Average PO_intensity across phi for each delta ---
+                mean_PO_intensity = (
+                    df.groupby("delta (degrees)")["PO_intensity"]
+                      .mean()
+                      .reindex(deltas)  # ensure same order as deltas
+                      .values
+                )
+                st.write(mean_PO_intensity)
+                
+                # --- Normalize intensities between 0 and 1 ---
+                max_I = np.max(mean_PO_intensity)
+                normed_I = mean_PO_intensity/max_I
+                
+                # --- Map to grey colormap ---
+                cmap = cm.get_cmap("Greys")
+                colors = cmap(normed_I)
                 axs.scatter(mean_2ths, deltas, 
-                            color="black", 
+                            c=normed_I,          # values mapped to colormap
+                            cmap="gray", 
                             edgecolors='none', 
                             marker = '.', 
                             s=2, 
