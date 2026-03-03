@@ -1253,7 +1253,7 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                 )
                 
                 # --- Normalize intensities between 0 and 1 --
-                norm = Normalize(vmin=0, vmax=np.max(mean_intensity))
+                norm = Normalize(vmin=0, vmax=np.max(mean_PO_intensity))
                 normed_I = norm(mean_intensity)
                 cmap = cm.get_cmap("binary") # binary colormap
                 colors = cmap(normed_I, vmin=0, vmax=1)
