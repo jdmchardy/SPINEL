@@ -523,7 +523,6 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     #Insert a placeholder column for the average strain at each psi
     df["Mean strain"] = np.nan
     df["Mean two_th"] = np.nan
-    df["Mean intensity"] = np.nan
     #Initialise a list of the mean strains
     #mean_strain_list = []
     #mean_2th_list = []
@@ -533,17 +532,13 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         #Obtain all the strains at this particular psi
         mask = psi_list == psi
         strains = strain_33_list[mask]
-        mean_strain = np.mean(strains)
+        PO_intensity = I_list[mask]
+        mean_strain = np.average(strains, weights = PO_intensity) #Average of the strains weighted by the PO
         mean_dstrain = d0*(1-mean_strain)
         mean_sin_th = wavelength / (2 * mean_dstrain)
         mean_two_th = 2 * np.degrees(np.arcsin(mean_sin_th))
-        #Append to list
-        #mean_strain_list.append(mean_strain)
-        #Evaluate the mean intensity
-        select_I = I_list[mask]
-        av_I = np.mean(select_I)*intensity
-        #Update the mean_strain, mean_two_th column, and mean_I at the correct psi values
-        df.loc[df["psi (degrees)"] == psi, ["Mean strain", "Mean two_th", "Mean intensity"]] = [mean_strain, mean_two_th, av_I]
+        #Update the mean_strain, mean_two_th column at the correct psi values
+        df.loc[df["psi (degrees)"] == psi, ["Mean strain", "Mean two_th"]] = [mean_strain, mean_two_th]
 
     # Group by hkl label and sort by azimuth
     df = df.sort_values(by=["hkl", "delta (degrees)"], ignore_index=True)
@@ -1252,15 +1247,6 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                         s=3, 
                         alpha = normed_I
                        )
-            #axs.scatter(df["2th"], df["delta (degrees)"], 
-            #            c=normed_I,          # values mapped to colormap
-            #            cmap="binary", 
-            #            vmin=0, 
-            #            vmax=1,
-            #            marker = '.', 
-            #            s=3, 
-            #            alpha = normed_I
-            #           )
     else:
         if chi == 0: #unique option for axial geometry
             for df in results_dict.values():
@@ -1279,12 +1265,10 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                 norm = Normalize(vmin=0, vmax=np.max(mean_PO_intensity))
                 normed_I = norm(mean_PO_intensity)
                 axs.scatter(mean_2ths, deltas, 
-                            c=normed_I,
-                            cmap="binary",
-                            vmin=0,
-                            vmax=1,
+                            color="black",
                             marker = '.', 
-                            s=5
+                            s=5,
+                            alpha=normed_I
                            )
         else: #Transverse geometry with broadening off
             for df in results_dict.values():
@@ -1301,12 +1285,10 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                 norm = Normalize(vmin=0, vmax=np.max(mean_PO_intensity))
                 normed_I = norm(mean_PO_intensity)
                 axs.scatter(mean_2th, deltas, 
-                            c=normed_I,
-                            cmap="binary",
-                            vmin=0,
-                            vmax=1,
+                            color="black",
                             marker = '.', 
-                            s=5
+                            s=5,
+                            alpha=normed_I
                            )
     axs.set_xlabel("2th (degrees)")
     axs.set_ylabel("azimuth (degrees)")
