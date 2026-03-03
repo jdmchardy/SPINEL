@@ -541,7 +541,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         #Compute the average peak intensity at this psi
         av_I = intensity*np.mean(PO_intensity)
         #Update the mean_strain, mean_two_th column at the correct psi values
-        df.loc[df["psi (degrees)"] == psi, ["Mean strain", "Mean two_th", "Mean I @ psi"]] = [mean_strain, mean_two_th, ax_I]
+        df.loc[df["psi (degrees)"] == psi, ["Mean strain", "Mean two_th", "Mean I @ psi"]] = [mean_strain, mean_two_th, av_I]
 
     # Group by hkl label and sort by azimuth
     df = df.sort_values(by=["hkl", "delta (degrees)"], ignore_index=True)
