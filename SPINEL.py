@@ -1250,7 +1250,7 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                       .reindex(deltas)  # ensure same order as deltas
                       .values
                 )
-                st.write(df["PO_intensity", "delta (degrees)"])
+                st.write(df[["PO_intensity", "delta (degrees)"]])
                 st.write(mean_PO_intensity)
                 
                 # --- Normalize intensities between 0 and 1 ---
