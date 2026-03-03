@@ -1255,10 +1255,6 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                 # --- Normalize intensities between 0 and 1 ---
                 max_I = np.max(mean_PO_intensity)
                 normed_I = mean_PO_intensity/max_I
-                
-                # --- Map to grey colormap ---
-                cmap = cm.get_cmap("Greys")
-                colors = cmap(normed_I)
                 axs.scatter(mean_2ths, deltas, 
                             c=normed_I,          # values mapped to colormap
                             cmap="gray", 
