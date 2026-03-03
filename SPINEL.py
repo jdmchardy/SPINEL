@@ -1267,6 +1267,8 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
         else: #Transverse geometry with broadening off
             for df in results_dict.values():
                 unique = df.drop_duplicates(subset="delta (degrees)") #Pick out the entries for unique delta values
+                mean_2th = unique["Mean two_th"].values
+                deltas = unique["delta (degrees)"].values
                 # --- Average PO_intensity across phi for each delta ---
                 mean_PO_intensity = (
                     df.groupby("delta (degrees)")["PO_intensity"]
@@ -1276,7 +1278,7 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                 )
                 norm = Normalize(vmin=0, vmax=np.max(mean_PO_intensity))
                 normed_I = norm(mean_PO_intensity)
-                axs.scatter(unique["Mean two_th"].values, unique["delta (degrees)"].values, 
+                axs.scatter(mean_2th, deltas, 
                             c=normed_I,
                             cmap="binary",
                             vmin=0,
