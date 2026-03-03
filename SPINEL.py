@@ -1,6 +1,8 @@
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import cm
+from matplotlib.colors import Normalize
 import pandas as pd
 import io
 import pyFAI
@@ -1250,14 +1252,14 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                       .values
                 )
                 
-                # --- Normalize intensities between 0 and 1 ---
-                max_I = np.max(mean_PO_intensity)
-                normed_I = mean_PO_intensity/max_I
-                st.write(len(deltas))
+                # --- Normalize intensities between 0 and 1 --
+                norm = Normalize(vmin=0, vmax=np.max(mean_intensity))
+                normed_I = norm(mean_intensity)
+                cmap = cm.get_cmap("binary") # binary colormap
+                colors = cmap(normed_I, vmin=0, vmax=1)
                 st.write(len(normed_I))
                 axs.scatter(mean_2ths, deltas, 
-                            c=normed_I,          # values mapped to colormap
-                            cmap="binary", 
+                            c=colors,
                             marker = '.', 
                             s=5
                            )
