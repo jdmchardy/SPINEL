@@ -784,6 +784,9 @@ def cake_dict_to_2Dcake(cake_dict, step_2th=0.1, step_delta=2, broadening=True):
             )
             norm_intensity = ideal_I * mean_PO_intensity / n_points
             #Get the mean values for each psi
+            st.write(len(unique["delta (degrees)"].values))
+            st.write(len(unique["Mean two_th"].values))
+            st.write(len(norm_intensity))
             all_delta.extend(unique["delta (degrees)"].values)
             all_2th.extend(unique["Mean two_th"].values)
             all_intensity.extend(norm_intensity)
