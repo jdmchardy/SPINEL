@@ -520,9 +520,10 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         I_list = I_new.ravel(order='F')
         df["PO_intensity"] = I_list
 
-    #Insert a placeholder column for the average strain at each psi
+    #Insert a placeholder column for the average strain, 2th, intensity at each psi
     df["Mean strain"] = np.nan
     df["Mean two_th"] = np.nan
+    df["Mean I @ psi"] = np.nan
     #Initialise a list of the mean strains
     #mean_strain_list = []
     #mean_2th_list = []
@@ -537,8 +538,10 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         mean_dstrain = d0*(1-mean_strain)
         mean_sin_th = wavelength / (2 * mean_dstrain)
         mean_two_th = 2 * np.degrees(np.arcsin(mean_sin_th))
+        #Compute the average peak intensity at this psi
+        av_I = intensity*np.mean(PO_intensity)
         #Update the mean_strain, mean_two_th column at the correct psi values
-        df.loc[df["psi (degrees)"] == psi, ["Mean strain", "Mean two_th"]] = [mean_strain, mean_two_th]
+        df.loc[df["psi (degrees)"] == psi, ["Mean strain", "Mean two_th", "Mean I @ psi"]] = [mean_strain, mean_two_th, ax_I]
 
     # Group by hkl label and sort by azimuth
     df = df.sort_values(by=["hkl", "delta (degrees)"], ignore_index=True)
@@ -587,11 +590,12 @@ def Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, P
         if chi == 0: #Unique axial pattern with precomputed means
             # Singh pattern: one average peak per reflection
             mean_df = combined_df.drop_duplicates(subset=["h", "k", "l"])
+            #Compute the mean intensity over 
             hist, _ = np.histogram(
                 mean_df['Mean two_th'],
                 bins=len(twotheta_grid),
                 range=(twotheta_min, twotheta_max),
-                weights=mean_df['Mean intensity']
+                weights=mean_df['Mean I @ psi']
             )
         else: 
             #Compute the mean across all the computed values
