@@ -1229,12 +1229,14 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
         for df in results_dict.values():
             #Normalise the intensities to get the opacity
             combined_I = df["intensity"]*df["PO_intensity"]
-            max_I = np.max(combined_I)
-            normed_I = combined_I/max_I
+            norm = Normalize(vmin=0, vmax=np.max(combined_I))
+            normed_I = norm(mean_PO_intensity)
             #Plot all the data
             axs.scatter(df["2th"], df["delta (degrees)"], 
                         c=normed_I,          # values mapped to colormap
                         cmap="binary", 
+                        vmin=0, 
+                        vmax=1,
                         marker = '.', 
                         s=3)
     else:
@@ -1265,7 +1267,23 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
         else: #Transverse geometry with broadening off
             for df in results_dict.values():
                 unique = df.drop_duplicates(subset="delta (degrees)") #Pick out the entries for unique delta values
-                axs.scatter(unique["Mean two_th"].values, unique["delta (degrees)"].values, color="black", edgecolors='none', marker = '.', s=2, alpha=1)
+                # --- Average PO_intensity across phi for each delta ---
+                mean_PO_intensity = (
+                    df.groupby("delta (degrees)")["PO_intensity"]
+                      .mean()
+                      .reindex(deltas)  # ensure same order as deltas
+                      .values
+                )
+                norm = Normalize(vmin=0, vmax=np.max(mean_PO_intensity))
+                normed_I = norm(mean_PO_intensity)
+                axs.scatter(unique["Mean two_th"].values, unique["delta (degrees)"].values, 
+                            c=normed_I,
+                            cmap="binary",
+                            vmin=0,
+                            vmax=1,
+                            marker = '.', 
+                            s=5
+                           )
     axs.set_xlabel("2th (degrees)")
     axs.set_ylabel("azimuth (degrees)")
     axs.set_title("Cake")
