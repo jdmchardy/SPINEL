@@ -1132,13 +1132,26 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
 
         #Get the combined intensity from PO model and ideal intensity
         combined_I = df["intensity"]*df["PO_intensity"]
-        max_I = np.max(combined_I)
-        normed_I = combined_I/max_I
+        norm = Normalize(vmin=0, vmax=np.max(combined_I))
+        normed_I = norm(combined_I)
 
         rgba_colors = [
             f"rgba(0,0,0,{alpha})" for alpha in normed_I
         ]
         
+        #fig.add_trace(
+        #    go.Scattergl(
+        #        x=psi_array,
+        #        y=strain_array,
+        #        mode="markers",
+        #        marker=dict(
+        #            size=2,
+        #            color=rgba_colors  # per-point opacity here
+        #        ),
+        #        showlegend=False
+        #    ),
+        #    row=i, col=1
+        #)
         fig.add_trace(
             go.Scattergl(
                 x=psi_array,
@@ -1146,7 +1159,8 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
                 mode="markers",
                 marker=dict(
                     size=2,
-                    color=rgba_colors  # per-point opacity here
+                    color="black",
+                    opacity = normed_I# per-point opacity here
                 ),
                 showlegend=False
             ),
@@ -1230,7 +1244,7 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
             #Normalise the intensities to get the opacity
             combined_I = df["intensity"]*df["PO_intensity"]
             norm = Normalize(vmin=0, vmax=np.max(combined_I))
-            normed_I = norm(mean_PO_intensity)
+            normed_I = norm(combined_I)
             #Plot all the data
             axs.scatter(df["2th"], df["delta (degrees)"], 
                         c=normed_I,          # values mapped to colormap
