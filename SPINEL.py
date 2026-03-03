@@ -491,7 +491,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     I_list = np.ones(np.shape(delta_list)) #It will have the shape of the delta_list
     df["PO_intensity"] = I_list
 
-    if PO_toggle:
+    if st.session_state.params.get("PO_toggle"):
         components = [
             {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
             }
@@ -1129,24 +1129,12 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
         combined_I = df["intensity"]*df["PO_intensity"]
         norm = Normalize(vmin=0, vmax=np.max(combined_I))
         normed_I = norm(combined_I)
+        #Set the opacity if PO model is in use
+        if st.session_state.params.get("PO_toggle"):
+            OPACITY = normed_I
+        else: #isotropic case
+            OPACITY = 0.15
 
-        rgba_colors = [
-            f"rgba(0,0,0,{alpha})" for alpha in normed_I
-        ]
-        
-        #fig.add_trace(
-        #    go.Scattergl(
-        #        x=psi_array,
-        #        y=strain_array,
-        #        mode="markers",
-        #        marker=dict(
-        #            size=2,
-        #            color=rgba_colors  # per-point opacity here
-        #        ),
-        #        showlegend=False
-        #    ),
-        #    row=i, col=1
-        #)
         fig.add_trace(
             go.Scattergl(
                 x=psi_array,
@@ -1155,7 +1143,7 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
                 marker=dict(
                     size=2,
                     color="black",
-                    opacity = normed_I# per-point opacity here
+                    opacity = OPACITY
                 ),
                 showlegend=False
             ),
@@ -1624,8 +1612,8 @@ if uploaded_file is not None:
             total_points = st.number_input("Total points (φ × ψ)", value=5000, min_value=10, step=5000)
             Gaussian_FWHM = st.number_input("Gaussian FWHM", value=0.1, min_value=0.005, step=0.005, format="%.3f")
         with col8:
-            PO_toggle = st.checkbox("Preferred Orientation", value=False)
-            if PO_toggle == True:
+            st.session_state.params["PO_toggle"] = st.checkbox("Preferred Orientation", value=False)
+            if st.session_state.params.get("PO_toggle"):
                 po_model = st.selectbox("PO Model:",["March-Dollase"])
                 #po_model = st.text_input("PO Model", value="March-Dollase")
                 if po_model == "March-Dollase":
@@ -1719,7 +1707,7 @@ if uploaded_file is not None:
                     )
 
             #Plotting preferred orientation
-            if PO_toggle:
+            if st.session_state.params.get("PO_toggle"):
                 st.subheader("Preferred Orientation")
                 if st.button("Plot PO Model"):
                     components = [
