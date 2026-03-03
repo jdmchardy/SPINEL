@@ -1245,6 +1245,7 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
             combined_I = df["intensity"]*df["PO_intensity"]
             norm = Normalize(vmin=0, vmax=np.max(combined_I))
             normed_I = norm(combined_I)
+            st.write(normed_I)
             #Plot all the data
             axs.scatter(df["2th"], df["delta (degrees)"], 
                         c=normed_I,          # values mapped to colormap
