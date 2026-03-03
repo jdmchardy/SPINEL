@@ -758,9 +758,9 @@ def cake_dict_to_2Dcake(cake_dict, step_2th=0.1, step_delta=2, broadening=True):
     #Check whether broadening is on or off
     if broadening == True:
         for df in cake_dict.values():
-            total_I = df["intensity"].iloc[0]
+            ideal_I = df["intensity"].iloc[0]
             n_points = len(df)
-            if total_I == 0 or n_points == 0:
+            if ideal_I == 0 or n_points == 0:
                 continue
             # Each row contributes equally to the total intensity
             norm_intensity = df["intensity"] * df["PO_intensity"] / n_points
@@ -768,28 +768,25 @@ def cake_dict_to_2Dcake(cake_dict, step_2th=0.1, step_delta=2, broadening=True):
             all_delta.extend(df["delta (degrees)"])
             all_intensity.extend(norm_intensity)
     else:
-        if chi == 0: #unique option for axial geometry
-            for df in cake_dict.values():
-                total_I = df["intensity"].iloc[0] * df["PO_intensity"].iloc[0]
-                n_points = len(np.unique(df["delta (degrees)"].values))
-                if total_I == 0 or n_points == 0:
-                    continue
-                norm_intensity = total_I / n_points
-                all_2th.extend(np.full(len(np.unique(df["delta (degrees)"].values)),df["Mean two_th"].iloc[0]))
-                all_delta.extend(np.unique(df["delta (degrees)"].values))
-                all_intensity.extend(np.full(len(np.unique(df["delta (degrees)"].values)),norm_intensity))
-        else: #Transverse geometry with broadening off
-            for df in cake_dict.values():
-                unique = df.drop_duplicates(subset="delta (degrees)") #Pick out the unique delta values
-                total_I = df["intensity"].iloc[0] #Only works if all intensity values are the same with is true for now
-                n_points = unique.shape[0]
-                if total_I == 0 or n_points == 0:
-                    continue
-                norm_intensity = total_I / n_points
-                #Get the mean values for each psi
-                all_delta.extend(unique["delta (degrees)"].values)
-                all_2th.extend(unique["Mean two_th"].values)
-                all_intensity.extend(np.full(n_points,norm_intensity))
+        #Axial or transverse geometry with broadening off
+        for df in cake_dict.values():
+            unique = df.drop_duplicates(subset="delta (degrees)") #Pick out the unique delta values
+            ideal_I = df["intensity"].iloc[0] 
+            n_points = unique.shape[0]
+            if ideal_I == 0 or n_points == 0:
+                continue
+            # Average PO_intensity across phi for each delta
+            mean_PO_intensity = (
+                df.groupby("delta (degrees)")["PO_intensity"]
+                  .mean()
+                  .reindex(deltas)  # ensure same order as deltas
+                  .values
+            )
+            norm_intensity = ideal_I * mean_PO_intensity / n_points
+            #Get the mean values for each psi
+            all_delta.extend(unique["delta (degrees)"].values)
+            all_2th.extend(unique["Mean two_th"].values)
+            all_intensity.extend(norm_intensity)
             
     all_2th = np.array(all_2th)
     all_delta = np.array(all_delta)
@@ -1246,14 +1243,13 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                 deltas = np.unique(df["delta (degrees)"].values)
                 mean_2ths = np.full(len(np.unique(df["delta (degrees)"].values)),df["Mean two_th"].iloc[0])
                 #Need to average the intensities across phi for each delta
-                # --- Average PO_intensity across phi for each delta ---
+                # Average PO_intensity across phi for each delta
                 mean_PO_intensity = (
                     df.groupby("delta (degrees)")["PO_intensity"]
                       .mean()
                       .reindex(deltas)  # ensure same order as deltas
                       .values
                 )
-
                 norm = Normalize(vmin=0, vmax=np.max(mean_PO_intensity))
                 normed_I = norm(mean_PO_intensity)
                 axs.scatter(mean_2ths, deltas, 
@@ -1267,7 +1263,7 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                 unique = df.drop_duplicates(subset="delta (degrees)") #Pick out the entries for unique delta values
                 mean_2th = unique["Mean two_th"].values
                 deltas = unique["delta (degrees)"].values
-                # --- Average PO_intensity across phi for each delta ---
+                # Average PO_intensity across phi for each delta
                 mean_PO_intensity = (
                     df.groupby("delta (degrees)")["PO_intensity"]
                       .mean()
@@ -1685,7 +1681,7 @@ if uploaded_file is not None:
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
             #Generating cake plots
-            if st.button("Cake Plots") and selected_hkls:
+            if st.button("Cake Plot") and selected_hkls:
                 results_dict = cake_data(selected_hkls, intensities, symmetry, lattice_params, 
                                                     wavelength, cijs, sigma_11, sigma_22, sigma_33, chi)
                 generate_cake_figures(results_dict, selected_hkls, Funamori_broadening)
@@ -1759,7 +1755,7 @@ if uploaded_file is not None:
             
                 
             st.subheader("Generate XRD patterns")
-            if st.button("Generate 1D-XRD") and selected_hkls:
+            if st.button("1D-XRD") and selected_hkls:
                 phi_values = np.radians(np.arange(0, 360, 2))
                 psi_values = 0
                 strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_11, sigma_22, sigma_33, chi, phi_values, psi_values)
@@ -1787,7 +1783,7 @@ if uploaded_file is not None:
                 )
 
             if poni_file is not None:
-                if st.button("Generate 2D-XRD") and selected_hkls:
+                if st.button("2D-XRD") and selected_hkls:
                     # Save to a temporary file
                     with tempfile.NamedTemporaryFile(suffix=".poni") as tmp:
                         tmp.write(poni_file.read())
