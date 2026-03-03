@@ -1250,19 +1250,18 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                       .reindex(deltas)  # ensure same order as deltas
                       .values
                 )
-                st.write(df[["PO_intensity", "delta (degrees)"]])
-                st.write(mean_PO_intensity)
                 
                 # --- Normalize intensities between 0 and 1 ---
                 max_I = np.max(mean_PO_intensity)
                 normed_I = mean_PO_intensity/max_I
+                st.write(normaed_I)
                 axs.scatter(mean_2ths, deltas, 
                             c=normed_I,          # values mapped to colormap
                             cmap="binary", 
                             edgecolors='none', 
                             marker = '.', 
-                            s=2, 
-                            alpha=1)
+                            s=5
+                           )
         else: #Transverse geometry with broadening off
             for df in results_dict.values():
                 unique = df.drop_duplicates(subset="delta (degrees)") #Pick out the entries for unique delta values
