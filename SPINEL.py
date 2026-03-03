@@ -727,7 +727,7 @@ def cake_data(selected_hkls, intensities, symmetry, lattice_params, wavelength, 
     
     return cake_dict
 
-def cake_dict_to_2Dcake(cake_dict, step_2th=0.1, step_delta=2, broadening=True):
+def cake_dict_to_2Dcake(cake_dict, step_2th=0.1, step_delta=1, broadening=True):
     """
     Rasterize cake_dict onto a regular 2D grid using bilinear weighting.
     
@@ -1811,8 +1811,8 @@ if uploaded_file is not None:
                                 cake_deltas.min(), cake_deltas.max()],
                         aspect='auto', origin='lower',
                         vmin=0,
-                        vmax=np.percentile(cake_intensity, 95),
-                        cmap='Greys_r'
+                        vmax=np.percentile(cake_intensity, 99),
+                        cmap='binary'
                     )
 
                     ax.set_xlabel("2θ (degrees)")
