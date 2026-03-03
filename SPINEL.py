@@ -1764,7 +1764,7 @@ if uploaded_file is not None:
                 psi_values = 0
                 strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_11, sigma_22, sigma_33, chi, phi_values, psi_values)
 
-                XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, Funamori_broadening)
+                XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, broadening=Funamori_broadening)
 
                 generate_1D_XRD_plot(XRD_df)
 
