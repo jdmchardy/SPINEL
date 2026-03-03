@@ -1806,9 +1806,10 @@ if uploaded_file is not None:
                         cake_intensity.T,
                         extent=[cake_two_thetas.min(), cake_two_thetas.max(),
                                 cake_deltas.min(), cake_deltas.max()],
-                        aspect='auto', origin='lower',
+                        aspect='auto', 
+                        origin='lower',
                         vmin=0,
-                        vmax=np.percentile(cake_intensity, 100),
+                        vmax=np.percentile(cake_intensity, 98),
                         cmap='binary_r'
                     )
 
@@ -1863,7 +1864,7 @@ if uploaded_file is not None:
                                    cmap='binary_r', 
                                    aspect='equal', 
                                    vmin=0, 
-                                   vmax=np.percentile(det_image, 99))
+                                   vmax=np.percentile(det_image, 98))
                     fig.colorbar(im, ax=ax, label='Intensity')
                     ax.set_xlabel('Pixel X')
                     ax.set_ylabel('Pixel Y')
