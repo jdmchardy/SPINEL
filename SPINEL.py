@@ -1255,7 +1255,7 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                 norm = Normalize(vmin=0, vmax=np.max(mean_PO_intensity))
                 normed_I = norm(mean_PO_intensity)
                 axs.scatter(mean_2ths, deltas, 
-                            c=normed_I
+                            c=normed_I,
                             cmap="binary",
                             vmin=0,
                             vmax=1,
