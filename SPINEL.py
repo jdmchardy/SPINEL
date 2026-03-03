@@ -1254,11 +1254,11 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                 # --- Normalize intensities between 0 and 1 ---
                 max_I = np.max(mean_PO_intensity)
                 normed_I = mean_PO_intensity/max_I
+                st.write(deltas)
                 st.write(normed_I)
                 axs.scatter(mean_2ths, deltas, 
                             c=normed_I,          # values mapped to colormap
                             cmap="binary", 
-                            edgecolors='none', 
                             marker = '.', 
                             s=5
                            )
