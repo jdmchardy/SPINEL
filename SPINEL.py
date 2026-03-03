@@ -1232,10 +1232,9 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
             #Plot all the data
             axs.scatter(df["2th"], df["delta (degrees)"], 
                         c=normed_I,          # values mapped to colormap
-                        cmap="binary",         
-                        edgecolors='none', 
+                        cmap="binary", 
                         marker = '.', 
-                        s=2)
+                        s=3)
     else:
         if chi == 0: #unique option for axial geometry
             for df in results_dict.values():
@@ -1254,8 +1253,8 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                 # --- Normalize intensities between 0 and 1 ---
                 max_I = np.max(mean_PO_intensity)
                 normed_I = mean_PO_intensity/max_I
-                st.write(deltas)
-                st.write(normed_I)
+                st.write(len(deltas))
+                st.write(len(normed_I))
                 axs.scatter(mean_2ths, deltas, 
                             c=normed_I,          # values mapped to colormap
                             cmap="binary", 
