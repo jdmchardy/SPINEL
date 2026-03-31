@@ -1690,13 +1690,16 @@ if uploaded_file is not None:
                                         worksheet.set_column(i, i, max_width)
                     
                             output_buffer.seek(0)
-                    
-                            st.download_button(
-                                label="📥 Download Results (.xlsx)",
-                                data=output_buffer,
-                                file_name="strain_results.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
+                            st.session_state.download_data = output_buffer
+                            st.session_state.download_name = "strain_results.xlsx"
+                            st.session_state.download_mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+                            #st.download_button(
+                            #    label="📥 Download Results (.xlsx)",
+                            #    data=output_buffer,
+                            #    file_name="strain_results.xlsx",
+                            #    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            #)
                     
                         # -----------------------
                         # OpenDocument (.ods)
@@ -1710,13 +1713,20 @@ if uploaded_file is not None:
                                     df.to_excel(writer, sheet_name=sheet_name, index=False)
                     
                             output_buffer.seek(0)
-                    
-                            st.download_button(
-                                label="📥 Download Results (.ods)",
-                                data=output_buffer,
-                                file_name="strain_results.ods",
-                                mime="application/vnd.oasis.opendocument.spreadsheet"
-                            )
+                            st.session_state.download_data = output_buffer
+                            st.session_state.download_name = "strain_results.ods"
+                            st.session_state.download_mime = "application/vnd.oasis.opendocument.spreadsheet"
+
+            # -----------------------
+            # Download button (persistent)
+            # -----------------------
+            if st.session_state.download_data is not None:
+                st.download_button(
+                    label="📥 Download file",
+                    data=st.session_state.download_data,
+                    file_name=st.session_state.download_name,
+                    mime=st.session_state.download_mime
+                )
                         
             #Generating cake plots
             if st.button("Cake Plot") and selected_hkls:
