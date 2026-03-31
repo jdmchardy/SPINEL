@@ -1663,7 +1663,8 @@ if uploaded_file is not None:
                 if results_dict != {}:
                     st.subheader("Download Computed Data")
                     output_buffer = io.BytesIO()
-                    with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
+                    #with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer: #old code for .xlsx format
+                    with pd.ExcelWriter(output_buffer, engine='odf') as writer: #open source format
                         for hkl_label, df in results_dict.items():
                             sheet_name = f"hkl_{hkl_label}"
                             df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -1676,10 +1677,13 @@ if uploaded_file is not None:
                     output_buffer.seek(0)
                 
                     st.download_button(
-                        label="📥 Download Results as Excel (.xlsx)",
+                        label="📥 Download Results Spreadsheet (.ods)",
                         data=output_buffer,
-                        file_name="strain_results.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        #Old code for excel
+                        #file_name="strain_results.xlsx",
+                        #mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        file_name="strain_results.ods",
+                        mime="application/vnd.oasis.opendocument.spreadsheet"
                     )
             #Generating cake plots
             if st.button("Cake Plot") and selected_hkls:
