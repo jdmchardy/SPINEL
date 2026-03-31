@@ -1663,6 +1663,12 @@ if uploaded_file is not None:
                 if results_dict != {}:
                     st.subheader("Download Computed Data")
 
+                    # Initialize session state
+                    if "download_data" not in st.session_state:
+                        st.session_state.download_data = None
+                        st.session_state.download_name = None
+                        st.session_state.download_mime = None
+
                     with st.form("download_form"):
                         format_choice = st.selectbox(
                             "Choose download format",
