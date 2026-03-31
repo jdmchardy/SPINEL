@@ -2,7 +2,8 @@ streamlit
 numpy
 matplotlib
 pandas
-xlsxwriter
+#xlsxwriter
+odfpy
 scipy
 lmfit
 pyFAI
