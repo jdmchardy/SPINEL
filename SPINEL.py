@@ -1665,54 +1665,58 @@ if uploaded_file is not None:
                 
                     format_choice = st.selectbox(
                         "Choose download format",
-                        ["Excel (.xlsx)", "OpenDocument (.ods)"]
+                        ["Excel (.xlsx)", "OpenDocument (.ods)"],
+                        index=None,  # no default selection
+                        placeholder="Select a format..."
                     )
-                
-                    # -----------------------
-                    # Excel (.xlsx)
-                    # -----------------------
-                    if format_choice == "Excel (.xlsx)":
-                        output_buffer = io.BytesIO()
-                
-                        with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
-                            for hkl_label, df in results_dict.items():
-                                sheet_name = f"hkl_{hkl_label}"
-                                df.to_excel(writer, sheet_name=sheet_name, index=False)
-                
-                                # Auto-width (only works for xlsxwriter)
-                                worksheet = writer.sheets[sheet_name]
-                                for i, col in enumerate(df.columns):
-                                    max_width = max(df[col].astype(str).map(len).max(), len(col)) + 2
-                                    worksheet.set_column(i, i, max_width)
-                
-                        output_buffer.seek(0)
-                
-                        st.download_button(
-                            label="📥 Download Results (.xlsx)",
-                            data=output_buffer,
-                            file_name="strain_results.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-                
-                    # -----------------------
-                    # OpenDocument (.ods)
-                    # -----------------------
-                    else:
-                        output_buffer = io.BytesIO()
-                
-                        with pd.ExcelWriter(output_buffer, engine='odf') as writer:
-                            for hkl_label, df in results_dict.items():
-                                sheet_name = f"hkl_{hkl_label}"
-                                df.to_excel(writer, sheet_name=sheet_name, index=False)
-                
-                        output_buffer.seek(0)
-                
-                        st.download_button(
-                            label="📥 Download Results (.ods)",
-                            data=output_buffer,
-                            file_name="strain_results.ods",
-                            mime="application/vnd.oasis.opendocument.spreadsheet"
-                        )
+
+                    if format_choice is not None:
+                        if st.button("Prepare download"):
+                            # -----------------------
+                            # Excel (.xlsx)
+                            # -----------------------
+                            if format_choice == "Excel (.xlsx)":
+                                output_buffer = io.BytesIO()
+                        
+                                with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
+                                    for hkl_label, df in results_dict.items():
+                                        sheet_name = f"hkl_{hkl_label}"
+                                        df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        
+                                        # Auto-width (only works for xlsxwriter)
+                                        worksheet = writer.sheets[sheet_name]
+                                        for i, col in enumerate(df.columns):
+                                            max_width = max(df[col].astype(str).map(len).max(), len(col)) + 2
+                                            worksheet.set_column(i, i, max_width)
+                        
+                                output_buffer.seek(0)
+                        
+                                st.download_button(
+                                    label="📥 Download Results (.xlsx)",
+                                    data=output_buffer,
+                                    file_name="strain_results.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                )
+                        
+                            # -----------------------
+                            # OpenDocument (.ods)
+                            # -----------------------
+                            else:
+                                output_buffer = io.BytesIO()
+                        
+                                with pd.ExcelWriter(output_buffer, engine='odf') as writer:
+                                    for hkl_label, df in results_dict.items():
+                                        sheet_name = f"hkl_{hkl_label}"
+                                        df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        
+                                output_buffer.seek(0)
+                        
+                                st.download_button(
+                                    label="📥 Download Results (.ods)",
+                                    data=output_buffer,
+                                    file_name="strain_results.ods",
+                                    mime="application/vnd.oasis.opendocument.spreadsheet"
+                                )
                         
             #Generating cake plots
             if st.button("Cake Plot") and selected_hkls:
