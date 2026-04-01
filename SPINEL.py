@@ -1458,7 +1458,7 @@ if uploaded_file is not None:
         with columns[0]:
             st.subheader("Download Data")
             with st.form("download_form"):
-                    st.session_state.download_format = st.selectbox(
+                    st.selectbox(
                         "Choose download format",
                         ["Excel (.xlsx)", "OpenDocument (.ods)"],
                         index=None,
@@ -1686,20 +1686,9 @@ if uploaded_file is not None:
                     selected_hkls, psi_steps, phi_steps
                 )
             """
-                with st.form("download_form"):
-                    st.session_state.download_format = st.selectbox(
-                        "Choose download format",
-                        ["Excel (.xlsx)", "OpenDocument (.ods)"],
-                        index=None,
-                        placeholder="Select a format..."
-                    )
-                    submitted = st.form_submit_button("Prepare download")
             
             if st.session_state.epsilon_psi_result_dict:
-                # Generate file on submit
-                download_format = st.session_state.download_format
-                if download_format:
-                    epsilon_psi_result_dict = st.session_state.epsilon_psi_result_dict
+                epsilon_psi_result_dict = st.session_state.epsilon_psi_result_dict
             
                     if download_format == "Excel (.xlsx)":
                         output_buffer = io.BytesIO()
