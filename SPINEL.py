@@ -1691,6 +1691,7 @@ if uploaded_file is not None:
                 # Generate file on submit
                 download_format = st.session_state.download_format
                 st.write("Test")
+                st.write(download_format)
                 if download_format:
                     st.write("Test2")
                     epsilon_psi_result_dict = st.session_state.epsilon_psi_result_dict
