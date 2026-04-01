@@ -1453,6 +1453,7 @@ if uploaded_file is not None:
         st.session_state.download_data = {}
 
     if not st.session_state.download_data:
+        download_data = st.session_state.download_data
         columns = st.columns(6)
         with columns[0]:
             st.subheader("Download Data")
