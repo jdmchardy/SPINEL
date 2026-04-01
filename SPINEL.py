@@ -1656,30 +1656,25 @@ if uploaded_file is not None:
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("Execute Calculations")
-
-            # -----------------------
+            #---------------------         
+            #Generating epsilon-psi curves
+            #--------------------- 
             # Initialize session state
-            # -----------------------
-            if "results_dict" not in st.session_state:
-                st.session_state.results_dict = None
+            if "epsilon_psi_result_dict" not in st.session_state:
+                st.session_state.epsilon_psi_result_dict = None
             
             if "download_data" not in st.session_state:
                 st.session_state.download_data = None
                 st.session_state.download_name = None
                 st.session_state.download_mime = None
-            
-            # -----------------------
-            # Run calculation button
-            # -----------------------
+
             if st.button("ε-ψ Curves") and selected_hkls:
-                st.session_state.results_dict = generate_epsilon_psi_curves(
+                st.session_state.epsilon_psi_result_dict = generate_epsilon_psi_curves(
                     selected_hkls, psi_steps, phi_steps
                 )
             
-            # -----------------------
             # If results exist then show download UI
-            # -----------------------
-            if st.session_state.results_dict:
+            if st.session_state.epsilon_psi_result_dict:
             
                 st.subheader("Download Computed Data")
             
@@ -1691,19 +1686,16 @@ if uploaded_file is not None:
                         placeholder="Select a format..."
                     )
                     submitted = st.form_submit_button("Prepare download")
-            
-                # -----------------------
-                # Generate file ON submit
-                # -----------------------
+
+                # Generate file on submit
                 if submitted and format_choice:
-            
-                    results_dict = st.session_state.results_dict
+                    epsilon_psi_result_dict = st.session_state.epsilon_psi_result_dict
             
                     if format_choice == "Excel (.xlsx)":
                         output_buffer = io.BytesIO()
             
                         with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
-                            for hkl_label, df in results_dict.items():
+                            for hkl_label, df in epsilon_psi_result_dict.items():
                                 sheet_name = f"hkl_{hkl_label}"
                                 df.to_excel(writer, sheet_name=sheet_name, index=False)
             
@@ -1726,7 +1718,7 @@ if uploaded_file is not None:
                         output_buffer = io.BytesIO()
             
                         with pd.ExcelWriter(output_buffer, engine='odf') as writer:
-                            for hkl_label, df in results_dict.items():
+                            for hkl_label, df in epsilon_psi_result_dict.items():
                                 df.to_excel(writer, sheet_name=f"hkl_{hkl_label}", index=False)
             
                         output_buffer.seek(0)
@@ -1738,9 +1730,7 @@ if uploaded_file is not None:
             
                     st.success("File ready for download")
             
-            # -----------------------
             # Persistent download button
-            # -----------------------
             if st.session_state.download_data is not None:
                 if st.download_button(
                     label="📥 Download file",
@@ -1748,12 +1738,14 @@ if uploaded_file is not None:
                     file_name=st.session_state.download_name,
                     mime=st.session_state.download_mime
                 ):
-                    # Optional auto-clear
+                    # Auto-clear
                     st.session_state.download_data = None
                     st.session_state.download_name = None
                     st.session_state.download_mime = None
-                        
+            
+            #---------------------         
             #Generating cake plots
+            #---------------------  
             if st.button("Cake Plot") and selected_hkls:
                 results_dict = cake_data(selected_hkls, intensities, symmetry, lattice_params, 
                                                     wavelength, cijs, sigma_11, sigma_22, sigma_33, chi)
