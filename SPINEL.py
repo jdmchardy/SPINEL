@@ -1672,12 +1672,9 @@ if uploaded_file is not None:
                 st.session_state.epsilon_psi_result_dict = generate_epsilon_psi_curves(
                     selected_hkls, psi_steps, phi_steps
                 )
-            
-            # If results exist then show download UI
-            if st.session_state.epsilon_psi_result_dict:
-            
+
                 st.subheader("Download Computed Data")
-            
+                
                 with st.form("download_form"):
                     format_choice = st.selectbox(
                         "Choose download format",
@@ -1686,62 +1683,64 @@ if uploaded_file is not None:
                         placeholder="Select a format..."
                     )
                     submitted = st.form_submit_button("Prepare download")
-
-                # Generate file on submit
-                if submitted and format_choice:
-                    epsilon_psi_result_dict = st.session_state.epsilon_psi_result_dict
             
-                    if format_choice == "Excel (.xlsx)":
-                        output_buffer = io.BytesIO()
+            if st.session_state.epsilon_psi_result_dict:
             
-                        with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
-                            for hkl_label, df in epsilon_psi_result_dict.items():
-                                sheet_name = f"hkl_{hkl_label}"
-                                df.to_excel(writer, sheet_name=sheet_name, index=False)
+            # Generate file on submit
+            if submitted and format_choice:
+                epsilon_psi_result_dict = st.session_state.epsilon_psi_result_dict
+        
+                if format_choice == "Excel (.xlsx)":
+                    output_buffer = io.BytesIO()
+        
+                    with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
+                        for hkl_label, df in epsilon_psi_result_dict.items():
+                            sheet_name = f"hkl_{hkl_label}"
+                            df.to_excel(writer, sheet_name=sheet_name, index=False)
+        
+                            worksheet = writer.sheets[sheet_name]
+                            for i, col in enumerate(df.columns):
+                                max_width = max(
+                                    df[col].astype(str).map(len).max(),
+                                    len(col)
+                                ) + 2
+                                worksheet.set_column(i, i, max_width)
+        
+                    output_buffer.seek(0)
+                    st.session_state.download_data = output_buffer
+                    st.session_state.download_name = "strain_results.xlsx"
+                    st.session_state.download_mime = (
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+        
+                elif format_choice == "OpenDocument (.ods)":
+                    output_buffer = io.BytesIO()
+        
+                    with pd.ExcelWriter(output_buffer, engine='odf') as writer:
+                        for hkl_label, df in epsilon_psi_result_dict.items():
+                            df.to_excel(writer, sheet_name=f"hkl_{hkl_label}", index=False)
+        
+                    output_buffer.seek(0)
+                    st.session_state.download_data = output_buffer
+                    st.session_state.download_name = "strain_results.ods"
+                    st.session_state.download_mime = (
+                        "application/vnd.oasis.opendocument.spreadsheet"
+                    )
+        
+                st.success("File ready for download")
             
-                                worksheet = writer.sheets[sheet_name]
-                                for i, col in enumerate(df.columns):
-                                    max_width = max(
-                                        df[col].astype(str).map(len).max(),
-                                        len(col)
-                                    ) + 2
-                                    worksheet.set_column(i, i, max_width)
-            
-                        output_buffer.seek(0)
-                        st.session_state.download_data = output_buffer
-                        st.session_state.download_name = "strain_results.xlsx"
-                        st.session_state.download_mime = (
-                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-            
-                    elif format_choice == "OpenDocument (.ods)":
-                        output_buffer = io.BytesIO()
-            
-                        with pd.ExcelWriter(output_buffer, engine='odf') as writer:
-                            for hkl_label, df in epsilon_psi_result_dict.items():
-                                df.to_excel(writer, sheet_name=f"hkl_{hkl_label}", index=False)
-            
-                        output_buffer.seek(0)
-                        st.session_state.download_data = output_buffer
-                        st.session_state.download_name = "strain_results.ods"
-                        st.session_state.download_mime = (
-                            "application/vnd.oasis.opendocument.spreadsheet"
-                        )
-            
-                    st.success("File ready for download")
-            
-            # Persistent download button
-            if st.session_state.download_data is not None:
-                if st.download_button(
-                    label="📥 Download file",
-                    data=st.session_state.download_data,
-                    file_name=st.session_state.download_name,
-                    mime=st.session_state.download_mime
-                ):
-                    # Auto-clear
-                    st.session_state.download_data = None
-                    st.session_state.download_name = None
-                    st.session_state.download_mime = None
+                # Persistent download button
+                if st.session_state.download_data is not None:
+                    if st.download_button(
+                        label="📥 Download file",
+                        data=st.session_state.download_data,
+                        file_name=st.session_state.download_name,
+                        mime=st.session_state.download_mime
+                    ):
+                        # Auto-clear
+                        st.session_state.download_data = None
+                        st.session_state.download_name = None
+                        st.session_state.download_mime = None
             
             #---------------------         
             #Generating cake plots
