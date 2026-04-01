@@ -1457,6 +1457,15 @@ if uploaded_file is not None:
         columns = st.columns(6)
         with columns[0]:
             st.subheader("Download Data")
+            with st.form("download_form"):
+                    st.session_state.download_format = st.selectbox(
+                        "Choose download format",
+                        ["Excel (.xlsx)", "OpenDocument (.ods)"],
+                        index=None,
+                        placeholder="Select a format...",
+                        key = "download_format"
+                    )
+                    submitted = st.form_submit_button("Set format")
         for i,data in enumerate(download_data):
             with columns[i]:
                 continue
@@ -1672,7 +1681,6 @@ if uploaded_file is not None:
             #---------------------         
             #Generating epsilon-psi curves
             #--------------------- 
-
             if st.button("ε-ψ Curves") and selected_hkls:
                 st.session_state.download_data["epsilon_psi_result_dict"] = generate_epsilon_psi_curves(
                     selected_hkls, psi_steps, phi_steps
