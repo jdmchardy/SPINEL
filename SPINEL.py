@@ -1668,8 +1668,6 @@ if uploaded_file is not None:
                 st.session_state.download_name = None
                 st.session_state.download_mime = None
 
-            if "form_submitted" not in st.session_state:
-                st.session_state.form_submitted = None
             if "download_format" not in st.session_state:
                 st.session_state.download_format = None
 
@@ -1687,13 +1685,14 @@ if uploaded_file is not None:
                         index=None,
                         placeholder="Select a format..."
                     )
-                    st.session_state.form_submitted = st.form_submit_button("Prepare download")
+                    submitted = st.form_submit_button("Prepare download")
             
             if st.session_state.epsilon_psi_result_dict:
                 # Generate file on submit
-                submitted = st.session_state.form_submitted
                 download_format = st.session_state.download_format
-                if submitted and download_format:
+                st.write("Test")
+                if download_format:
+                    st.write("Test2")
                     epsilon_psi_result_dict = st.session_state.epsilon_psi_result_dict
             
                     if download_format == "Excel (.xlsx)":
@@ -1823,7 +1822,6 @@ if uploaded_file is not None:
                     ax_3d.set_zlabel("intensity")
                     st.pyplot(fig)
             
-                
             st.subheader("Generate XRD patterns")
             if st.button("1D-XRD") and selected_hkls:
                 phi_values = np.radians(np.arange(0, 360, 2))
