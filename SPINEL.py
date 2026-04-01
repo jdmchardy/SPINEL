@@ -1448,6 +1448,18 @@ if uploaded_file is not None:
         st.subheader("")
         twoD_XRD = st.file_uploader("2D XRD tiff", type=["tiff"])
 
+    #Define download_data if not initialised
+    if "download_data" not in st.session_state
+        st.session_state.download_data = {}
+
+    if not download_data:
+        columns = st.columns(6)
+        with columns[0]:
+            st.subheader("Download Data")
+        for i,data in enumerate(download_data):
+            with columns[i]:
+                continue
+            
     col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([2,3,1,1,1,1,1,1])
     with col1:
         st.subheader("Reflections/Intensities")
@@ -1659,25 +1671,12 @@ if uploaded_file is not None:
             #---------------------         
             #Generating epsilon-psi curves
             #--------------------- 
-            # Initialize session state
-            if "epsilon_psi_result_dict" not in st.session_state:
-                st.session_state.epsilon_psi_result_dict = None
-            
-            if "download_data" not in st.session_state:
-                st.session_state.download_data = None
-                st.session_state.download_name = None
-                st.session_state.download_mime = None
-
-            if "download_format" not in st.session_state:
-                st.session_state.download_format = None
 
             if st.button("ε-ψ Curves") and selected_hkls:
-                st.session_state.epsilon_psi_result_dict = generate_epsilon_psi_curves(
+                st.session_state.download_data["epsilon_psi_result_dict"] = generate_epsilon_psi_curves(
                     selected_hkls, psi_steps, phi_steps
                 )
-
-                st.subheader("Download Computed Data")
-                
+            """
                 with st.form("download_form"):
                     st.session_state.download_format = st.selectbox(
                         "Choose download format",
@@ -1690,10 +1689,7 @@ if uploaded_file is not None:
             if st.session_state.epsilon_psi_result_dict:
                 # Generate file on submit
                 download_format = st.session_state.download_format
-                st.write("Test")
-                st.write(download_format)
                 if download_format:
-                    st.write("Test2")
                     epsilon_psi_result_dict = st.session_state.epsilon_psi_result_dict
             
                     if download_format == "Excel (.xlsx)":
@@ -1747,7 +1743,7 @@ if uploaded_file is not None:
                             st.session_state.download_data = None
                             st.session_state.download_name = None
                             st.session_state.download_mime = None
-            
+            """
             #---------------------         
             #Generating cake plots
             #---------------------  
