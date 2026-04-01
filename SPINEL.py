@@ -1449,7 +1449,7 @@ if uploaded_file is not None:
         twoD_XRD = st.file_uploader("2D XRD tiff", type=["tiff"])
 
     #Define download_data if not initialised
-    if "download_data" not in st.session_state
+    if "download_data" not in st.session_state:
         st.session_state.download_data = {}
 
     if not download_data:
