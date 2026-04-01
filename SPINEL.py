@@ -1452,7 +1452,7 @@ if uploaded_file is not None:
     if "download_data" not in st.session_state:
         st.session_state.download_data = {}
 
-    if not st.session_state.download_data:
+    if st.session_state.download_data:
         download_data = st.session_state.download_data
         columns = st.columns(6)
         with columns[0]:
