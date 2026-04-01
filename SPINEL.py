@@ -1668,6 +1668,11 @@ if uploaded_file is not None:
                 st.session_state.download_name = None
                 st.session_state.download_mime = None
 
+            if "form_submitted" not in st.session_state:
+                st.session_state.form_submitted = None
+            if "download_format" not in st.session_state:
+                st.session_state.download_format = None
+
             if st.button("ε-ψ Curves") and selected_hkls:
                 st.session_state.epsilon_psi_result_dict = generate_epsilon_psi_curves(
                     selected_hkls, psi_steps, phi_steps
@@ -1676,20 +1681,22 @@ if uploaded_file is not None:
                 st.subheader("Download Computed Data")
                 
                 with st.form("download_form"):
-                    format_choice = st.selectbox(
+                    st.session_state.download_format = st.selectbox(
                         "Choose download format",
                         ["Excel (.xlsx)", "OpenDocument (.ods)"],
                         index=None,
                         placeholder="Select a format..."
                     )
-                    submitted = st.form_submit_button("Prepare download")
+                    st.session_state.form_submitted = st.form_submit_button("Prepare download")
             
             if st.session_state.epsilon_psi_result_dict:
                 # Generate file on submit
-                if submitted and format_choice:
+                submitted = st.session_state.form_submitted
+                download_format = st.session_state.download_format
+                if submitted and download_format:
                     epsilon_psi_result_dict = st.session_state.epsilon_psi_result_dict
             
-                    if format_choice == "Excel (.xlsx)":
+                    if download_format == "Excel (.xlsx)":
                         output_buffer = io.BytesIO()
             
                         with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
@@ -1712,7 +1719,7 @@ if uploaded_file is not None:
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
             
-                    elif format_choice == "OpenDocument (.ods)":
+                    elif download_format == "OpenDocument (.ods)":
                         output_buffer = io.BytesIO()
             
                         with pd.ExcelWriter(output_buffer, engine='odf') as writer:
