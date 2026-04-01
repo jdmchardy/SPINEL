@@ -1690,7 +1690,7 @@ if uploaded_file is not None:
             if st.session_state.epsilon_psi_result_dict:
                 epsilon_psi_result_dict = st.session_state.epsilon_psi_result_dict
             
-                    if download_format == "Excel (.xlsx)":
+                    if st.session_state.download_format == "Excel (.xlsx)":
                         output_buffer = io.BytesIO()
             
                         with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
