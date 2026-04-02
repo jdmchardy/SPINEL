@@ -1645,7 +1645,7 @@ if uploaded_file is not None:
         if key in metadata.keys():
             pass
         else:
-            metadata[key] = 0 #Set default value to zero
+            metadata[key] = 0.0 #Set default value to zero
     
         
     # --- Parse HKL + intensity section ---
@@ -1673,21 +1673,21 @@ if uploaded_file is not None:
 
         if "params" not in st.session_state:
             st.session_state.params = {
-                "a_val": metadata['a'],
-                "b_val": metadata['b'],
-                "c_val": metadata['c'],
-                "alpha": metadata['alpha'],
-                "beta": metadata['beta'],
-                "gamma": metadata['gamma'],
-                "chi": metadata['chi'],
-                "wavelength": metadata['wavelength'],
+                "a_val": float(metadata['a']),
+                "b_val": float(metadata['b']),
+                "c_val": float(metadata['c']),
+                "alpha": float(metadata['alpha']),
+                "beta": float(metadata['beta']),
+                "gamma": float(metadata['gamma']),
+                "chi": float(metadata['chi']),
+                "wavelength": float(metadata['wavelength']),
                 **{k.lower(): metadata[k] for k in metadata.keys() if k.startswith("C")},
-                "sigma_11": metadata["sig11"],
-                "sigma_22": metadata["sig22"],
-                "sigma_33": metadata["sig33"],
-                "sigma_12": metadata["sig12"],
-                "sigma_13": metadata["sig13"],
-                "sigma_23": metadata["sig23"]
+                "sigma_11": float(metadata["sig11"]),
+                "sigma_22": float(metadata["sig22"]),
+                "sigma_33": float(metadata["sig33"]),
+                "sigma_12": float(metadata["sig12"]),
+                "sigma_13": float(metadata["sig13"]),
+                "sigma_23": float(metadata["sig23"])
             }
         with col1:
             for i, hkl in enumerate(hkl_list):
