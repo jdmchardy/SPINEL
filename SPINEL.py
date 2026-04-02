@@ -1478,7 +1478,7 @@ if uploaded_file is not None:
 
     if st.session_state.download_data:
         download_data = st.session_state.download_data
-        items = download_data.items()
+        items = list(download_data.items())
         for i, (key, data) in enumerate(items):
             with columns[i]:
                 st.write(key)
