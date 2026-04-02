@@ -2209,7 +2209,7 @@ if uploaded_file is not None:
             if st.button("Overlay XRD"):
                 phi_values = np.radians(np.arange(0, 360, 2))
                 psi_values = 0
-                t = sigma_33 - sigma_11
+                #t = st.session_state.params.get("sigma_33") - st.session_state.params.get("sigma_11")
                 strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_params, chi, phi_values, psi_values)
                 XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, Funamori_broadening)
                 generate_1D_XRD_overlay(XRD_df, x_exp, y_exp)
