@@ -1703,18 +1703,18 @@ if uploaded_file is not None:
             #---------------------         
             #Generating epsilon-psi curves
             #--------------------- 
+            epsilon_psi_dict = None
             if st.button("ε-ψ Curves") and selected_hkls:
-                st.session_state.epsilon_psi_dict = generate_epsilon_psi_curves(
+                epsilon_psi_dict = generate_epsilon_psi_curves(
                     selected_hkls, psi_steps, phi_steps
                 )
             
-            if st.session_state.epsilon_psi_dict:
-                epsilon_psi = st.session_state.epsilon_psi_dict
+            if epsilon_psi_dict is not None:
                 if st.session_state.download_format == "Excel (.xlsx)":
                     output_buffer = io.BytesIO()
         
                     with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
-                        for hkl_label, df in epsilon_psi_result_dict.items():
+                        for hkl_label, df in epsilon_psi_dict.items():
                             sheet_name = f"hkl_{hkl_label}"
                             df.to_excel(writer, sheet_name=sheet_name, index=False)
         
@@ -1737,7 +1737,7 @@ if uploaded_file is not None:
                     output_buffer = io.BytesIO()
         
                     with pd.ExcelWriter(output_buffer, engine='odf') as writer:
-                        for hkl_label, df in epsilon_psi_result_dict.items():
+                        for hkl_label, df in epsilon_psi_dict.items():
                             df.to_excel(writer, sheet_name=f"hkl_{hkl_label}", index=False)
         
                     output_buffer.seek(0)
