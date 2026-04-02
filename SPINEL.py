@@ -1546,6 +1546,7 @@ if uploaded_file is not None:
                 pass
             
     if st.session_state.download_data:
+        columns = st.columns(12)
         download_data = st.session_state.download_data
         items = list(download_data.items())
         for i, (key, data) in enumerate(items):
