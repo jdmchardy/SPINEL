@@ -1816,10 +1816,10 @@ if uploaded_file is not None:
         wavelength = st.session_state.params.get("wavelength")
         chi = st.session_state.params.get("chi")
         # Dynamically build the list of sigma_ij keys present in params
-            sigma_keys = ['sigma_11','sigma_22','sigma_33','sigma_12','sigma_13','sigma_23']
-            sigma_params = {}
-            for key in sigma_keys:
-                sigma_params[key] = st.session_state.params.get(key)
+        sigma_keys = ['sigma_11','sigma_22','sigma_33','sigma_12','sigma_13','sigma_23']
+        sigma_params = {}
+        for key in sigma_keys:
+            sigma_params[key] = st.session_state.params.get(key)
         
         # Determine grid sizes
         psi_steps = int(2 * np.sqrt(total_points))
