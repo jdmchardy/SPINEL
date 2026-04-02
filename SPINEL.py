@@ -1642,7 +1642,7 @@ if uploaded_file is not None:
 
     #Set sig12, 13, 23 if not provided in the input file
     for key in ['sig12', 'sig13', 'sig23']:
-        if metadata[key]:
+        if key in metadata.keys():
             pass
         else:
             metadata[key] = 0 #Set default value to zero
