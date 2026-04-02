@@ -1480,6 +1480,7 @@ if uploaded_file is not None:
         download_data = st.session_state.download_data
         for i, (key, data) in enumerate(download_data.items()):
             with columns[i]:
+                st.write(key)
                 
                 # Persistent download buttons
                 if st.download_button(
