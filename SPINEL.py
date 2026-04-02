@@ -1482,7 +1482,8 @@ if uploaded_file is not None:
         #Reformat the data only if selection changed
         if submitted:
             if st.session_state.download_format != st.session_state.prev_download_format:
-                st.write("Format changed → reprocessing data")
+                if st.session_state.download_data:
+                    st.write("Format changed → reprocessing data")
                 #Reformat the available data accordingly
                 for key,data in st.session_state.download_data.items():
                     if key in ["epsilon_psi", "cake"]:
