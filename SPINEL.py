@@ -1626,7 +1626,7 @@ if uploaded_file is not None:
     #Optional for off-diagonal stress terms - otherwise default to zero
     optional_keys = {'sig12', 'sig13', 'sig23'}
 
-    metadata_keys = set(metadata)
+    metadata_keys = set(metadata) - {'symmetry'} #Drops the symmetry key from the check as it is assumed present
 
     missing_keys = required_keys - metadata_keys
     allowed_keys = required_keys | optional_keys
