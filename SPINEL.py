@@ -1465,6 +1465,7 @@ if uploaded_file is not None:
                     key = "download_format"
                 )
                 submitted = st.form_submit_button("Set format")
+        st.write(st.session_state.download_format)
 
     if st.session_state.download_data:
         download_data = st.session_state.download_data
