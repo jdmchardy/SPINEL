@@ -4,6 +4,7 @@ matplotlib
 pandas
 xlsxwriter
 odfpy
+zipfile
 scipy
 lmfit
 pyFAI
