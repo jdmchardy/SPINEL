@@ -1416,8 +1416,9 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
     #ax2.set_ylabel("Residuals")
 
     #st.pyplot(fig)
-
-#### Main App logic -----------------------------------------------------
+# -----------------------------------------------------------------------
+#### Main App -----------------------------------------------------
+# -----------------------------------------------------------------------
     
 st.set_page_config(layout="wide")
 
@@ -1431,7 +1432,7 @@ col_img, col_title = st.columns([1, 3])
 with col_img:
     st.image(img, width='stretch')
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5, col6 = st.columns(6)
 
 with col1:
     st.subheader("Upload Files")
@@ -1452,20 +1453,21 @@ if uploaded_file is not None:
     if "download_data" not in st.session_state:
         st.session_state.download_data = {}
 
-    if st.session_state.download_data:
-        download_data = st.session_state.download_data
-        columns = st.columns(6)
+    #Section for downloading computed data
+    columns = st.columns(6)
         with columns[0]:
             st.subheader("Download Data")
             with st.form("download_form"):
                     st.selectbox(
-                        "Choose download format",
+                        "Set download format",
                         ["Excel (.xlsx)", "OpenDocument (.ods)"],
-                        index=None,
-                        placeholder="Select a format...",
+                        index=0,
                         key = "download_format"
                     )
                     submitted = st.form_submit_button("Set format")
+
+    if st.session_state.download_data:
+        download_data = st.session_state.download_data
         for i,data in enumerate(download_data):
             with columns[i]:
                 continue
