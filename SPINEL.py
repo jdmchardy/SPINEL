@@ -1418,9 +1418,9 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
     #st.pyplot(fig)
 
 #Helper function for storing downloadable data
-def store_download(key, df, buffer, filename, mime):
+def store_download(key, datasource, buffer, filename, mime):
         st.session_state.download_data[key] = {
-            "dataframe": df,
+            "datasource": datasource,
             "buffer": buffer,
             "filename": filename,
             "mime": mime,
@@ -1461,6 +1461,9 @@ if uploaded_file is not None:
     #Define download_data if not initialised
     if "download_data" not in st.session_state:
         st.session_state.download_data = {}
+    #Initialise the "previous" download format to track changes. Defaults to "Excel (.xlsx)"
+    if "prev_download_format" not in st.session_state:
+        st.session_state.prev_download_format = st.session_state.get("download_format", "Excel (.xlsx)")
 
     #Section for downloading computed data
     columns = st.columns(6)
@@ -1475,14 +1478,60 @@ if uploaded_file is not None:
                 )
                 submitted = st.form_submit_button("Set format")
         st.write(st.session_state.download_format)
-
+        
+        #Reformat the data only if selection changed
+        if submitted:
+            if st.session_state.download_format != st.session_state.prev_download_format:
+                st.write("Format changed → reprocessing data")
+                #Reformat the available data accordingly
+                for key,data in st.session_state.download_data.items():
+                    if key in ["epsilon_psi", "cake"]:
+                        datasource = data["datasource"]
+                        if st.session_state.download_format == "Excel (.xlsx)":
+                            output_buffer = io.BytesIO()
+                
+                            with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
+                                for hkl_label, df in datasource.items():
+                                    sheet_name = f"hkl_{hkl_label}"
+                                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+                
+                                    worksheet = writer.sheets[sheet_name]
+                                    for i, col in enumerate(df.columns):
+                                        max_width = max(
+                                            df[col].astype(str).map(len).max(),
+                                            len(col)
+                                        ) + 2
+                                        worksheet.set_column(i, i, max_width)
+                
+                            output_buffer.seek(0)
+                            buffer = output_buffer
+                            filename = data["filename"]
+                            mime =("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                            store_download(key, datasource, buffer, filename, mime)
+                
+                        elif download_format == "OpenDocument (.ods)":
+                            output_buffer = io.BytesIO()
+                
+                            with pd.ExcelWriter(output_buffer, engine='odf') as writer:
+                                for hkl_label, df in datasource.items():
+                                    df.to_excel(writer, sheet_name=f"hkl_{hkl_label}", index=False)
+                
+                            output_buffer.seek(0)
+                            buffer = output_buffer
+                            filename = data["filename"]
+                            mime =("application/vnd.oasis.opendocument.spreadsheet")
+                            store_download(key, datasource, buffer, filename, mime)
+        
+                # update stored value
+                st.session_state.prev_download_format = st.session_state.download_format
+            else:
+                continue
+            
     if st.session_state.download_data:
         download_data = st.session_state.download_data
         items = list(download_data.items())
         for i, (key, data) in enumerate(items):
             with columns[i]:
-                st.write(key)
-                
                 # Persistent download buttons
                 if st.download_button(
                     label=f"📥 Download {key}",
@@ -1729,11 +1778,12 @@ if uploaded_file is not None:
                                 worksheet.set_column(i, i, max_width)
         
                     output_buffer.seek(0)
+                    datasource = epsilon_psi_dict
                     key = "epsilon_psi"
                     buffer = output_buffer
                     filename = "strain_results.xlsx"
                     mime =("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                    store_download(key, df, buffer, filename, mime)
+                    store_download(key, datasource, buffer, filename, mime)
         
                 elif download_format == "OpenDocument (.ods)":
                     output_buffer = io.BytesIO()
@@ -1743,11 +1793,12 @@ if uploaded_file is not None:
                             df.to_excel(writer, sheet_name=f"hkl_{hkl_label}", index=False)
         
                     output_buffer.seek(0)
+                    datasource = epsilon_psi_dict
                     key = "epsilon_psi"
                     buffer = output_buffer
                     filename = "strain_results.xlsx"
                     mime =("application/vnd.oasis.opendocument.spreadsheet")
-                    store_download(key, df, buffer, filename, mime)
+                    store_download(key, datasource, buffer, filename, mime)
     
                 st.success("File ready for download")
             
