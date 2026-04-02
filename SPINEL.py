@@ -1801,7 +1801,7 @@ if uploaded_file is not None:
                     mime =("application/vnd.oasis.opendocument.spreadsheet")
                     store_download(key, datasource, buffer, filename, mime)
                 else:
-                    continue
+                    pass
     
                 st.success("File ready for download")
             
