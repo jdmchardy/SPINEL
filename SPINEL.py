@@ -1067,8 +1067,8 @@ def cost_function(lm_params, refine_flags, selected_hkls, selected_indices,
     # Stress parameters
     t = lm_params["t"].value
     sigma_params = {
-        'sigma_11' : -t / 3
-        'sigma_22' : -t / 3
+        'sigma_11' : -t / 3,
+        'sigma_22' : -t / 3,
         'sigma_33' : 2 * t / 3
     }
     for key in ['sigma_12','sigma_13','sigma_23']:
