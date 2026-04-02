@@ -1787,7 +1787,7 @@ if uploaded_file is not None:
                     mime =("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                     store_download(key, datasource, buffer, filename, mime)
         
-                elif download_format == "OpenDocument (.ods)":
+                elif st.session_state.download_format == "OpenDocument (.ods)":
                     output_buffer = io.BytesIO()
         
                     with pd.ExcelWriter(output_buffer, engine='odf') as writer:
