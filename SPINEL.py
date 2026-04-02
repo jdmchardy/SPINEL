@@ -1798,7 +1798,7 @@ if uploaded_file is not None:
                     datasource = epsilon_psi_dict
                     key = "epsilon_psi"
                     buffer = output_buffer
-                    filename = "strain_results.xlsx"
+                    filename = "strain_results.ods"
                     mime =("application/vnd.oasis.opendocument.spreadsheet")
                     store_download(key, datasource, buffer, filename, mime)
                 else:
