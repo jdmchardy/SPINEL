@@ -1552,7 +1552,7 @@ if uploaded_file is not None:
             with columns[i]:
                 # Persistent download buttons
                 if st.download_button(
-                    label=f"📥 Download {key}",
+                    label=f"📥 Download {data["filename"]}",
                     data=data["buffer"],
                     file_name=data["filename"],
                     mime=data["mime"],
