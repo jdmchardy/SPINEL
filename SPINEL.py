@@ -1565,7 +1565,7 @@ if uploaded_file is not None:
                     # Auto-clear
                     st.session_state.download_data.pop(key, None)
             
-    col1, col2, col3, col4, col5, col6, col7, col8, col9 = st.columns([2,3,1,1,1,1,1,1,1])
+    col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([2,3,1,2,1,1,1,1])
     with col1:
         st.subheader("Reflections/Intensities")
     with col2:
@@ -1622,9 +1622,29 @@ if uploaded_file is not None:
     else:
         st.error("{} symmetry is not yet supported".format(symmetry))
         required_keys = {}
-    if not required_keys.issubset(metadata):
-        st.error(f"CSV must contain: {', '.join(required_keys)}")
+    
+    #Optional for off-diagonal stress terms - otherwise default to zero
+    optional_keys = {'sig12', 'sig13', 'sig23'}
+
+    missing_keys = required_keys - metadata
+    allowed_keys = required_keys | optional_keys
+    extra_keys = metadata - allowed_keys
+    
+    if missing_keys:
+        st.error(f"Missing required keys: {', '.join(missing_keys)}")
+        st.write(f"CSV must contain at least: {', '.join(required_keys)}")
         st.stop()
+    
+    if extra_keys:
+        st.warning(f"Unexpected keys found: {', '.join(extra_keys)}")
+
+    #Set sig12, 13, 23 if not provided in the input file
+    for key in ['sig12', 'sig13', 'sig23']:
+        if metadata[key]:
+            pass
+        else:
+            metadata[key] = 0 #Set default value to zero
+    
         
     # --- Parse HKL + intensity section ---
     try:
@@ -1662,7 +1682,10 @@ if uploaded_file is not None:
                 **{k.lower(): metadata[k] for k in metadata.keys() if k.startswith("C")},
                 "sigma_11": metadata["sig11"],
                 "sigma_22": metadata["sig22"],
-                "sigma_33": metadata["sig33"]
+                "sigma_33": metadata["sig33"],
+                "sigma_12": metadata["sig12"],
+                "sigma_13": metadata["sig13"],
+                "sigma_23": metadata["sig23"]
             }
         with col1:
             for i, hkl in enumerate(hkl_list):
@@ -1726,10 +1749,15 @@ if uploaded_file is not None:
             st.session_state.params["sigma_33"] = st.number_input("σ₃₃", value=st.session_state.params["sigma_33"], step=0.1, format="%.3f")
             st.markdown("t: {}".format(round(st.session_state.params["sigma_33"] - st.session_state.params["sigma_11"],3)))
         with col7:
+            st.session_state.params["sigma_12"] = st.number_input("σ₁₂", value=st.session_state.params["sigma_12"], step=0.1, format="%.3f")
+            st.session_state.params["sigma_13"] = st.number_input("σ₁₃", value=st.session_state.params["sigma_13"], step=0.1, format="%.3f")
+            st.session_state.params["sigma_23"] = st.number_input("σ₂₃", value=st.session_state.params["sigma_23"], step=0.1, format="%.3f")
+            st.markdown("t: {}".format(round(st.session_state.params["sigma_33"] - st.session_state.params["sigma_11"],3)))
+        with col8:
             Funamori_broadening = st.checkbox("Include broadening", value=True)
             total_points = st.number_input("Total points (φ × ψ)", value=5000, min_value=10, step=5000)
             Gaussian_FWHM = st.number_input("Gaussian FWHM", value=0.1, min_value=0.005, step=0.005, format="%.3f")
-        with col8:
+        with col9:
             st.session_state.params["PO_toggle"] = st.checkbox("Preferred Orientation", value=False)
             if st.session_state.params.get("PO_toggle"):
                 po_model = st.selectbox("PO Model:",["March-Dollase"])
