@@ -121,16 +121,18 @@ def get_d0(symmetry,h,k,l,a,b,c):
         d0 = 0
     return d0
     
-def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_params, sigma_11, sigma_22, sigma_33, chi, phi_values, psi_values):
+def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_params, sigma_params, chi, phi_values, psi_values):
     """
     Evaluates strain_33 component for given hkl reflection.
     
     Parameters
     ----------
-    symmetry : str
-        Crystal symmetry
     hkl : tuple
         Miller indices (h, k, l)
+    intensity : float
+        ideal peak intensity assuming no preferred orientation
+    symmetry : str
+        Crystal symmetry
     lattice_params : dict
         Lattice parameter dictionary
         "a_val" : float (Ang)
@@ -146,15 +148,21 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         Can be extended to arbitrary length as required
         c11 : float (GPa)
         c12 : float (GPa)
-        c44 : float (GPa)        
+        c44 : float (GPa) 
+    sigma_params : dict
+        Stress matirx components
+        sigma_11 : float (GPa)
+        sigma_22 : float (GPa)
+        sigma_33 : float (GPa)
+        sigma_12 : float (GPa)
+        sigma_13 : float (GPa)
+        sigma_23 : float (GPa)
+    chi : float
+        The angle (degrees) between incident x-rays and the principle stress axis
     phi_values : np.array
         Array of phi values in radians
     psi_values : np.array or scalar
         Array of psi values in radians (or 0 to auto-calculate)
-    sigma_11, sigma_22, sigma_33 : float
-        Stress tensor components (default assumes uniaxial stress)
-    intensity : float
-        Arbitrary intensity for plotting
 
     Returns
     -------
@@ -315,11 +323,20 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     # N and M from normalised hkls
     N = np.sqrt(K**2 + L**2)
     M = np.sqrt(H**2 + K**2 + L**2)
-    
+
+    #Unpack the stress components
+    sigma_11 = sigma_params['sigma_11']
+    sigma_22 = sigma_params['sigma_22']
+    sigma_33 = sigma_params['sigma_33']
+    sigma_12 = sigma_params['sigma_12']
+    sigma_13 = sigma_params['sigma_13']
+    sigma_23 = sigma_params['sigma_23']
+
+    #The stress matrix is symmetrical about the diagonal
     sigma = np.array([
-        [sigma_11, 0, 0],
-        [0, sigma_22, 0],
-        [0, 0, sigma_33]
+        [sigma_11, sigma_12, sigma_13],
+        [sigma_12, sigma_22, sigma_23],
+        [sigma_13, sigma_23, sigma_33]
     ])
  
     #Check if phi_values are given or if it must be calculated for XRD generation
@@ -679,15 +696,18 @@ def batch_XRD(batch_upload):
             for col in df.columns
             if col.upper().startswith("C") and col[1:].isdigit()
         }
+        #Get the stress params
+        sig_params = {
+            key: row[key]
+            for key in ['sigma_11','sigma_22','sigma_33','sigma_12','sigma_13','sigma_23']
+        }
         # Combine into strain_sim_params
         strain_sim_params = (
             row["symmetry"],
             lat_params,
             row["wavelength"],
             cij_params,
-            row["sig11"],
-            row["sig22"],
-            row["sig33"],
+            sig_params,
             row["chi"],
             phi_values,
             psi_values,
@@ -707,7 +727,7 @@ def batch_XRD(batch_upload):
 
     return parameters_df, results_df, results_blocks
 
-def cake_data(selected_hkls, intensities, symmetry, lattice_params, wavelength, cijs, sigma_11, sigma_22, sigma_33, chi):
+def cake_data(selected_hkls, intensities, symmetry, lattice_params, wavelength, cijs, sigma_params, chi):
     """
     Computes the azimuth vs 2th strain data for each hkl and combines into a dictionary with entries for each hkl
 
@@ -722,7 +742,7 @@ def cake_data(selected_hkls, intensities, symmetry, lattice_params, wavelength, 
         psi_values = 0  # let compute_strain calculate psi for each HKL
         hkl_label, df, psi_list, strain_33_list = compute_strain(
             hkl, intensity, symmetry, lattice_params, wavelength, cijs,
-            sigma_11, sigma_22, sigma_33, chi, phi_values, psi_values
+            sigma_params, chi, phi_values, psi_values
         )
         cake_dict[hkl_label] = df
     
@@ -861,10 +881,15 @@ def setup_refinement_toggles(lattice_params, **additional_fields):
     p_dict["c12"] = combined_params["c12"]
     p_dict["c44"] = combined_params["c44"]
     p_dict["t"] = combined_params["sigma_33"] - combined_params["sigma_11"]
+    #Off diagonal stress terms
+    p_dict["sigma_12"] = combined_params["sigma_12"]
+    p_dict["sigma_13"] = combined_params["sigma_13"]
+    p_dict["sigma_23"] = combined_params["sigma_23"]
     p_dict["chi"] = combined_params["chi"]
 
+    #Symmetry specific refineable parameters
     if symmetry == "cubic":
-        pass 
+        pass #Already all included
     elif symmetry == "hexagonal":
         p_dict["c_val"] = combined_params["c_val"]
         p_dict["c33"] = combined_params["c33"]
@@ -925,7 +950,7 @@ def setup_refinement_toggles(lattice_params, **additional_fields):
     return st.session_state.ref_params, st.session_state.refine_flags
     
 def run_refinement(params, refine_flags, selected_hkls, selected_indices, intensities, Gaussian_FWHM, phi_values, psi_values, wavelength, symmetry, x_exp, y_exp, lattice_params, cijs,
-                   sigma_11, sigma_22, sigma_33, chi, Funamori_broadening):
+                   sigma_params, chi, Funamori_broadening):
     """
     Parameters:
         params (dict): Current parameter values
@@ -940,10 +965,10 @@ def run_refinement(params, refine_flags, selected_hkls, selected_indices, intens
     # Build lmfit.Parameters
     lm_params = Parameters()
     for name, val in params.items():
-        if name == "t":
-            min_val, max_val = -10, 10
+        if name in ["t",'sigma_12','sigma_13', 'sigma_23']:
+            min_val, max_val = -25, 25
         elif "c" in name.lower():  # elastic constants
-            min_val, max_val = 0, 1000
+            min_val, max_val = 0, 1500
         elif name == "a_val" or name == "b_val" or name == "c_val":
             min_val, max_val = 0.75 * val, 1.25 * val
         elif name == "chi":
@@ -968,7 +993,7 @@ def run_refinement(params, refine_flags, selected_hkls, selected_indices, intens
 
     # Run first iteration of refinement to determine common 2th domain
     intensities_opt = [lm_params[f"intensity_{i}"].value for i in selected_indices]
-    strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_11, sigma_22, sigma_33, chi, phi_values, psi_values)
+    strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_params, chi, phi_values, psi_values)
     
     # Generate simulated pattern
     XRD_df = Generate_XRD(selected_hkls, intensities_opt, Gaussian_FWHM, strain_sim_params, Funamori_broadening)
@@ -1007,7 +1032,7 @@ def run_refinement(params, refine_flags, selected_hkls, selected_indices, intens
     def wrapped_cost_function(lm_params):
         return cost_function(lm_params, refine_flags, selected_hkls, selected_indices, Gaussian_FWHM,
             phi_values, psi_values, wavelength, symmetry,
-            x_exp_common, y_exp_common, bin_indices, Funamori_broadening, global_lattice_params=lattice_params, global_cijs=cijs
+            x_exp_common, y_exp_common, bin_indices, Funamori_broadening, global_lattice_params=lattice_params, global_cijs=cijs, global_sigmas=sigma_params
         )
 
     # Run optimization
@@ -1019,11 +1044,12 @@ def run_refinement(params, refine_flags, selected_hkls, selected_indices, intens
 def cost_function(lm_params, refine_flags, selected_hkls, selected_indices,
                   Gaussian_FWHM, phi_values, psi_values, wavelength, symmetry,
                   x_exp_common, y_exp_common, bin_indices,
-                  Funamori_broadening, global_lattice_params, global_cijs):
+                  Funamori_broadening, global_lattice_params, global_cijs, global_sigmas):
     """
     lm_params: current parameters from lmfit
     global_lattice: dictionary containing full lattice info (a_val, b_val, c_val, alpha, beta, gamma)
     global_cijs: dictionary containing the full set of elastic constants
+    global_sigma: dictionary containing the full set of stress coefficients
     """
 
     # --- Lattice parameters: use lm_params if refining, else global values ---
@@ -1037,17 +1063,22 @@ def cost_function(lm_params, refine_flags, selected_hkls, selected_indices,
     cijs = {}
     for k in global_cijs:
         cijs[k] = lm_params[k].value if k in lm_params else global_cijs[k]
-
+        
     # Stress parameters
     t = lm_params["t"].value
-    sigma_11 = -t / 3
-    sigma_22 = -t / 3
-    sigma_33 = 2 * t / 3
+    sigma_params = {
+        'sigma_11' = -t / 3
+        'sigma_22' = -t / 3
+        'sigma_33' = 2 * t / 3
+    }
+    for key in ['sigma_12','sigma_13','sigma_23']:
+        sigma_params[key] = lm_params[key].value
+
     chi = lm_params["chi"].value
 
     intensities_opt = [lm_params[f"intensity_{i}"].value for i in selected_indices]
 
-    strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_11, sigma_22, sigma_33, chi, phi_values, psi_values)
+    strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_params, chi, phi_values, psi_values)
     XRD_df = Generate_XRD(selected_hkls, intensities_opt, Gaussian_FWHM, strain_sim_params, Funamori_broadening)
     twoth_sim = XRD_df["2th"]
     intensity_sim = XRD_df["Total Intensity"]
@@ -1056,9 +1087,6 @@ def cost_function(lm_params, refine_flags, selected_hkls, selected_indices,
     y_sim_common = interp_sim(x_exp_common)
 
     residuals = np.asarray(y_exp_common - y_sim_common)
-    #st.write("y_exp_common:{}".format(y_exp_common))
-    #st.write("y_sim_common:{}".format(y_sim_common))
-    #st.write("residuals:{}".format(residuals))
 
     # Peak position binned normalization of residuals
     norm_residuals = []
@@ -1119,8 +1147,7 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
 
     for i, (hkl, intensity) in enumerate(zip(selected_hkls, intensities), start=1):
         hkl_label, df, psi_list, strain_33_list = compute_strain(hkl, intensity, symmetry, lattice_params,
-                                                                 wavelength, cijs,
-                                                                 sigma_11, sigma_22, sigma_33,
+                                                                 wavelength, cijs, sigma_params,
                                                                  chi, phi_values, psi_values
         )
 
@@ -1647,7 +1674,6 @@ if uploaded_file is not None:
         else:
             metadata[key] = 0.0 #Set default value to zero
     
-        
     # --- Parse HKL + intensity section ---
     try:
         hkl_df = pd.read_csv(io.StringIO("\n".join(data_lines)))
@@ -1742,7 +1768,6 @@ if uploaded_file is not None:
             c_keys = [key for key in st.session_state.params.keys() if key.startswith('c') and key not in ["c_val", "chi"]]
             cijs = {}
             for key in c_keys:
-                #var_name = key.lower()  # changes variables to lower case e.g. c11, c12, etc.
                 st.session_state.params[key] = st.number_input(key, value=st.session_state.params[key])
                 cijs[key] = st.session_state.params.get(key)
         with col6:
@@ -1790,9 +1815,11 @@ if uploaded_file is not None:
         }
         wavelength = st.session_state.params.get("wavelength")
         chi = st.session_state.params.get("chi")
-        sigma_11 = st.session_state.params.get("sigma_11")
-        sigma_22 = st.session_state.params.get("sigma_22")
-        sigma_33 = st.session_state.params.get("sigma_33")
+        # Dynamically build the list of sigma_ij keys present in params
+            sigma_keys = ['sigma_11','sigma_22','sigma_33','sigma_12','sigma_13','sigma_23']
+            sigma_params = {}
+            for key in sigma_keys:
+                sigma_params[key] = st.session_state.params.get(key)
         
         # Determine grid sizes
         psi_steps = int(2 * np.sqrt(total_points))
@@ -1807,9 +1834,7 @@ if uploaded_file is not None:
             #--------------------- 
             epsilon_psi_dict = None
             if st.button("ε-ψ Curves") and selected_hkls:
-                epsilon_psi_dict = generate_epsilon_psi_curves(
-                    selected_hkls, psi_steps, phi_steps
-                )
+                epsilon_psi_dict = generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps)
 
             #Format the data and save to session_state
             if epsilon_psi_dict is not None:
@@ -1878,7 +1903,7 @@ if uploaded_file is not None:
             #---------------------  
             if st.button("Cake Plot") and selected_hkls:
                 cake_dict = cake_data(selected_hkls, intensities, symmetry, lattice_params, 
-                                                    wavelength, cijs, sigma_11, sigma_22, sigma_33, chi)
+                                                    wavelength, cijs, sigma_params, chi)
                 generate_cake_figures(cake_dict, selected_hkls, Funamori_broadening)
                 
                 if cake_dict != {}:
@@ -1994,7 +2019,7 @@ if uploaded_file is not None:
             if st.button("1D-XRD") and selected_hkls:
                 phi_values = np.radians(np.arange(0, 360, 2))
                 psi_values = 0
-                strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_11, sigma_22, sigma_33, chi, phi_values, psi_values)
+                strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_params, chi, phi_values, psi_values)
 
                 XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, broadening=Funamori_broadening)
 
@@ -2033,7 +2058,7 @@ if uploaded_file is not None:
                     #Compute the cake data
                     cake_dict = {}
                     cake_dict = cake_data(selected_hkls, intensities, symmetry, lattice_params, 
-                                            wavelength, cijs, sigma_11, sigma_22, sigma_33, chi)
+                                            wavelength, cijs, sigma_params, chi)
                     cake_two_thetas, cake_deltas, cake_intensity = cake_dict_to_2Dcake(cake_dict, broadening=Funamori_broadening)
 
                     fig, ax = plt.subplots()
@@ -2185,16 +2210,14 @@ if uploaded_file is not None:
                 phi_values = np.radians(np.arange(0, 360, 2))
                 psi_values = 0
                 t = sigma_33 - sigma_11
-                strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_11, sigma_22, sigma_33, chi, phi_values, psi_values)
+                strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_params, chi, phi_values, psi_values)
                 XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, Funamori_broadening)
                 generate_1D_XRD_overlay(XRD_df, x_exp, y_exp)
         
             #Construct the default parameter dictionary for refinement
-            stress = {"sigma_11": sigma_11,
-                     "sigma_33": sigma_33}
             other = {"chi" : chi}
         
-            setup_refinement_toggles(lattice_params, cijs=cijs, stress=stress, other=other)
+            setup_refinement_toggles(lattice_params, cijs=cijs, stress=sigma_params, other=other)
             
             if st.button("Refine XRD"):
                 phi_values = np.radians(np.arange(0, 360, 10))
@@ -2202,7 +2225,7 @@ if uploaded_file is not None:
                 
                 result = run_refinement(st.session_state.ref_params, st.session_state.refine_flags, selected_hkls, selected_indices, intensities, Gaussian_FWHM, 
                                         phi_values, psi_values, wavelength, symmetry, x_exp, y_exp, lattice_params, cijs,
-                                        sigma_11, sigma_22, sigma_33, chi, Funamori_broadening)
+                                        sigma_params, chi, Funamori_broadening)
             
                 if result.success:
                     st.success("Refinement successful!")
@@ -2224,6 +2247,9 @@ if uploaded_file is not None:
                     st.session_state.params["sigma_11"] = -t_opt / 3
                     st.session_state.params["sigma_22"] = -t_opt / 3
                     st.session_state.params["sigma_33"] = 2 * t_opt / 3
+                    st.session_state.params["sigma_12"] = result.params["sigma_12"]
+                    st.session_state.params["sigma_13"] = result.params["sigma_13"]
+                    st.session_state.params["sigma_23"] = result.params["sigma_23"]
     
                     #Update the intensity widgets and state values
                     
@@ -2246,9 +2272,8 @@ if uploaded_file is not None:
                     }
                     wavelength = st.session_state.params.get("wavelength")
                     chi = st.session_state.params.get("chi")
-                    sigma_11 = st.session_state.params.get("sigma_11")
-                    sigma_22 = st.session_state.params.get("sigma_22")
-                    sigma_33 = st.session_state.params.get("sigma_33")
+                    for key in sigma_keys:
+                        sigma_params[key] = st.session_state.params.get(key)
                     c_keys = [key for key in st.session_state.params.keys() if key.startswith('c') and key not in ["c_val", "chi"]]
                     cijs = {}
                     for key in c_keys:
@@ -2264,9 +2289,7 @@ if uploaded_file is not None:
                         lattice_params,
                         wavelength,
                         cijs,
-                        sigma_11,
-                        sigma_22,
-                        sigma_33,
+                        sigma_params,
                         chi,
                         phi_values,
                         psi_values
