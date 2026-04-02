@@ -1523,7 +1523,6 @@ if uploaded_file is not None:
                             store_download(key, datasource, buffer, filename, mime)
                         else:
                             continue
-        
                 # update stored value
                 st.session_state.prev_download_format = st.session_state.download_format
             else:
