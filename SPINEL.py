@@ -1982,12 +1982,13 @@ if uploaded_file is not None:
                 
                 # Move cursor to start for reading
                 output_buffer.seek(0)
-                st.download_button(
-                    label="📥 Download simulated xy data (.xy)",
-                    data=output_buffer.getvalue(),
-                    file_name="Simulated_XRD.xy",
-                    mime="text/plain"
-                )
+                datasource = XRD_df
+                key = "1D XRD"
+                buffer = output_buffer
+                filename = "1D XRD.xy"
+                mime =("text/plain")
+                store_download(key, datasource, buffer, filename, mime)
+                st.success("File available for download above")
 
             if poni_file is not None:
                 if st.button("2D-XRD") and selected_hkls:
