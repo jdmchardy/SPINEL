@@ -12,6 +12,7 @@ from scipy.signal import fftconvolve
 from lmfit import Parameters, minimize, fit_report
 from pyFAI import AzimuthalIntegrator
 import tempfile
+import zipfile
 
 #For interactive plotting
 import plotly.graph_objects as go
@@ -1472,7 +1473,7 @@ if uploaded_file is not None:
         with st.form("download_form"):
                 st.selectbox(
                     "Set download format",
-                    ["Excel (.xlsx)", "OpenDocument (.ods)"],
+                    ["Excel (.xlsx)", "OpenDocument (.ods)", "ZIP of CSVs (.zip)"],
                     index=0,
                     key = "download_format"
                 )
@@ -1521,6 +1522,21 @@ if uploaded_file is not None:
                             buffer = output_buffer
                             filename = data["filename"]
                             mime =("application/vnd.oasis.opendocument.spreadsheet")
+                            store_download(key, datasource, buffer, filename, mime)
+
+                        elif st.session_state.download_format == "ZIP of CSVs (.zip)":
+                            output_buffer = io.BytesIO()
+        
+                            with zipfile.ZipFile(output_buffer, "w") as zf:
+                                for hkl_label, df in datasource.items():
+                                    csv_buffer = io.StringIO()
+                                    df.to_csv(csv_buffer, index=False)
+                                    zf.writestr(f"{hkl_label}.csv", csv_buffer.getvalue())
+                            
+                            output_buffer.seek(0)
+                            buffer = output_buffer
+                            filename = data["filename"]
+                            mime =("application/zip")
                             store_download(key, datasource, buffer, filename, mime)
                         else:
                             pass
@@ -1783,7 +1799,7 @@ if uploaded_file is not None:
                     datasource = epsilon_psi_dict
                     key = "epsilon_psi"
                     buffer = output_buffer
-                    filename = "strain_results.xlsx"
+                    filename = "epsilon_psi.xlsx"
                     mime =("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                     store_download(key, datasource, buffer, filename, mime)
         
@@ -1798,8 +1814,25 @@ if uploaded_file is not None:
                     datasource = epsilon_psi_dict
                     key = "epsilon_psi"
                     buffer = output_buffer
-                    filename = "strain_results.ods"
+                    filename = "epsilon_psi.ods"
                     mime =("application/vnd.oasis.opendocument.spreadsheet")
+                    store_download(key, datasource, buffer, filename, mime)
+
+                elif st.session_state.download_format == "ZIP of CSVs (.zip)":
+                    output_buffer = io.BytesIO()
+
+                    with zipfile.ZipFile(output_buffer, "w") as zf:
+                        for hkl_label, df in datasource.items():
+                            csv_buffer = io.StringIO()
+                            df.to_csv(csv_buffer, index=False)
+                            zf.writestr(f"{hkl_label}.csv", csv_buffer.getvalue())
+                    
+                    output_buffer.seek(0)
+                    datasource = epsilon_psi_dict
+                    key = "epsilon_psi"
+                    buffer = output_buffer
+                    filename = "epsilon_psi.zip"
+                    mime =("application/zip")
                     store_download(key, datasource, buffer, filename, mime)
                 else:
                     pass
