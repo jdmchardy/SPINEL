@@ -1908,7 +1908,7 @@ if uploaded_file is not None:
                     else:
                         pass
         
-                    st.success("File available for download above"))
+                    st.success("File available for download above")
 
             #Plotting preferred orientation
             if st.session_state.params.get("PO_toggle"):
