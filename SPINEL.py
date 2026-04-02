@@ -1507,7 +1507,8 @@ if uploaded_file is not None:
                 
                             output_buffer.seek(0)
                             buffer = output_buffer
-                            filename = data["filename"]
+                            file = data["filename"].split(".")
+                            filename = "{file[0]}.xlsx"
                             mime =("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                             store_download(key, datasource, buffer, filename, mime)
                 
@@ -1520,7 +1521,8 @@ if uploaded_file is not None:
                 
                             output_buffer.seek(0)
                             buffer = output_buffer
-                            filename = data["filename"]
+                            file = data["filename"].split(".")
+                            filename = "{file[0]}.ods"
                             mime =("application/vnd.oasis.opendocument.spreadsheet")
                             store_download(key, datasource, buffer, filename, mime)
 
@@ -1535,7 +1537,8 @@ if uploaded_file is not None:
                             
                             output_buffer.seek(0)
                             buffer = output_buffer
-                            filename = data["filename"]
+                            file = data["filename"].split(".")
+                            filename = "{file[0]}.zip"
                             mime =("application/zip")
                             store_download(key, datasource, buffer, filename, mime)
                         else:
