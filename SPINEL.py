@@ -1402,7 +1402,7 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
 
     st.plotly_chart(fig, use_container_width=True)
     
-#Old matplotlib implementation
+    #Old matplotlib implementation
     #fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
     #ax1.plot(x_exp, y_exp, label="Experimental", color='black', lw=0.5)
     #ax1.plot(x_exp, y_sim, label="Simulated", linestyle='--', color='red', lw=0.5)
@@ -1416,6 +1416,15 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
     #ax2.set_ylabel("Residuals")
 
     #st.pyplot(fig)
+
+#Helper function for storing downloadable data
+def store_download(key, df, buffer, filename, mime):
+        st.session_state.download_data[key] = {
+            "dataframe": df,
+            "buffer": buffer,
+            "filename": filename,
+            "mime": mime,
+        }
 # -----------------------------------------------------------------------
 #### Main App -----------------------------------------------------
 # -----------------------------------------------------------------------
@@ -1469,9 +1478,21 @@ if uploaded_file is not None:
 
     if st.session_state.download_data:
         download_data = st.session_state.download_data
-        for i,data in enumerate(download_data):
+        for i, (key, data) in enumerate(download_data.items()):
             with columns[i]:
-                continue
+                
+                # Persistent download buttons
+                if st.download_button(
+                    label=f"📥 Download {key}",
+                    data=data["buffer"],
+                    file_name=data["filename"],
+                    mime=data["mime"],
+                    key=f"download_{i}"  # unique key required
+                ):
+                    # Auto-clear
+                    #st.session_state.download_data = None
+                    #st.session_state.download_name = None
+                    #st.session_state.download_mime = None
             
     col1, col2, col3, col4, col5, col6, col7, col8, col9 = st.columns([2,3,1,1,1,1,1,1,1])
     with col1:
@@ -1685,66 +1706,51 @@ if uploaded_file is not None:
             #Generating epsilon-psi curves
             #--------------------- 
             if st.button("ε-ψ Curves") and selected_hkls:
-                st.session_state.download_data["epsilon_psi_result_dict"] = generate_epsilon_psi_curves(
+                st.session_state.epsilon_psi_dict = generate_epsilon_psi_curves(
                     selected_hkls, psi_steps, phi_steps
                 )
-            """
             
-            if st.session_state.epsilon_psi_result_dict:
-                epsilon_psi_result_dict = st.session_state.epsilon_psi_result_dict
+            if st.session_state.epsilon_psi_dict:
+                epsilon_psi = st.session_state.epsilon_psi_dict
+                if st.session_state.download_format == "Excel (.xlsx)":
+                    output_buffer = io.BytesIO()
+        
+                    with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
+                        for hkl_label, df in epsilon_psi_result_dict.items():
+                            sheet_name = f"hkl_{hkl_label}"
+                            df.to_excel(writer, sheet_name=sheet_name, index=False)
+        
+                            worksheet = writer.sheets[sheet_name]
+                            for i, col in enumerate(df.columns):
+                                max_width = max(
+                                    df[col].astype(str).map(len).max(),
+                                    len(col)
+                                ) + 2
+                                worksheet.set_column(i, i, max_width)
+        
+                    output_buffer.seek(0)
+                    key = "epsilon_psi"
+                    buffer = out_put_buffer
+                    filename = "strain_results.xlsx"
+                    mime =("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    store_download(key, df, buffer, filename, mime)
+        
+                elif download_format == "OpenDocument (.ods)":
+                    output_buffer = io.BytesIO()
+        
+                    with pd.ExcelWriter(output_buffer, engine='odf') as writer:
+                        for hkl_label, df in epsilon_psi_result_dict.items():
+                            df.to_excel(writer, sheet_name=f"hkl_{hkl_label}", index=False)
+        
+                    output_buffer.seek(0)
+                    key = "epsilon_psi"
+                    buffer = out_put_buffer
+                    filename = "strain_results.xlsx"
+                    mime =("application/vnd.oasis.opendocument.spreadsheet")
+                    store_download(key, df, buffer, filename, mime)
+    
+                st.success("File ready for download")
             
-                    if st.session_state.download_format == "Excel (.xlsx)":
-                        output_buffer = io.BytesIO()
-            
-                        with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
-                            for hkl_label, df in epsilon_psi_result_dict.items():
-                                sheet_name = f"hkl_{hkl_label}"
-                                df.to_excel(writer, sheet_name=sheet_name, index=False)
-            
-                                worksheet = writer.sheets[sheet_name]
-                                for i, col in enumerate(df.columns):
-                                    max_width = max(
-                                        df[col].astype(str).map(len).max(),
-                                        len(col)
-                                    ) + 2
-                                    worksheet.set_column(i, i, max_width)
-            
-                        output_buffer.seek(0)
-                        st.session_state.download_data = output_buffer
-                        st.session_state.download_name = "strain_results.xlsx"
-                        st.session_state.download_mime = (
-                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-            
-                    elif download_format == "OpenDocument (.ods)":
-                        output_buffer = io.BytesIO()
-            
-                        with pd.ExcelWriter(output_buffer, engine='odf') as writer:
-                            for hkl_label, df in epsilon_psi_result_dict.items():
-                                df.to_excel(writer, sheet_name=f"hkl_{hkl_label}", index=False)
-            
-                        output_buffer.seek(0)
-                        st.session_state.download_data = output_buffer
-                        st.session_state.download_name = "strain_results.ods"
-                        st.session_state.download_mime = (
-                            "application/vnd.oasis.opendocument.spreadsheet"
-                        )
-            
-                    st.success("File ready for download")
-                
-                    # Persistent download button
-                    if st.session_state.download_data is not None:
-                        if st.download_button(
-                            label="📥 Download file",
-                            data=st.session_state.download_data,
-                            file_name=st.session_state.download_name,
-                            mime=st.session_state.download_mime
-                        ):
-                            # Auto-clear
-                            st.session_state.download_data = None
-                            st.session_state.download_name = None
-                            st.session_state.download_mime = None
-            """
             #---------------------         
             #Generating cake plots
             #---------------------  
