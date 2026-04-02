@@ -1521,6 +1521,8 @@ if uploaded_file is not None:
                             filename = data["filename"]
                             mime =("application/vnd.oasis.opendocument.spreadsheet")
                             store_download(key, datasource, buffer, filename, mime)
+                        else:
+                            continue
         
                 # update stored value
                 st.session_state.prev_download_format = st.session_state.download_format
@@ -1799,6 +1801,8 @@ if uploaded_file is not None:
                     filename = "strain_results.xlsx"
                     mime =("application/vnd.oasis.opendocument.spreadsheet")
                     store_download(key, datasource, buffer, filename, mime)
+                else:
+                    continue
     
                 st.success("File ready for download")
             
