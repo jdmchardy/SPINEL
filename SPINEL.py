@@ -1777,7 +1777,8 @@ if uploaded_file is not None:
                 epsilon_psi_dict = generate_epsilon_psi_curves(
                     selected_hkls, psi_steps, phi_steps
                 )
-            
+
+            #Format the data and save to session_state
             if epsilon_psi_dict is not None:
                 if st.session_state.download_format == "Excel (.xlsx)":
                     output_buffer = io.BytesIO()
@@ -1837,35 +1838,77 @@ if uploaded_file is not None:
                 else:
                     pass
     
-                st.success("File ready for download")
+                st.success("File available for download above")
             
             #---------------------         
             #Generating cake plots
             #---------------------  
             if st.button("Cake Plot") and selected_hkls:
-                results_dict = cake_data(selected_hkls, intensities, symmetry, lattice_params, 
+                cake_dict = cake_data(selected_hkls, intensities, symmetry, lattice_params, 
                                                     wavelength, cijs, sigma_11, sigma_22, sigma_33, chi)
-                generate_cake_figures(results_dict, selected_hkls, Funamori_broadening)
+                generate_cake_figures(cake_dict, selected_hkls, Funamori_broadening)
                 
-                if results_dict != {}:
-                    st.subheader("Download Computed Data")
-                    output_buffer = io.BytesIO()
-                    with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
-                        for hkl_label, df in results_dict.items():
-                            sheet_name = f"hkl_{hkl_label}"
-                            df.to_excel(writer, sheet_name=sheet_name, index=False)
-                            # auto-width adjustment
-                            worksheet = writer.sheets[sheet_name]
-                            for i, col in enumerate(df.columns):
-                                max_width = max(df[col].astype(str).map(len).max(), len(col)) + 2
-                                worksheet.set_column(i, i, max_width)
-                    output_buffer.seek(0)
-                    st.download_button(
-                        label="📥 Download Cake results as Excel (.xlsx)",
-                        data=output_buffer,
-                        file_name="cakes_results.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                if cake_dict != {}:
+                    #Format the data and save to session_state
+                    if st.session_state.download_format == "Excel (.xlsx)":
+                        output_buffer = io.BytesIO()
+            
+                        with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
+                            for hkl_label, df in cake_dict.items():
+                                sheet_name = f"hkl_{hkl_label}"
+                                df.to_excel(writer, sheet_name=sheet_name, index=False)
+            
+                                worksheet = writer.sheets[sheet_name]
+                                for i, col in enumerate(df.columns):
+                                    max_width = max(
+                                        df[col].astype(str).map(len).max(),
+                                        len(col)
+                                    ) + 2
+                                    worksheet.set_column(i, i, max_width)
+            
+                        output_buffer.seek(0)
+                        datasource = cake_dict
+                        key = "cake"
+                        buffer = output_buffer
+                        filename = "cake.xlsx"
+                        mime =("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                        store_download(key, datasource, buffer, filename, mime)
+            
+                    elif st.session_state.download_format == "OpenDocument (.ods)":
+                        output_buffer = io.BytesIO()
+            
+                        with pd.ExcelWriter(output_buffer, engine='odf') as writer:
+                            for hkl_label, df in cake_dict.items():
+                                df.to_excel(writer, sheet_name=f"hkl_{hkl_label}", index=False)
+            
+                        output_buffer.seek(0)
+                        datasource = cake_dict
+                        key = "cake"
+                        buffer = output_buffer
+                        filename = "cake.ods"
+                        mime =("application/vnd.oasis.opendocument.spreadsheet")
+                        store_download(key, datasource, buffer, filename, mime)
+    
+                    elif st.session_state.download_format == "ZIP of CSVs (.zip)":
+                        output_buffer = io.BytesIO()
+    
+                        with zipfile.ZipFile(output_buffer, "w") as zf:
+                            for hkl_label, df in cake_dict.items():
+                                csv_buffer = io.StringIO()
+                                df.to_csv(csv_buffer, index=False)
+                                zf.writestr(f"{hkl_label}.csv", csv_buffer.getvalue())
+                        
+                        output_buffer.seek(0)
+                        datasource = cake_dict
+                        key = "cake"
+                        buffer = output_buffer
+                        filename = "cake.zip"
+                        mime =("application/zip")
+                        store_download(key, datasource, buffer, filename, mime)
+                    else:
+                        pass
+        
+                    st.success("File available for download above"))
 
             #Plotting preferred orientation
             if st.session_state.params.get("PO_toggle"):
