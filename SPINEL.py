@@ -1490,7 +1490,7 @@ if uploaded_file is not None:
                     key=f"download_{i}"  # unique key required
                 ):
                     # Auto-clear
-                    st.session_state.download_data[key] = None
+                    st.session_state.download_data.pop(key, None)
             
     col1, col2, col3, col4, col5, col6, col7, col8, col9 = st.columns([2,3,1,1,1,1,1,1,1])
     with col1:
