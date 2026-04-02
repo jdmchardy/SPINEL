@@ -1455,16 +1455,16 @@ if uploaded_file is not None:
 
     #Section for downloading computed data
     columns = st.columns(6)
-        with columns[0]:
-            st.subheader("Download Data")
-            with st.form("download_form"):
-                    st.selectbox(
-                        "Set download format",
-                        ["Excel (.xlsx)", "OpenDocument (.ods)"],
-                        index=0,
-                        key = "download_format"
-                    )
-                    submitted = st.form_submit_button("Set format")
+    with columns[0]:
+        st.subheader("Download Data")
+        with st.form("download_form"):
+                st.selectbox(
+                    "Set download format",
+                    ["Excel (.xlsx)", "OpenDocument (.ods)"],
+                    index=0,
+                    key = "download_format"
+                )
+                submitted = st.form_submit_button("Set format")
 
     if st.session_state.download_data:
         download_data = st.session_state.download_data
