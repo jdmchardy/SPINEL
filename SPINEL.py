@@ -1174,7 +1174,7 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
     fig.update_layout(height=450 * len(selected_hkls),hovermode="closest")
 
     st.plotly_chart(fig,
-                    use_container_width=True,
+                    width="stretch",
                     config={"scrollZoom": False}  # Disables wheel zoom
     )
     return results_dict
@@ -1330,7 +1330,7 @@ def generate_1D_XRD_plot(XRD_df):
 
     fig.update_xaxes(title="2th (degrees)", title_font=dict(size=18), tickfont=dict(size=14))
     fig.update_yaxes(title="Intensity (arb. u.)", title_font=dict(size=18), tickfont=dict(size=14))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 # Old matplotlib implementation
     #fig, ax = plt.subplots(figsize=(8, 4))
@@ -1400,7 +1400,7 @@ def generate_1D_XRD_overlay(XRD_df, x_exp, y_exp):
 
     fig.update_layout(height=700, legend=dict(font=dict(size=14)))
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     #Old matplotlib implementation
     #fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
