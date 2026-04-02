@@ -1626,9 +1626,11 @@ if uploaded_file is not None:
     #Optional for off-diagonal stress terms - otherwise default to zero
     optional_keys = {'sig12', 'sig13', 'sig23'}
 
-    missing_keys = required_keys - metadata
+    metadata_keys = set(metadata)
+
+    missing_keys = required_keys - metadata_keys
     allowed_keys = required_keys | optional_keys
-    extra_keys = metadata - allowed_keys
+    extra_keys = metadata_keys - allowed_keys
     
     if missing_keys:
         st.error(f"Missing required keys: {', '.join(missing_keys)}")
