@@ -1754,7 +1754,6 @@ if uploaded_file is not None:
             st.session_state.params["sigma_12"] = st.number_input("σ₁₂", value=st.session_state.params["sigma_12"], step=0.1, format="%.3f")
             st.session_state.params["sigma_13"] = st.number_input("σ₁₃", value=st.session_state.params["sigma_13"], step=0.1, format="%.3f")
             st.session_state.params["sigma_23"] = st.number_input("σ₂₃", value=st.session_state.params["sigma_23"], step=0.1, format="%.3f")
-            st.markdown("t: {}".format(round(st.session_state.params["sigma_33"] - st.session_state.params["sigma_11"],3)))
         with col8:
             Funamori_broadening = st.checkbox("Include broadening", value=True)
             total_points = st.number_input("Total points (φ × ψ)", value=5000, min_value=10, step=5000)
