@@ -1984,7 +1984,7 @@ if uploaded_file is not None:
                 output_buffer.seek(0)
                 datasource = XRD_df
                 key = "1D XRD"
-                buffer = output_buffer
+                buffer = output_buffer.getvalue()
                 filename = "1D XRD.xy"
                 mime =("text/plain")
                 store_download(key, datasource, buffer, filename, mime)
