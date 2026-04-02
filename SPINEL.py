@@ -1822,7 +1822,7 @@ if uploaded_file is not None:
                     output_buffer = io.BytesIO()
 
                     with zipfile.ZipFile(output_buffer, "w") as zf:
-                        for hkl_label, df in datasource.items():
+                        for hkl_label, df in epsilon_psi_dict.items():
                             csv_buffer = io.StringIO()
                             df.to_csv(csv_buffer, index=False)
                             zf.writestr(f"{hkl_label}.csv", csv_buffer.getvalue())
