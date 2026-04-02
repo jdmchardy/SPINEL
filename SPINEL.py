@@ -1728,7 +1728,7 @@ if uploaded_file is not None:
         
                     output_buffer.seek(0)
                     key = "epsilon_psi"
-                    buffer = out_put_buffer
+                    buffer = output_buffer
                     filename = "strain_results.xlsx"
                     mime =("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                     store_download(key, df, buffer, filename, mime)
@@ -1742,7 +1742,7 @@ if uploaded_file is not None:
         
                     output_buffer.seek(0)
                     key = "epsilon_psi"
-                    buffer = out_put_buffer
+                    buffer = output_buffer
                     filename = "strain_results.xlsx"
                     mime =("application/vnd.oasis.opendocument.spreadsheet")
                     store_download(key, df, buffer, filename, mime)
