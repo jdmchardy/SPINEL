@@ -1110,7 +1110,7 @@ def compute_bin_indices(x_exp_common, hkl_peak_centers, window_width=0.2):
     Parameters:
         x_exp_common (np.ndarray): Experimental 2θ values, common domain.
         peak_centers (List[float]): Estimated peak centers (from HKLs).
-        window_width (float): Total width of the window (e.g., 0.2 for ±0.1).
+        window_width (float): Total width of the window (e.g., 0.2 for ±0.2).
         
     Returns:
         List of slice objects (or index arrays) to use for residual slicing.
