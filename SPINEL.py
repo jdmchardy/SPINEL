@@ -866,13 +866,13 @@ def setup_refinement_toggles(lattice_params, **additional_fields):
         st.session_state.refine_flags = {k: False for k in p_dict}
         st.session_state.refine_flags["peak_intensity"] = False  # default for peak intensities
 
-    st.subheader("Refinement Parameters")
+    st.subheader("Refinement Parameters (Select to refine)")
 
     for key, default_val in p_dict.items():
         col1, col2 = st.columns([1, 1])
         with col1:
             st.session_state.refine_flags[key] = st.checkbox(
-                f"Refine {key}",
+                f"{key}",
                 value=st.session_state.refine_flags.get(key, False),
                 key=f"chk_{key}"
             )
