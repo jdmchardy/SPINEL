@@ -2247,9 +2247,9 @@ if uploaded_file is not None:
                     st.session_state.params["sigma_11"] = -t_opt / 3
                     st.session_state.params["sigma_22"] = -t_opt / 3
                     st.session_state.params["sigma_33"] = 2 * t_opt / 3
-                    st.session_state.params["sigma_12"] = result.params["sigma_12"]
-                    st.session_state.params["sigma_13"] = result.params["sigma_13"]
-                    st.session_state.params["sigma_23"] = result.params["sigma_23"]
+                    st.session_state.params["sigma_12"] = result.params["sigma_12"].value
+                    st.session_state.params["sigma_13"] = result.params["sigma_13"].value
+                    st.session_state.params["sigma_23"] = result.params["sigma_23"].value
     
                     #Update the intensity widgets and state values
                     
