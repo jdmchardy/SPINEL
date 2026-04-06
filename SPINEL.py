@@ -2296,17 +2296,18 @@ if uploaded_file is not None:
                     )
                     
                     XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, Funamori_broadening)
-                    twoth_sim = XRD_df["2th"]
-                    intensity_sim = XRD_df["Total Intensity"]
-                    x_min_sim = np.min(twoth_sim)
-                    x_max_sim = np.max(twoth_sim)
-                    mask = (x_exp >= x_min_sim) & (x_exp <= x_max_sim)
-                    x_exp_common = x_exp[mask]
-                    y_exp_common = y_exp[mask]
-                    interp_sim = interp1d(twoth_sim, intensity_sim, bounds_error=False, fill_value=0)
-                    y_sim_common = interp_sim(x_exp_common)
+                    #twoth_sim = XRD_df["2th"]
+                    #intensity_sim = XRD_df["Total Intensity"]
+                    #x_min_sim = np.min(twoth_sim)
+                    #x_max_sim = np.max(twoth_sim)
+                    #mask = (x_exp >= x_min_sim) & (x_exp <= x_max_sim)
+                    #x_exp_common = x_exp[mask]
+                    #y_exp_common = y_exp[mask]
+                    #interp_sim = interp1d(twoth_sim, intensity_sim, bounds_error=False, fill_value=0)
+                    #y_sim_common = interp_sim(x_exp_common)
         
-                    plot_overlay(x_exp_common, y_exp_common, x_exp_common, y_sim_common, title="Refined Fit")
+                    #plot_overlay(x_exp_common, y_exp_common, x_exp_common, y_sim_common, title="Refined Fit")
+                    generate_1D_XRD_overlay(XRD_df, x_exp, y_exp)
                     
                 else:
                     st.error("Refinement failed.")
