@@ -566,7 +566,7 @@ def Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, b
 def batch_XRD(batch_upload):
     batch_upload.seek(0)  # reset pointer
     # Read everything into a DataFrame
-    df = pd.read_csv(batch_upload)
+    df = pd.sv(batch_upload)
 
     # Convert numerical columns where possible
     for col in df.columns:
@@ -1594,7 +1594,7 @@ if uploaded_file is not None:
     if uploaded_XRD is not None:
         raw_lines = uploaded_XRD.read().decode("utf-8").splitlines()
         data_lines = [line for line in raw_lines if not line.strip().startswith("#") and line.strip()]
-        data = pd.read_csv(io.StringIO("\n".join(data_lines)), delim_whitespace=True, header=None, names=['2th', 'intensity'])
+        data = pd.read_csv(io.StringIO("\n".join(data_lines)), sep=r'\s+', header=None, names=['2th', 'intensity'])
         x_exp = data['2th'].values
         y_exp = data['intensity'].values
         #Normalise exp data
