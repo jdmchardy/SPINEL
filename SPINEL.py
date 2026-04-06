@@ -1262,7 +1262,7 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
             axs.scatter(df["2th"], df["delta (degrees)"], 
                         color="black",
                         marker = '.', 
-                        s=3, 
+                        s=2, 
                         alpha = normed_I
                        )
     else:
@@ -1284,7 +1284,7 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                 axs.scatter(mean_2ths, deltas, 
                             color="black",
                             marker = '.', 
-                            s=5,
+                            s=2,
                             alpha=normed_I
                            )
         else: #Transverse geometry with broadening off
@@ -1304,7 +1304,7 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
                 axs.scatter(mean_2th, deltas, 
                             color="black",
                             marker = '.', 
-                            s=5,
+                            s=2,
                             alpha=normed_I
                            )
     axs.set_xlabel("2th (degrees)")
