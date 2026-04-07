@@ -2238,7 +2238,7 @@ if uploaded_file is not None:
                             if key in ["b_val", "c_val"]:
                                 if symmetry == "cubic":
                                     st.session_state.params[key] = result.params["a_val"].value
-                                elif symmetry in ["tetragonal_A", "tetragonal_B"]:
+                                elif symmetry in ["hexagonal", "tetragonal_A", "tetragonal_B", "trigonal_A"]:
                                     if key == "b_val":
                                         st.session_state.params[key] = result.params["a_val"].value
                     
