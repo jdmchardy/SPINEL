@@ -738,7 +738,7 @@ def cake_data(selected_hkls, intensities, symmetry, lattice_params, wavelength, 
     cake_dict = {}
     
     for hkl, intensity in zip(selected_hkls, intensities):
-        phi_values = np.radians(np.arange(0, 360, 5))
+        phi_values = np.radians(np.arange(0, 360, 360))
         psi_values = 0  # let compute_strain calculate psi for each HKL
         hkl_label, df, psi_list, strain_33_list = compute_strain(
             hkl, intensity, symmetry, lattice_params, wavelength, cijs,
