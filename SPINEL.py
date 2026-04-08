@@ -430,8 +430,13 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     #Convert sigma tensor to voigt form [N,M,3,3] to [N,M,6]
     sigma_double_prime_voigt = stress_tensor_to_voigt(sigma_double_prime)  
 
-    #  strain in Voigt form: ε'' = S ⋅ σ''
-    # einsum performs: ε''_xyi = S_ij * σ''_xyj
+    # Computes the strain from the elastic compliance and the stress matrix using einsum
+    # ε'' = S ⋅ σ''
+    #Here is the equivalent code written explicitly for explaination that the einsum is performing where stress matrix has shape (X, Y, 6) and the resulting strain has shape (X, Y, 6)
+        #for x in range(X):
+        #for y in range(Y):
+        #    for i in range(6):
+        #        epsilon[x, y, i] = sum(S[i, j] * sigma[x, y, j] for j in range(6))
     epsilon_double_prime_voigt = np.einsum('ij,xyj->xyi', elastic_compliance, sigma_double_prime_voigt)
 
     #Convert from Voigt to full strain tensor
