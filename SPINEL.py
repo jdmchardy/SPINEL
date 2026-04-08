@@ -421,7 +421,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     
     # Apply rotation: sigma' = A @ sigma @ A.T
     # This transposes the last two axes of A, swapping the 2 and 3 dimensions, e.g. If A has shape (N, M, 3, 3), then np.transpose(A, (0, 1, 3, 2)) gives shape (N, M, 3, 3), 
-    #equivalent of computing A.T for each element of the batch
+    #equivalent of computing A.T for each element of the batch. We cannot simply transpose everything since the batch structure would break down.
     sigma_prime = A @ sigma @ np.transpose(A, (0, 1, 3, 2))
     
     # Apply B transform: sigma'' = B @ sigma' @ B.T
