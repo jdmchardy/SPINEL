@@ -78,6 +78,7 @@ div[data-testid="stVerticalBlock"] {
 def Gaussian(x, x0, sigma):
     return np.exp(-0.5 * ((x - x0) / sigma) ** 2)
 
+#NOTE HAS BEEN MODIFIED TO REFLECT ENGINEERING CONVENTION FOR VOIGT NOTATION
 def stress_tensor_to_voigt(sigma_tensor):
     # Input shape (..., 3, 3)
     sig11 = sigma_tensor[..., 0, 0]
@@ -86,15 +87,32 @@ def stress_tensor_to_voigt(sigma_tensor):
     sig23 = sigma_tensor[..., 1, 2]
     sig13 = sigma_tensor[..., 0, 2]
     sig12 = sigma_tensor[..., 0, 1]
-    return np.stack([sig11, sig22, sig33, sig23, sig13, sig12], axis=-1) #Output shape is (..., 6)
+    #return np.stack([sig11, sig22, sig33, sig23, sig13, sig12], axis=-1) #Output shape is (..., 6) #Physics convention
+    return np.stack([sig11, sig22, sig33, sig12, sig13, sig23], axis=-1) #Output shape is (..., 6) #Engineering convention
 
 def voigt_to_strain_tensor(e_voigt):
+    #Physics convention
+    #e11 = e_voigt[..., 0]
+    #e22 = e_voigt[..., 1]
+    #e23 = 0.5*e_voigt[..., 3]
+    #e33 = e_voigt[..., 2]
+    #e13 = 0.5*e_voigt[..., 4]
+    #e12 = 0.5*e_voigt[..., 5]
+    #e_tensor = np.zeros(e_voigt.shape[:-1] + (3, 3))
+    #e_tensor[..., 0, 0] = e11
+    #e_tensor[..., 1, 1] = e22
+    #e_tensor[..., 2, 2] = e33
+    #e_tensor[..., 0, 2] = e_tensor[..., 2, 0] = e13
+    #e_tensor[..., 1, 2] = e_tensor[..., 2, 1] = e23
+    #e_tensor[..., 0, 1] = e_tensor[..., 1, 0] = e12
+
+    #Engineering convention
     e11 = e_voigt[..., 0]
     e22 = e_voigt[..., 1]
     e33 = e_voigt[..., 2]
-    e23 = 0.5*e_voigt[..., 3]
+    e23 = 0.5*e_voigt[..., 5]
     e13 = 0.5*e_voigt[..., 4]
-    e12 = 0.5*e_voigt[..., 5]
+    e12 = 0.5*e_voigt[..., 3]
     e_tensor = np.zeros(e_voigt.shape[:-1] + (3, 3))
     e_tensor[..., 0, 0] = e11
     e_tensor[..., 1, 1] = e22
