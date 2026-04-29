@@ -507,9 +507,12 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     #delta_list = np.repeat(deltas, len(phi_values))
 
     #New flattening code (works because all output are already grids and have same consistent shapes)
-    psi_list = np.degrees(psi_grid).ravel(order='F')
-    phi_list = np.degrees(phi_grid).ravel(order='F')
-    delta_list = delta_grid.ravel(order='F')
+    psi_deg_grid = np.degrees(psi_grid)
+    phi_deg_grid = np.degrees(phi_grid)
+    delta_deg_grid = delta_grid
+    psi_list = psi_deg_grid.ravel(order='F')
+    phi_list = phi_deg_grid.ravel(order='F')
+    delta_list = delta_deg_grid.ravel(order='F')
     strain_33_list = strain_33_prime.ravel(order='F')
 
     # d0 and 2th
