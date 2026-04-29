@@ -375,15 +375,41 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         deltas = np.zeros(len(psi_values))
     #phi_values are always passed to the function
     phi_values = np.asarray(phi_values)
-    
-    cos_phi = np.cos(phi_values)
-    sin_phi = np.sin(phi_values)
-    cos_psi = np.cos(psi_values)
-    sin_psi = np.sin(psi_values)
-    
+
+    #OLD meshgrid construction generating incorrect pairing
+    #cos_phi = np.cos(phi_values)
+    #sin_phi = np.sin(phi_values)
+    #cos_psi = np.cos(psi_values)
+    #sin_psi = np.sin(psi_values)
     # Create meshgrids for broadcasting
-    cos_phi, cos_psi = np.meshgrid(cos_phi, cos_psi, indexing='ij')
-    sin_phi, sin_psi = np.meshgrid(sin_phi, sin_psi, indexing='ij')
+    #cos_phi, cos_psi = np.meshgrid(cos_phi, cos_psi, indexing='ij')
+    #sin_phi, sin_psi = np.meshgrid(sin_phi, sin_psi, indexing='ij')
+
+    #modified GRID construction to preserve psi-delat relationship
+    n_phi = len(phi_values)
+    n_psi = len(psi_values)
+    n_delta = len(deltas)
+
+    # --- Case 1: Axial (chi == 0 → single psi, many deltas) ---
+    if n_psi == 1 and n_delta > 1:
+        phi_grid, delta_grid = np.meshgrid(phi_values, deltas, indexing='ij')  # (n_phi, n_delta)
+        psi_grid = np.full((n_phi, n_delta), psi_values[0])  # constant psi
+    
+    # --- Case 2: Radial (psi derived from delta) ---
+    elif n_psi == n_delta and n_delta > 1:
+        phi_grid, delta_grid = np.meshgrid(phi_values, deltas, indexing='ij')  # (n_phi, n_delta)
+        psi_grid = np.tile(psi_values, (n_phi, 1))
+    
+    # --- Case 3: Independent psi (Funamori-style input) ---
+    else:
+        phi_grid, psi_grid = np.meshgrid(phi_values, psi_values, indexing='ij')  # (n_phi, n_psi)
+        delta_grid = np.zeros_like(psi_grid)
+
+    #Angle grids then constructed from these values
+    cos_phi = np.cos(phi_grid)
+    sin_phi = np.sin(phi_grid)
+    cos_psi = np.cos(psi_grid)
+    sin_psi = np.sin(psi_grid)
 
     #This is the Singh rotation matrix setup - rotate around x2 by psi and then x3' by phi
     # Rotation matrix A (shape: [n_phi, n_psi, 3, 3])
@@ -451,34 +477,40 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         2 * b23 * b33 * ε_double_prime[..., 1, 2]
     )
 
+    #CODE BLOCK IS REDUNDANT FROM OLD METHOD OF FLATTENING
     # Ensure deltas match the length of flattened psi/phi/strain lists
-    if psi_values.size == 1 and len(deltas) > 1:
+    #if psi_values.size == 1 and len(deltas) > 1:
         # Single psi, multiple deltas (axial simulation case) — replicate results for each delta
-        n_phi = len(phi_values)
-        n_delta = len(deltas)
+    #    n_phi = len(phi_values)
+    #    n_delta = len(deltas)
     
         # Flatten the strain grid (shape [n_phi]) and replicate for each delta
-        strain_33_prime = np.tile(strain_33_prime, (n_delta, 1)).T  # shape (n_phi, n_delta)
+    #    strain_33_prime = np.tile(strain_33_prime, (n_delta, 1)).T  # shape (n_phi, n_delta)
     
         # Also replicate psi and phi grids so they align with deltas
-        psi_grid = np.full((n_phi, n_delta), psi_values[0])
-        phi_grid = np.tile(phi_values[:, np.newaxis], (1, n_delta))
-        delta_grid = np.tile(deltas, (n_phi, 1))
-    else:
+    #    psi_grid = np.full((n_phi, n_delta), psi_values[0])
+    #    phi_grid = np.tile(phi_values[:, np.newaxis], (1, n_delta))
+    #    delta_grid = np.tile(deltas, (n_phi, 1))
+    #else:
         # Normal case — psi and phi already form a meshgrid
-        phi_grid, psi_grid = np.meshgrid(phi_values, psi_values, indexing='ij')
-        x, delta_grid = np.meshgrid(phi_values, deltas, indexing='ij') #Generate delta_grid needed for PO
+    #    phi_grid, psi_grid = np.meshgrid(phi_values, psi_values, indexing='ij')
+    #    x, delta_grid = np.meshgrid(phi_values, deltas, indexing='ij') #Generate delta_grid needed for PO
 
     # Convert psi and phi grid to degrees for output
-    psi_deg_grid = np.degrees(psi_grid)
-    phi_deg_grid = np.degrees(phi_grid)
-    delta_deg_grid = delta_grid
-    psi_list = psi_deg_grid.ravel(order='F')
-    phi_list = phi_deg_grid.ravel(order='F')
-    strain_33_list = strain_33_prime.ravel(order='F')
-
+    #psi_deg_grid = np.degrees(psi_grid)
+    #phi_deg_grid = np.degrees(phi_grid)
+    #delta_deg_grid = delta_grid
+    #psi_list = psi_deg_grid.ravel(order='F')
+    #phi_list = phi_deg_grid.ravel(order='F')
+    #strain_33_list = strain_33_prime.ravel(order='F')
     # Repeat deltas so every phi/psi pair gets one. This way the ordering of the deltas is correct to match up the delta,psi,phi,strain
-    delta_list = np.repeat(deltas, len(phi_values))
+    #delta_list = np.repeat(deltas, len(phi_values))
+
+    #New flattening code (works because all output are already grids and have same consistent shapes)
+    psi_list = np.degrees(psi_grid).ravel(order='F')
+    phi_list = np.degrees(phi_grid).ravel(order='F')
+    delta_list = delta_grid.ravel(order='F')
+    strain_33_list = strain_33_prime.ravel(order='F')
 
     # d0 and 2th
     d0 = get_d0(symmetry,h,k,l,a,b,c)
