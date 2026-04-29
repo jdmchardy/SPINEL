@@ -273,7 +273,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             [c13, c13, c33, 0, 0, 0],
             [0, 0, 0, c44, 0, 0],
             [0, 0, 0, 0, c44, 0],
-            [c12, -c16, 0, 0, 0, c66]
+            [c16, -c16, 0, 0, 0, c66]
         ])
     elif symmetry == "orthorhombic":
         # Normalize
