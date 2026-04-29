@@ -467,15 +467,26 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     ε_double_prime = voigt_to_strain_tensor(epsilon_double_prime_voigt)
     
     # Get ε'_33 component
-    b13, b23, b33 = B[0, 2], B[1, 2], B[2, 2]
-    strain_33_prime = (
-        b13**2 * ε_double_prime[..., 0, 0] +
-        b23**2 * ε_double_prime[..., 1, 1] +
-        b33**2 * ε_double_prime[..., 2, 2] +
-        2 * b13 * b23 * ε_double_prime[..., 0, 1] +
-        2 * b13 * b33 * ε_double_prime[..., 0, 2] +
-        2 * b23 * b33 * ε_double_prime[..., 1, 2]
+    #b13, b23, b33 = B[0, 2], B[1, 2], B[2, 2]
+    #strain_33_prime = (
+    #    b13**2 * ε_double_prime[..., 0, 0] +
+    #    b23**2 * ε_double_prime[..., 1, 1] +
+    #    b33**2 * ε_double_prime[..., 2, 2] +
+    #    2 * b13 * b23 * ε_double_prime[..., 0, 1] +
+    #    2 * b13 * b33 * ε_double_prime[..., 0, 2] +
+    #    2 * b23 * b33 * ε_double_prime[..., 1, 2]
+    #)
+
+    #Avoid assumption of orthonormality of B when mapping back from double_prime to prime coordinates
+    #Inverts the B matrix transformation without specifying the componets
+    epsilon_prime = np.einsum(
+        'ab,...bc,cd->...ad',
+        B.T,
+        ε_double_prime,
+        B
     )
+    #The strain component is now just the sigma'_33 term
+    strain_33_prime = epsilon_prime[..., 2, 2]
 
     #CODE BLOCK IS REDUNDANT FROM OLD METHOD OF FLATTENING
     # Ensure deltas match the length of flattened psi/phi/strain lists
