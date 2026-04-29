@@ -341,43 +341,39 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         [sigma_13, sigma_23, sigma_33]
     ])
  
-    #Check if phi_values are given or if it must be calculated for XRD generation
+    #Check if psi_values are given or if it must be calculated for XRD generation
     if isinstance(psi_values, int):
-        if psi_values==0: #Standard value for fine resolution XRD generation
-            d0 = get_d0(symmetry,h,k,l,a,b,c)
-            sin_theta0 = wavelength / (2 * d0)
-            theta0 = np.arcsin(sin_theta0)
+        d0 = get_d0(symmetry,h,k,l,a,b,c)
+        sin_theta0 = wavelength / (2 * d0)
+        theta0 = np.arcsin(sin_theta0)
+        if psi_values==0: #Standard setting for fine-resolution XRD generation
+            deltas = np.arange(-180,180,5)
             #Check if chi value is zero (axial case) or non-zero (radial)
             if chi == 0: 
                 # return only one psi_value assuming compression axis aligned with X-rays
                 psi_values = np.asarray([np.pi/2 - theta0])
-                deltas = np.arange(-180,180,5)
             else:
                 #Assume chi is non-zero (radial) and compute a psi for each azimuth bin (delta)
-                deltas = np.arange(-180,180,5)
                 deltas_rad = np.radians(deltas)
                 chi_rad = np.radians(chi)
                 psi_values = np.arccos(np.sin(chi_rad)*np.cos(deltas_rad)*np.cos(theta0)+np.cos(chi_rad)*np.sin(theta0))
-        else: #A coarser resolution option for XRD refinement (less expensive due to refinement iterations required)
-            d0 = get_d0(symmetry,h,k,l,a,b,c)
-            sin_theta0 = wavelength / (2 * d0)
-            theta0 = np.arcsin(sin_theta0)
+        else: #A coarser resolution option for XRD refinement (less expensive due to fewer refinement iterations required)
+            deltas = np.arange(-180,180,12)
             #Check if chi value is zero (axial case) or non-zero (radial)
             if chi == 0: 
                 # return only one psi_value assuming compression axis aligned with X-rays
                 psi_values = np.asarray([np.pi/2 - theta0])
-                deltas = np.arange(-180,180,12)
             else:
                 #Assume chi is non-zero (radial) and compute a psi for each azimuth bin (delta)
-                deltas = np.arange(-180,180,12)
                 deltas_rad = np.radians(deltas)
                 chi_rad = np.radians(chi)
                 psi_values = np.arccos(np.sin(chi_rad)*np.cos(deltas_rad)*np.cos(theta0)+np.cos(chi_rad)*np.sin(theta0))
     else:
-        # Assume phi_values and psi_values are 1D numpy arrays. This part is needed for Funamori plots
+        # Assume phi_values and psi_values are 1D numpy arrays. This part is needed for Funamori plots as psi is not evaluated from delta here
         psi_values = np.asarray(psi_values)
         #Add deltas placeholder for completeness
         deltas = np.zeros(len(psi_values))
+    #phi_values are always passed to the function
     phi_values = np.asarray(phi_values)
     
     cos_phi = np.cos(phi_values)
