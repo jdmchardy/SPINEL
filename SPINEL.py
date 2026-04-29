@@ -385,7 +385,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     #cos_phi, cos_psi = np.meshgrid(cos_phi, cos_psi, indexing='ij')
     #sin_phi, sin_psi = np.meshgrid(sin_phi, sin_psi, indexing='ij')
 
-    #modified GRID construction to preserve psi-delat relationship
+    #modified GRID construction to preserve psi-delta relationship
     n_phi = len(phi_values)
     n_psi = len(psi_values)
     n_delta = len(deltas)
