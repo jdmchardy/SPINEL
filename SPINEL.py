@@ -587,7 +587,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     #Compute the average strains and append to df
     for psi in np.unique(psi_list):
         #Obtain all the strains at this particular psi
-        mask = psi_list == psi
+        #mask = psi_list == psi
+        mask = np.isclose(psi_list, psi, atol=1e-8) #safer implementation
         strains = strain_33_list[mask]
         PO_intensity = I_list[mask]
         mean_strain = np.average(strains, weights = PO_intensity) #Average of the strains weighted by the PO
