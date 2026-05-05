@@ -340,12 +340,14 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         [sigma_12, sigma_22, sigma_23],
         [sigma_13, sigma_23, sigma_33]
     ])
- 
+
+    # theta0 is needed both for psi-from-delta and for the lab-azimuth correction below
+    d0 = get_d0(symmetry,h,k,l,a,b,c)
+    sin_theta0 = wavelength / (2 * d0)
+    theta0 = np.arcsin(sin_theta0)
+
     #Check if psi_values are given or if it must be calculated for XRD generation
     if isinstance(psi_values, int):
-        d0 = get_d0(symmetry,h,k,l,a,b,c)
-        sin_theta0 = wavelength / (2 * d0)
-        theta0 = np.arcsin(sin_theta0)
         if psi_values==0: #Standard setting for fine-resolution XRD generation
             deltas = np.arange(-180,180,5)
             #Check if chi value is zero (axial case) or non-zero (radial)
