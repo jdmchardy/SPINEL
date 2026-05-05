@@ -629,7 +629,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     for psi in np.unique(psi_list):
         #Obtain all the strains at this particular psi
         #mask = psi_list == psi
-        mask = np.isclose(psi_list, psi, atol=1e-6) #safer implementation
+        mask = np.isclose(psi_list, psi, atol=1e-4) #safer implementation
         strains = strain_33_list[mask]
         PO_intensity = I_list[mask]
         mean_strain = np.average(strains, weights = PO_intensity) #Average of the strains weighted by the PO
