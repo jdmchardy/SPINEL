@@ -435,6 +435,33 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     A[..., 2, 0] = 0
     A[..., 2, 1] = sin_psi
     A[..., 2, 2] = cos_psi
+
+    # --- Lab-azimuth correction (Merkel 2006, alpha rotation about Z_S) -----
+    # Uchida's a_ij (Eq. 11) places x'_3 in the x_2-x_3 plane regardless of
+    # delta. This is correct only for axially symmetric stress about Z_S.
+    # For general stress, x'_3 must track the diffracting-plane normal Q in
+    # the sample frame K_S as delta varies. Q in K_S (chi = 90 case, X-rays
+    # along +Y_S):
+    #     Q = (cos(theta) sin(delta), -sin(theta), cos(theta) cos(delta))
+    # Solving R_z(alpha) . (0, sin psi, cos psi) = Q gives
+    #     alpha = atan2(-cos(theta) sin(delta), -sin(theta))
+    # so cos(psi) = Q_z = cos(theta) cos(delta), consistent with the Singh
+    # formula already used to build psi_grid above.
+    #
+    # A_full = A_Uchida @ R_z(-alpha): mixes columns 0 and 1, leaves col 2.
+    # For axial sigma (sigma_11 = sigma_22, off-diagonals zero) this collapses
+    # back to the original Uchida result; for non-axial sigma it reproduces
+    # the lab-azimuth dependence (Merkel 2006 Fig. 3 c-f).
+    delta_grid_rad = np.radians(delta_grid)
+    alpha_grid = np.arctan2(-np.cos(theta0) * np.sin(delta_grid_rad),
+                            -np.sin(theta0))
+    cos_alpha = np.cos(alpha_grid)[..., None]
+    sin_alpha = np.sin(alpha_grid)[..., None]
+
+    A_full = np.empty_like(A)
+    A_full[..., 0] = A[..., 0] * cos_alpha - A[..., 1] * sin_alpha
+    A_full[..., 1] = A[..., 0] * sin_alpha + A[..., 1] * cos_alpha
+    A_full[..., 2] = A[..., 2]
     
     # Matrix B is constant
     B = np.array([
@@ -446,7 +473,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     # Apply rotation: sigma' = A @ sigma @ A.T
     # This transposes the last two axes of A, swapping the 2 and 3 dimensions, e.g. If A has shape (N, M, 3, 3), then np.transpose(A, (0, 1, 3, 2)) gives shape (N, M, 3, 3), 
     #equivalent of computing A.T for each element of the batch. We cannot simply transpose everything since the batch structure would break down.
-    sigma_prime = A @ sigma @ np.transpose(A, (0, 1, 3, 2))
+    #sigma_prime = A @ sigma @ np.transpose(A, (0, 1, 3, 2))
+    sigma_prime = A_full @ sigma @ np.transpose(A_full, (0, 1, 3, 2)) #Performs transformation including alpha rotation
     
     # Apply B transform: sigma'' = B @ sigma' @ B.T
     sigma_double_prime = B @ sigma_prime @ B.T  # shape: [n_phi, n_psi, 3, 3]
