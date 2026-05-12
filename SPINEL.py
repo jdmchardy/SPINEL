@@ -388,7 +388,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             phi_values = np.asarray(phi_values)
             #Add deltas placeholder for completeness
             deltas = np.array([0])
-            alpha_values=0
+            alpha_values = 0
         else:
             #Split the sampling of datapoints between phi and alpha
             samples = len(phi_values)
@@ -397,11 +397,12 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             #Add deltas placeholder for completeness
             deltas = np.array([0])
 
+    st.write(alpha_values)
+
     #modified GRID construction to preserve psi-delta relationship
     n_phi = len(phi_values)
     n_psi = len(psi_values)
     n_delta = len(deltas)
-    st.write(n_phi,n_psi)
 
     # --- Case 1: Axial (chi == 0 → single psi, many deltas) ---
     if n_psi == 1 and n_delta > 1:
