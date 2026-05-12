@@ -390,9 +390,9 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             deltas = 0
         else:
             #Split the sampling of datapoints between phi and alpha
-            samples = int(len(phi_values))
-            phi_values = np.asarray(np.radians(np.linspace(0,360, samples/2)))
-            alpha_values = np.asarray(np.radians(np.linspace(0,180, samples/2)))
+            samples = len(phi_values)
+            phi_values = np.asarray(np.radians(np.linspace(0,360, int(samples/2))))
+            alpha_values = np.asarray(np.radians(np.linspace(0,180, int(samples/2))))
 
     #modified GRID construction to preserve psi-delta relationship
     n_phi = len(phi_values)
