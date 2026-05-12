@@ -397,8 +397,6 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             #Add deltas placeholder for completeness
             deltas = np.array([0])
 
-    st.write(alpha_values)
-
     #modified GRID construction to preserve psi-delta relationship
     n_phi = len(phi_values)
     n_psi = len(psi_values)
