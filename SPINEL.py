@@ -388,6 +388,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             phi_values = np.asarray(phi_values)
             #Add deltas placeholder for completeness
             deltas = np.array([0])
+            alpha_values=0
         else:
             #Split the sampling of datapoints between phi and alpha
             samples = len(phi_values)
