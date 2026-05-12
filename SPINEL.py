@@ -1276,7 +1276,7 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
         )
 
         # Plot the mean strain curve (vectorised)
-        mean_df = (df.groupby("psi (degrees)", sort=True)["Mean strain"].first().reset_index())
+        mean_df = (df.groupby("psi (degrees)", sort=True)["Mean strain @ psi"].first().reset_index())
 
         fig.add_trace(go.Scatter(x=mean_df["psi (degrees)"],
                                  y=mean_df["Mean strain @ psi"],
