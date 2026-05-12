@@ -618,13 +618,9 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         df["PO_intensity"] = I_list
 
     #Insert a placeholder column for the average strain, 2th, intensity at each psi
-    df["Mean strain"] = np.nan
-    df["Mean two_th"] = np.nan
+    df["Mean strain @ psi"] = np.nan
+    df["Mean two_th @ psi"] = np.nan
     df["Mean I @ psi"] = np.nan
-    #Initialise a list of the mean strains
-    #mean_strain_list = []
-    #mean_2th_list = []
-    #mean_I_list = []
     #Compute the average strains and append to df
     for psi in np.unique(psi_list):
         #Obtain all the strains at this particular psi
@@ -639,7 +635,26 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         #Compute the average peak intensity at this psi
         av_I = intensity*np.mean(PO_intensity)
         #Update the mean_strain, mean_two_th column at the correct psi values
-        df.loc[df["psi (degrees)"] == psi, ["Mean strain", "Mean two_th", "Mean I @ psi"]] = [mean_strain, mean_two_th, av_I]
+        df.loc[df["psi (degrees)"] == psi, ["Mean strain @ psi", "Mean two_th @ psi", "Mean I @ psi"]] = [mean_strain, mean_two_th, av_I]
+
+    #Repeat but instead compute averages over deltas
+    df["Mean strain @ delta"] = np.nan
+    df["Mean two_th @ delta"] = np.nan
+    df["Mean I @ delta"] = np.nan
+    #Compute the average strains and append to df
+    for delta in np.unique(delta_list):
+        #Obtain all the strains at this particular delta
+        mask = np.isclose(delta_list, delta, atol=1e-4) #safer implementation
+        strains = strain_33_list[mask]
+        PO_intensity = I_list[mask]
+        mean_strain = np.average(strains, weights = PO_intensity) #Average of the strains weighted by the PO
+        mean_dstrain = d0*(1-mean_strain)
+        mean_sin_th = wavelength / (2 * mean_dstrain)
+        mean_two_th = 2 * np.degrees(np.arcsin(mean_sin_th))
+        #Compute the average peak intensity at this delta
+        av_I = intensity*np.mean(PO_intensity)
+        #Update the mean_strain, mean_two_th column at the correct psi values
+        df.loc[df["delta (degrees)"] == delta, ["Mean strain @ delta", "Mean two_th @ delta", "Mean I @ delta"]] = [mean_strain, mean_two_th, av_I]
 
     # Group by hkl label and sort by azimuth
     df = df.sort_values(by=["hkl", "delta (degrees)"], ignore_index=True)
@@ -690,10 +705,10 @@ def Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, b
             mean_df = combined_df.drop_duplicates(subset=["h", "k", "l"])
             #Compute the mean intensity over 
             hist, _ = np.histogram(
-                mean_df['Mean two_th'],
+                mean_df['Mean two_th @ delta'],
                 bins=len(twotheta_grid),
                 range=(twotheta_min, twotheta_max),
-                weights=mean_df['Mean I @ psi']
+                weights=mean_df['Mean I @ delta']
             )
         else: 
             #Compute the mean across all the computed values
@@ -885,9 +900,9 @@ def cake_dict_to_2Dcake(cake_dict, step_2th=0.2, step_delta=5, broadening=True):
                   .values
             )
             norm_intensity = ideal_I * mean_PO_intensity / n_points
-            #Get the mean values for each psi
+            #Get the mean values for each delta
             all_delta.extend(unique["delta (degrees)"].values)
-            all_2th.extend(unique["Mean two_th"].values)
+            all_2th.extend(unique["Mean two_th @ delta"].values)
             all_intensity.extend(norm_intensity)
             
     all_2th = np.array(all_2th)
@@ -1095,8 +1110,8 @@ def run_refinement(params, refine_flags, selected_hkls, selected_indices, intens
     c = lattice_params.get("c_val")
     for hkl, inten in zip(selected_hkls, intensities_opt):
         df = compute_strain(hkl, inten, *strain_sim_params)[1]
-        #Compute the average of the mean_2th values (For axial, this averages over many identical values, for radial, we average across a range of psi)
-        mean_2th = np.mean(df["Mean two_th"])
+        #Compute the average of the mean_2th values (For axial, this averages over many identical values, for radial, we average across a range of psi at fixed delta)
+        mean_2th = np.mean(df["Mean two_th @ delta"])
         h, k, l = hkl
         #Compute d0 and 2th
         d0 = get_d0(symmetry,h,k,l,a,b,c)
