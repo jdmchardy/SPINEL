@@ -471,7 +471,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
                                 -np.sin(theta0))
     else:
         #Tile a grid of alpha values for the Funamori plots
-        alpha_grid = np.tile(alpha_values, (1, n_psi))
+        alpha_grid = np.tile(alpha_values, (n_psi, 1)).T
         
     cos_alpha = np.cos(alpha_grid)[..., None]
     sin_alpha = np.sin(alpha_grid)[..., None]
