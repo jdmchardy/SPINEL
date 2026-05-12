@@ -350,6 +350,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     if isinstance(psi_values, int):
         if psi_values==0: #Standard setting for fine-resolution XRD generation
             deltas = np.arange(-180,180,5)
+            #Set alphas to zero to trigger computation later
+            alpha_values = 0
             #Check if chi value is zero (axial case) or non-zero (radial)
             if chi == 0: 
                 # return only one psi_value assuming compression axis aligned with X-rays
@@ -359,8 +361,12 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
                 deltas_rad = np.radians(deltas)
                 chi_rad = np.radians(chi)
                 psi_values = np.arccos(np.sin(chi_rad)*np.cos(deltas_rad)*np.cos(theta0)+np.cos(chi_rad)*np.sin(theta0))
+            #phi_values are always passed to the function
+            phi_values = np.asarray(phi_values)
         else: #A coarser resolution option for XRD refinement (less expensive due to fewer refinement iterations required)
             deltas = np.arange(-180,180,12)
+            #Set alphas to zero to trigger computation later
+            alpha_values = 0
             #Check if chi value is zero (axial case) or non-zero (radial)
             if chi == 0: 
                 # return only one psi_value assuming compression axis aligned with X-rays
@@ -370,22 +376,23 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
                 deltas_rad = np.radians(deltas)
                 chi_rad = np.radians(chi)
                 psi_values = np.arccos(np.sin(chi_rad)*np.cos(deltas_rad)*np.cos(theta0)+np.cos(chi_rad)*np.sin(theta0))
+        #phi_values are always passed to the function
+        phi_values = np.asarray(phi_values)
+    
     else:
-        # Assume phi_values and psi_values are 1D numpy arrays. This part is needed for Funamori plots as psi is not evaluated from delta here
-        psi_values = np.asarray(psi_values)
-        #Add deltas placeholder for completeness
-        deltas = np.zeros(len(psi_values))
-    #phi_values are always passed to the function
-    phi_values = np.asarray(phi_values)
-
-    #OLD meshgrid construction generating incorrect pairing
-    #cos_phi = np.cos(phi_values)
-    #sin_phi = np.sin(phi_values)
-    #cos_psi = np.cos(psi_values)
-    #sin_psi = np.sin(psi_values)
-    # Create meshgrids for broadcasting
-    #cos_phi, cos_psi = np.meshgrid(cos_phi, cos_psi, indexing='ij')
-    #sin_phi, sin_psi = np.meshgrid(sin_phi, sin_psi, indexing='ij')
+        #Determine if the stress matrix is radially symmetric (meaning alpha rotaion has no effect)
+        if sigma_11 == sigma_22 and sigma_12 == 0 and sigma_13 == 0 and sigma_23 == 0:
+            #Psi is not evaluated for deltas as above (Funamori plots)
+            # Assume phi_values and psi_values are 1D numpy arrays.
+            psi_values = np.asarray(psi_values)
+            phi_values = np.asarray(phi_values)
+            #Add deltas placeholder for completeness
+            deltas = 0
+        else:
+            #Split the sampling of datapoints between phi and alpha
+            samples = len(phi_values)
+            phi_values = np.asarray(np.radians(np.linspace(0,360, samples/2)))
+            alpha_values = np.asarray(np.radians(np.linspace(0,180, samples/2)))
 
     #modified GRID construction to preserve psi-delta relationship
     n_phi = len(phi_values)
@@ -454,9 +461,15 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     # For axial sigma (sigma_11 = sigma_22, off-diagonals zero) this collapses
     # back to the original Uchida result; for non-axial sigma it reproduces
     # the lab-azimuth dependence (Merkel 2006 Fig. 3 c-f).
-    delta_grid_rad = np.radians(delta_grid)
-    alpha_grid = np.arctan2(-np.cos(theta0) * np.sin(delta_grid_rad),
-                            -np.sin(theta0))
+    if alpha_values == 0:
+        delta_grid_rad = np.radians(delta_grid)
+        #Evaluate alphas from deltas and theta
+        alpha_grid = np.arctan2(-np.cos(theta0) * np.sin(delta_grid_rad),
+                                -np.sin(theta0))
+    else:
+        #Tile a grid of alpha values for the Funamori plots
+        alpha_grid = np.tile(alpha_values, (1, n_psi))
+        
     cos_alpha = np.cos(alpha_grid)[..., None]
     sin_alpha = np.sin(alpha_grid)[..., None]
 
