@@ -1279,7 +1279,7 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
         mean_df = (df.groupby("psi (degrees)", sort=True)["Mean strain"].first().reset_index())
 
         fig.add_trace(go.Scatter(x=mean_df["psi (degrees)"],
-                                 y=mean_df["Mean strain"],
+                                 y=mean_df["Mean strain @ psi"],
                                  mode="lines",
                                  line=dict(width=2, color="red"),
                                  name="Mean strain" if i == 1 else None,
@@ -1365,7 +1365,7 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
             for df in results_dict.values():
                 #Plot only the mean value for each delta
                 deltas = np.unique(df["delta (degrees)"].values)
-                mean_2ths = np.full(len(np.unique(df["delta (degrees)"].values)),df["Mean two_th"].iloc[0])
+                mean_2ths = np.full(len(np.unique(df["delta (degrees)"].values)),df["Mean two_th @ delta"].iloc[0])
                 #Need to average the intensities across phi for each delta
                 # Average PO_intensity across phi for each delta
                 mean_PO_intensity = (
@@ -1385,7 +1385,7 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
         else: #Transverse geometry with broadening off
             for df in results_dict.values():
                 unique = df.drop_duplicates(subset="delta (degrees)") #Pick out the entries for unique delta values
-                mean_2th = unique["Mean two_th"].values
+                mean_2th = unique["Mean two_th @ delta"].values
                 deltas = unique["delta (degrees)"].values
                 # Average PO_intensity across phi for each delta
                 mean_PO_intensity = (
@@ -1420,7 +1420,7 @@ def generate_cake_figures(results_dict, selected_hkls, broadening):
 
         #Plot the mean strain curve
         unique_delta = np.unique(delta_list)
-        mean_strain_list = [df[df["delta (degrees)"]==d]["Mean strain"].iloc[0] for d in unique_delta]
+        mean_strain_list = [df[df["delta (degrees)"]==d]["Mean strain @ delta"].iloc[0] for d in unique_delta]
         ax.plot(unique_delta, mean_strain_list, color="red", lw=0.8, label="mean strain (δ)")
         #Add average over all crystallites
         complete_mean = np.mean(mean_strain_list)
