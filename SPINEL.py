@@ -400,6 +400,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     n_phi = len(phi_values)
     n_psi = len(psi_values)
     n_delta = len(deltas)
+    st.write(n_phi,n_psi)
 
     # --- Case 1: Axial (chi == 0 → single psi, many deltas) ---
     if n_psi == 1 and n_delta > 1:
