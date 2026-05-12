@@ -463,7 +463,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     # For axial sigma (sigma_11 = sigma_22, off-diagonals zero) this collapses
     # back to the original Uchida result; for non-axial sigma it reproduces
     # the lab-azimuth dependence (Merkel 2006 Fig. 3 c-f).
-    if alpha_values == 0:
+    if isinstance(alpha_values, int):
         delta_grid_rad = np.radians(delta_grid)
         #Evaluate alphas from deltas and theta
         alpha_grid = np.arctan2(-np.cos(theta0) * np.sin(delta_grid_rad),
