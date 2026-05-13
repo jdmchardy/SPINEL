@@ -365,6 +365,16 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     strain_33_list : list
     """
 
+    #Unpack the lattice parameters
+    a = lattice_params.get("a_val")
+    b = lattice_params.get("b_val")
+    c = lattice_params.get("c_val")
+    alpha = lattice_params.get("alpha")
+    beta = lattice_params.get("beta")
+    gamma = lattice_params.get("gamma")
+
+    h, k, l = hkl
+
     H, K, L , elastic = get_elastic(symmetry, hkl, lattice_params, cij_params)
     elastic_compliance = np.linalg.inv(elastic)
 
