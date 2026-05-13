@@ -523,8 +523,10 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     if isinstance(alpha_values, int):
         delta_grid_rad = np.radians(delta_grid)
         #Evaluate alphas from deltas and theta
+        #alpha_grid = np.arctan2(-np.cos(theta0) * np.sin(delta_grid_rad),
+                                #-np.sin(theta0))
         alpha_grid = np.arctan2(-np.cos(theta0) * np.sin(delta_grid_rad),
-                                -np.sin(theta0))
+                                np.sin(theta0))
     else:
         #Tile a grid of alpha values for the Funamori plots
         alpha_grid = np.tile(alpha_values, (n_psi, 1)).T
