@@ -123,7 +123,7 @@ def get_d0(symmetry,h,k,l,a,b,c):
         d0 = 0
     return d0
 
-def get_elastic(symmetry, hkl, cij_params):
+def get_elastic(symmetry, hkl, lattice_params, cij_params):
     """Returns normalised H,K,L values and the symmetry specific elastic compliance matrix.
     
     Parameters:
@@ -138,6 +138,14 @@ def get_elastic(symmetry, hkl, cij_params):
         trigonal_A
     hkl : tuple
         Miller indices (h, k, l)
+    lattice_params : dict
+        Lattice parameter dictionary
+        "a_val" : float (Ang)
+        "b_val" : float (Ang)
+        "c_val" : float (Ang)
+        "alpha" : float (deg)
+        "beta" : float (deg)
+        "gamma" : float (deg)
     cij_params : dict
         Elastic constants
         Can be extended to arbitrary length as required
@@ -152,6 +160,19 @@ def get_elastic(symmetry, hkl, cij_params):
     elastic : 2d.array
         The elastic compliance matrix
     """
+
+    #Unpack the lattice parameters
+    a = lattice_params.get("a_val")
+    b = lattice_params.get("b_val")
+    c = lattice_params.get("c_val")
+    alpha = lattice_params.get("alpha")
+    beta = lattice_params.get("beta")
+    gamma = lattice_params.get("gamma")
+
+    h, k, l = hkl
+    if h == 0: h = 0.0000000001
+    if k == 0: k = 0.0000000001
+    if l == 0: l = 0.0000000001
 
     if symmetry == "cubic":
         # Normalize
@@ -343,19 +364,6 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     psi_list : list
     strain_33_list : list
     """
-
-    #Unpack the lattice parameters
-    a = lattice_params.get("a_val")
-    b = lattice_params.get("b_val")
-    c = lattice_params.get("c_val")
-    alpha = lattice_params.get("alpha")
-    beta = lattice_params.get("beta")
-    gamma = lattice_params.get("gamma")
-
-    h, k, l = hkl
-    if h == 0: h = 0.0000000001
-    if k == 0: k = 0.0000000001
-    if l == 0: l = 0.0000000001
 
     H, K, L , elastic = get_elastic(symmetry, hkl, cij_params)
     elastic_compliance = np.linalg.inv(elastic)
