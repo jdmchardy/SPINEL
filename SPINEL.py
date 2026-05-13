@@ -122,80 +122,36 @@ def get_d0(symmetry,h,k,l,a,b,c):
         st.write("Support not yet provided for {} symmetry".format(symmetry))
         d0 = 0
     return d0
+
+def get_elastic(symmetry, hkl, cij_params):
+    """Returns normalised H,K,L values and the symmetry specific elastic compliance matrix.
     
-def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_params, sigma_params, chi, phi_values, psi_values):
-    """
-    Evaluates strain_33 component for given hkl reflection.
-    
-    Parameters
-    ----------
+    Parameters:
+    -----------
+    symmetry : str
+        The crystal symmetry
+        cubic
+        hexagonal
+        tetragonal_A
+        tetragonal_B
+        orthorhombic
+        trigonal_A
     hkl : tuple
         Miller indices (h, k, l)
-    intensity : float
-        ideal peak intensity assuming no preferred orientation
-    symmetry : str
-        Crystal symmetry
-    lattice_params : dict
-        Lattice parameter dictionary
-        "a_val" : float (Ang)
-        "b_val" : float (Ang)
-        "c_val" : float (Ang)
-        "alpha" : float (deg)
-        "beta" : float (deg)
-        "gamma" : float (deg)
-    wavelength : float
-        X-ray wavelength
     cij_params : dict
         Elastic constants
         Can be extended to arbitrary length as required
         c11 : float (GPa)
         c12 : float (GPa)
         c44 : float (GPa) 
-    sigma_params : dict
-        Stress matirx components
-        sigma_11 : float (GPa)
-        sigma_22 : float (GPa)
-        sigma_33 : float (GPa)
-        sigma_12 : float (GPa)
-        sigma_13 : float (GPa)
-        sigma_23 : float (GPa)
-    chi : float
-        The angle (degrees) between incident x-rays and the principle stress axis
-    phi_values : np.array
-        Array of phi values in radians
-    psi_values : np.array or scalar
-        Array of psi values in radians (or 0 to auto-calculate)
 
-    Returns
-    -------
-    hkl_label : str
-        String label of hkl
-    df : pd.DataFrame
-        DataFrame with columns:
-            - strain_33
-            - psi (deg)
-            - phi (deg)
-            - delta (deg) (the detector azimuth angle)
-            - chi (deg) (the X-ray to laboratory strain axis (X3 in Funamori) angle)
-            - d strain
-            - 2theta (deg)
-            - intensity
-    psi_list : list
-    strain_33_list : list
+    Returns:
+    --------
+    H, K, L : floats
+        The normalised Miller indices needed for the B matrix
+    elastic : 2d.array
+        The elastic compliance matrix
     """
-
-    #Unpack the lattice parameters
-    a = lattice_params.get("a_val")
-    b = lattice_params.get("b_val")
-    c = lattice_params.get("c_val")
-    alpha = lattice_params.get("alpha")
-    beta = lattice_params.get("beta")
-    gamma = lattice_params.get("gamma")
-
-    h, k, l = hkl
-    if h == 0: h = 0.0000000001
-    if k == 0: k = 0.0000000001
-    if l == 0: l = 0.0000000001
 
     if symmetry == "cubic":
         # Normalize
@@ -320,6 +276,88 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         ])
     else:
         st.write("Error! {} symmetry not supported".format(symmetry))
+        H = 0
+        K = 0
+        L = 0
+        elastic = 0
+
+    return H, K, L, elastic
+    
+def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_params, sigma_params, chi, phi_values, psi_values):
+    """
+    Evaluates strain_33 component for given hkl reflection.
+    
+    Parameters
+    ----------
+    hkl : tuple
+        Miller indices (h, k, l)
+    intensity : float
+        ideal peak intensity assuming no preferred orientation
+    symmetry : str
+        Crystal symmetry
+    lattice_params : dict
+        Lattice parameter dictionary
+        "a_val" : float (Ang)
+        "b_val" : float (Ang)
+        "c_val" : float (Ang)
+        "alpha" : float (deg)
+        "beta" : float (deg)
+        "gamma" : float (deg)
+    wavelength : float
+        X-ray wavelength
+    cij_params : dict
+        Elastic constants
+        Can be extended to arbitrary length as required
+        c11 : float (GPa)
+        c12 : float (GPa)
+        c44 : float (GPa) 
+    sigma_params : dict
+        Stress matirx components
+        sigma_11 : float (GPa)
+        sigma_22 : float (GPa)
+        sigma_33 : float (GPa)
+        sigma_12 : float (GPa)
+        sigma_13 : float (GPa)
+        sigma_23 : float (GPa)
+    chi : float
+        The angle (degrees) between incident x-rays and the principle stress axis
+    phi_values : np.array
+        Array of phi values in radians
+    psi_values : np.array or scalar
+        Array of psi values in radians (or 0 to auto-calculate)
+
+    Returns
+    -------
+    hkl_label : str
+        String label of hkl
+    df : pd.DataFrame
+        DataFrame with columns:
+            - strain_33
+            - psi (deg)
+            - phi (deg)
+            - delta (deg) (the detector azimuth angle)
+            - chi (deg) (the X-ray to laboratory strain axis (X3 in Funamori) angle)
+            - d strain
+            - 2theta (deg)
+            - intensity
+    psi_list : list
+    strain_33_list : list
+    """
+
+    #Unpack the lattice parameters
+    a = lattice_params.get("a_val")
+    b = lattice_params.get("b_val")
+    c = lattice_params.get("c_val")
+    alpha = lattice_params.get("alpha")
+    beta = lattice_params.get("beta")
+    gamma = lattice_params.get("gamma")
+
+    h, k, l = hkl
+    if h == 0: h = 0.0000000001
+    if k == 0: k = 0.0000000001
+    if l == 0: l = 0.0000000001
+
+    H, K, L , elastic = get_elastic(symmetry, hkl, cij_params)
     elastic_compliance = np.linalg.inv(elastic)
 
     # N and M from normalised hkls
