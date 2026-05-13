@@ -365,7 +365,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     strain_33_list : list
     """
 
-    H, K, L , elastic = get_elastic(symmetry, hkl, cij_params)
+    H, K, L , elastic = get_elastic(symmetry, hkl, lattice_params, cij_params)
     elastic_compliance = np.linalg.inv(elastic)
 
     # N and M from normalised hkls
