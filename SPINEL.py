@@ -530,20 +530,20 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             / (np.cos(chi_rad)**2 * np.cos(theta0)**2 * np.cos(delta_grid_rad)**2 + np.sin(chi_rad)**2 * np.sin(theta0)**2)
         )
         # unsigned alpha
-        a = np.arctan(np.sqrt(tan2_alpha))
+        alpha_unsigned = np.arctan(np.sqrt(tan2_alpha))
         # compare neighboring rows along axis=0
-        same_cost = np.abs(np.diff(a, axis=0))
-        flip_cost = np.abs(a[1:] + a[:-1])
+        same_cost = np.abs(np.diff(alpha_unsigned, axis=0))
+        flip_cost = np.abs(alpha_unsigned[1:] + alpha_unsigned[:-1])
         # where flipping is smoother
         flip = flip_cost < same_cost
         # sign array with SAME SHAPE as a
-        sign = np.ones_like(a)
+        sign = np.ones_like(alpha_unsigned)
         # cumulative branch tracking along axis=0
         sign[1:] = np.cumprod(
             np.where(flip, -1, 1),
             axis=0
         )
-        alpha_grid = sign * a
+        alpha_grid = sign * alpha_unsigned
         
     else:
         #Tile a grid of alpha values for the Funamori plots
@@ -651,15 +651,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     strain_33_list = strain_33_prime.ravel(order='F')
 
     # d0 and 2th
-    st.write(symmetry)
-    st.write(h)
-    st.write(k)
-    st.write(l)
-    st.write(a)
-    st.write(b)
-    st.write(c)
     d0 = get_d0(symmetry,h,k,l,a,b,c)
-    st.write(d0)
     if d0 == 0:
         d_strain = 0
         two_th = 0
