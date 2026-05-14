@@ -530,7 +530,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             / (np.cos(chi_rad)**2 * np.cos(theta0)**2 * np.cos(delta_grid_rad)**2 + np.sin(chi_rad)**2 * np.sin(theta0)**2)
         )
         # unsigned alpha
-        alpha_unsigned = np.arctan(np.sqrt(tan2_alpha))
+        alpha_unsigned = np.arctan2(np.sqrt(tan2_alpha),1)
         st.write(np.sign(tan2_alpha))
         st.write(-1*np.cos(chi_rad))
         alpha_grid = np.sign(tan2_alpha) * alpha_unsigned
