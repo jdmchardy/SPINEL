@@ -524,16 +524,12 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         delta_grid_rad = np.radians(delta_grid)
         #Evaluate alphas from deltas, theta and chi
         chi_rad = np.radians(chi)
-        #alpha_grid = np.arctan2(np.sqrt(np.cos(theta0)**2*np.sin(delta_grid_rad)**2/(np.cos(chi_rad)**2*np.cos(theta0)**2*np.cos(delta_grid_rad)**2+np.sin(chi_rad)**2*np.sin(theta0)**2)),1)
         #Solution smoothly tracking the sign convention over the range
-        tan2_alpha = (np.cos(theta0)**2 * np.sin(delta_grid_rad)**2
-            / (np.cos(chi_rad)**2 * np.cos(theta0)**2 * np.cos(delta_grid_rad)**2 + np.sin(chi_rad)**2 * np.sin(theta0)**2)
-        )
+        tan2_alpha = (np.cos(theta0)**2 * np.sin(delta_grid_rad)**2 / (np.cos(chi_rad)**2 * np.cos(theta0)**2 * np.cos(delta_grid_rad)**2 + np.sin(chi_rad)**2 * np.sin(theta0)**2))
         # unsigned alpha
         alpha_unsigned = np.arctan2(np.sqrt(tan2_alpha),1)
-        st.write(np.sign(tan2_alpha))
-        st.write(-1*np.cos(chi_rad))
-        alpha_grid = np.sign(tan2_alpha) * alpha_unsigned
+        sign_term = np.sign(np.cos(delta_grid_rad) * np.cos(chi_rad))
+        alpha_grid = sign_term * alpha_unsigned
     else:
         #Tile a grid of alpha values for the Funamori plots
         alpha_grid = np.tile(alpha_values, (n_psi, 1)).T
