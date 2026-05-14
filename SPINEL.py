@@ -652,6 +652,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
 
     # d0 and 2th
     d0 = get_d0(symmetry,h,k,l,a,b,c)
+    st.write(d0)
     if d0 == 0:
         d_strain = 0
         two_th = 0
