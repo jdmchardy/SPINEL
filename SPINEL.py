@@ -531,6 +531,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         )
         # unsigned alpha
         alpha_unsigned = np.arctan(np.sqrt(tan2_alpha))
+        st.write(np.degrees(alpha_unsigned))
         # compare neighboring rows along axis=0
         same_cost = np.abs(np.diff(alpha_unsigned, axis=0))
         flip_cost = np.abs(alpha_unsigned[1:] + alpha_unsigned[:-1])
@@ -544,6 +545,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             axis=0
         )
         alpha_grid = sign * alpha_unsigned
+        st.write(np.degrees(alpha_grid))
         
     else:
         #Tile a grid of alpha values for the Funamori plots
