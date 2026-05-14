@@ -531,22 +531,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         )
         # unsigned alpha
         alpha_unsigned = np.arctan(np.sqrt(tan2_alpha))
-        st.write(np.degrees(alpha_unsigned))
-        # compare neighboring rows along axis=0
-        same_cost = np.abs(np.diff(alpha_unsigned, axis=0))
-        flip_cost = np.abs(alpha_unsigned[1:] + alpha_unsigned[:-1])
-        # where flipping is smoother
-        flip = flip_cost < same_cost
-        # sign array with SAME SHAPE as a
-        sign = np.ones_like(alpha_unsigned)
-        # cumulative branch tracking along axis=0
-        sign[1:] = np.cumprod(
-            np.where(flip, -1, 1),
-            axis=0
-        )
-        alpha_grid = sign * alpha_unsigned
-        st.write(np.degrees(alpha_grid))
-        
+        alpha_grid = np.sign(delta_grid_rad) * alpha_unsigned
     else:
         #Tile a grid of alpha values for the Funamori plots
         alpha_grid = np.tile(alpha_values, (n_psi, 1)).T
