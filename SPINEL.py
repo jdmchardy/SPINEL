@@ -524,8 +524,23 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         delta_grid_rad = np.radians(delta_grid)
         #Evaluate alphas from deltas, theta and chi
         chi_rad = np.radians(chi)
-        alpha_grid = np.arctan2(np.sqrt(np.cos(theta0)**2*np.sin(delta_grid_rad)**2/(np.cos(chi_rad)**2*np.cos(theta0)**2*np.cos(delta_grid_rad)**2+np.sin(chi_rad)**2*np.sin(theta0)**2)),
-                                1)
+        #alpha_grid = np.arctan2(np.sqrt(np.cos(theta0)**2*np.sin(delta_grid_rad)**2/(np.cos(chi_rad)**2*np.cos(theta0)**2*np.cos(delta_grid_rad)**2+np.sin(chi_rad)**2*np.sin(theta0)**2)),1)
+        #Solution smoothly tracking the sign convention over the range
+        tan2_alpha = (np.cos(theta0)**2 * np.sin(delta_grid_rad)**2
+            / (np.cos(chi_rad)**2 * np.cos(theta0)**2 * np.cos(delta_grid_rad)**2 + np.sin(chi_rad)**2 * np.sin(theta0)**2)
+        )
+        # unsigned solution
+        a = np.arctan(np.sqrt(tan2_alpha))
+        # differences assuming same sign vs flipped sign
+        same_cost = np.abs(np.diff(a))
+        flip_cost = np.abs(a[1:] + a[:-1])
+        # True where flipping gives smoother continuation
+        flip = flip_cost < same_cost
+        # cumulative sign tracking
+        sign = np.ones_like(a)
+        sign[1:] = np.cumprod(np.where(flip, -1, 1))
+        alpha_grid = sign * a
+        
     else:
         #Tile a grid of alpha values for the Funamori plots
         alpha_grid = np.tile(alpha_values, (n_psi, 1)).T
