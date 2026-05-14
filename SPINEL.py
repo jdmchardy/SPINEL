@@ -651,6 +651,13 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     strain_33_list = strain_33_prime.ravel(order='F')
 
     # d0 and 2th
+    st.write(symmetry)
+    st.write(h)
+    st.write(k)
+    st.write(l)
+    st.write(a)
+    st.write(b)
+    st.write(c)
     d0 = get_d0(symmetry,h,k,l,a,b,c)
     st.write(d0)
     if d0 == 0:
