@@ -533,7 +533,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         alpha_unsigned = np.arctan(np.sqrt(tan2_alpha))
         st.write(np.sign(delta_grid_rad))
         st.write(-1*np.cos(chi_rad))
-        alpha_grid = np.sign(delta_grid_rad)) * alpha_unsigned
+        alpha_grid = np.sign(delta_grid_rad) * alpha_unsigned
     else:
         #Tile a grid of alpha values for the Funamori plots
         alpha_grid = np.tile(alpha_values, (n_psi, 1)).T
