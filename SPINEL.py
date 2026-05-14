@@ -529,16 +529,20 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         tan2_alpha = (np.cos(theta0)**2 * np.sin(delta_grid_rad)**2
             / (np.cos(chi_rad)**2 * np.cos(theta0)**2 * np.cos(delta_grid_rad)**2 + np.sin(chi_rad)**2 * np.sin(theta0)**2)
         )
-        # unsigned solution
+        # unsigned alpha
         a = np.arctan(np.sqrt(tan2_alpha))
-        # differences assuming same sign vs flipped sign
-        same_cost = np.abs(np.diff(a))
+        # compare neighboring rows along axis=0
+        same_cost = np.abs(np.diff(a, axis=0))
         flip_cost = np.abs(a[1:] + a[:-1])
-        # True where flipping gives smoother continuation
+        # where flipping is smoother
         flip = flip_cost < same_cost
-        # cumulative sign tracking
+        # sign array with SAME SHAPE as a
         sign = np.ones_like(a)
-        sign[1:] = np.cumprod(np.where(flip, -1, 1))
+        # cumulative branch tracking along axis=0
+        sign[1:] = np.cumprod(
+            np.where(flip, -1, 1),
+            axis=0
+        )
         alpha_grid = sign * a
         
     else:
