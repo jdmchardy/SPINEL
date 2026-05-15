@@ -501,13 +501,13 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         else:
             psi_sampling = len(psi_values)
             #Reduce sampling of psi
-            new_psi_sampling = int(psi_sampling/8)
+            new_psi_sampling = int(psi_sampling/4)
             psi_values = np.asarray(np.radians(np.linspace(0,90, new_psi_sampling)))
             #Increase the phi sampling by the corresponding factor as we will then reduce it since we iterate over alpha
-            phi_sampling = 8*len(phi_values)
+            phi_sampling = 4*len(phi_values)
             #Split this sampling between phi and alpha values
             #This approximately preserves the number of samping points requested
-            alpha_sampling = int(0.05*phi_sampling)
+            alpha_sampling = int(0.08*phi_sampling)
             phi_sampling = int(phi_sampling/alpha_sampling)
             alpha_values = np.radians(np.linspace(-180,180, alpha_sampling))
             phi_values = np.asarray(np.radians(np.linspace(0,360, phi_sampling)))
