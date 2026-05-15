@@ -460,7 +460,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         if psi_values==0: #Standard setting for fine-resolution XRD generation
             deltas = np.arange(-180,180,5)
             #Set alphas to zero to trigger computation later
-            alpha_values = 0
+            alpha_values = None
             #Check if chi value is zero (axial case) or non-zero (radial)
             if chi == 0: 
                 # return only one psi_value assuming compression axis aligned with X-rays
@@ -474,8 +474,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             phi_values = np.asarray(phi_values)
         else: #A coarser resolution option for XRD refinement (less expensive due to fewer refinement iterations required)
             deltas = np.arange(-180,180,12)
-            #Set alphas to zero to trigger computation later
-            alpha_values = 0
+            #Set alphas to None
+            alpha_values = None
             #Check if chi value is zero (axial case) or non-zero (radial)
             if chi == 0: 
                 # return only one psi_value assuming compression axis aligned with X-rays
@@ -497,12 +497,14 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             phi_values = np.asarray(phi_values)
             #Add deltas placeholder for completeness
             deltas = np.array([0])
-            alpha_values = 0
+            alpha_values = None
         else:
-            #Split the sampling of datapoints between phi and alpha
-            samples = len(phi_values)
-            phi_values = np.asarray(np.radians(np.linspace(0,360, int(samples/2))))
-            alpha_values = np.asarray(np.radians(np.linspace(0,180, int(samples/2))))
+            #Reduce the sampling of datapoints in phi as we must also iterate over alpha
+            #This approximately preserves the number of samping points requested
+            alpha_values = np.radians(np.linspace(-180,180, 10))
+            phi_samping = len(phi_values)
+            new_sampling = int(phi_samping/len(alpha_values))
+            phi_values = np.asarray(np.radians(np.linspace(0,360, int(samples/new_sampling))))
             #Add deltas placeholder for completeness
             deltas = np.array([0])
 
@@ -558,58 +560,116 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     A[..., 2, 2] = cos_psi
 
     # --- Lab-azimuth correction (Merkel 2006, alpha rotation about Z_S) -----
-    # Uchida's a_ij (Eq. 11) places x'_3 in the x_2-x_3 plane regardless of
-    # delta. This is correct only for axially symmetric stress about Z_S.
-    # For general stress, x'_3 must track the diffracting-plane normal Q in
-    # the sample frame K_S as delta varies. Q in K_S (chi = 90 case, X-rays
-    # along +Y_S):
-    #     Q = (cos(theta) sin(delta), -sin(theta), cos(theta) cos(delta))
-    # Solving R_z(alpha) . (0, sin psi, cos psi) = Q gives
-    #     alpha = atan2(-cos(theta) sin(delta), -sin(theta))
-    # so cos(psi) = Q_z = cos(theta) cos(delta), consistent with the Singh
-    # formula already used to build psi_grid above.
+    # Uchida's a_ij (Eq. 11) places x'_3 in the x_2-x_3 plane regardless of delta. 
+    # This is correct only for axially symmetric stress about Z_S.
+    # For general stress, x'_3 must track the diffracting-plane normal Q in the sample frame K_S as delta varies.
+    # We derive the alpha values from the delta, theta and chi values using a function above
+    # based on the constraint that the dot-product of k and the x axis of the stress coordinates must be zero
     #
-    # A_full = A_Uchida @ R_z(-alpha): mixes columns 0 and 1, leaves col 2.
+    # A_full = A_Uchida @ R_z(alpha): mixes columns 0 and 1, leaves col 2.
     # For axial sigma (sigma_11 = sigma_22, off-diagonals zero) this collapses
     # back to the original Uchida result; for non-axial sigma it reproduces
     # the lab-azimuth dependence (Merkel 2006 Fig. 3 c-f).
-    if isinstance(alpha_values, int):
+    if isinstance(alpha_values, None):
         delta_grid_rad = np.radians(delta_grid)
         #Evaluate alphas from deltas, theta and chi
         chi_rad = np.radians(chi)
         alpha_grid = compute_alpha(theta0, chi_rad, delta_grid_rad)
-        st.write(delta_grid)
-        st.write(np.degrees(alpha_grid))
     else:
         #Tile a grid of alpha values for the Funamori plots
-        alpha_grid = np.tile(alpha_values, (n_psi, 1)).T
-        
-    cos_alpha = np.cos(alpha_grid)[..., None]
-    sin_alpha = np.sin(alpha_grid)[..., None]
+        #Loop over alpha values somehow
 
-    A_full = np.empty_like(A)
-    A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * sin_alpha
-    A_full[..., 1] = A[..., 0] * -1*sin_alpha + A[..., 1] * cos_alpha
-    A_full[..., 2] = A[..., 2]
+    # --- Build list of alpha_grids to iterate over -----------------------------
+    # Case A: alpha_values is None  -> single delta-derived alpha_grid (Merkel correction)
+    # Case B: alpha_values is an array -> loop (Funamori-style non-axial sigma)
+    if alpha_values is None:
+        delta_grid_rad = np.radians(delta_grid)
+        chi_rad = np.radians(chi)
+        alpha_grid_list = [compute_alpha(theta0, chi_rad, delta_grid_rad)]
+    else:
+        # np.atleast_1d handles both the scalar (0) and the np.linspace(...) cases
+        alpha_values_arr = np.atleast_1d(alpha_values)
+        alpha_grid_list = [
+            np.full_like(phi_grid, a) for a in alpha_values_arr
+        ]
+
+    # --- Accumulators for per-alpha flattened outputs --------------------------
+    strain_33_chunks = []
+    phi_chunks       = []
+    psi_chunks       = []
+    delta_chunks     = []
+    alpha_chunks     = []
+    
+    for alpha_grid in alpha_grid_list:
+        cos_alpha = np.cos(alpha_grid)[..., None]
+        sin_alpha = np.sin(alpha_grid)[..., None]
+    
+        # A_full = A_Uchida @ R_z(alpha)
+        A_full = np.empty_like(A)
+        A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * sin_alpha
+        A_full[..., 1] = A[..., 0] * -1 * sin_alpha + A[..., 1] * cos_alpha
+        A_full[..., 2] = A[..., 2]
+    
+        # sigma' = A_full @ sigma @ A_full.T  (batched transpose of last two axes)
+        sigma_prime = A_full @ sigma @ np.transpose(A_full, (0, 1, 3, 2))
+    
+        # sigma'' = B @ sigma' @ B.T
+        sigma_double_prime = B @ sigma_prime @ B.T  # [n_phi, n_psi, 3, 3]
+    
+        # Voigt round-trip for compliance contraction
+        sigma_double_prime_voigt = stress_tensor_to_voigt(sigma_double_prime)
+        epsilon_double_prime_voigt = np.einsum(
+            'ij,xyj->xyi', elastic_compliance, sigma_double_prime_voigt
+        )
+        epsilon_double_prime = voigt_to_strain_tensor(epsilon_double_prime_voigt)
+    
+        # Invert B-transform without assuming orthonormality:  eps' = B.T @ eps'' @ B
+        epsilon_prime = np.einsum(
+            'ab,...bc,cd->...ad', B.T, epsilon_double_prime, B
+        )
+        strain_33_prime = epsilon_prime[..., 2, 2]
+    
+        # Collect this iteration's flattened outputs
+        strain_33_chunks.append(strain_33_prime.ravel(order='F'))
+        phi_chunks.append(np.degrees(phi_grid).ravel(order='F'))
+        psi_chunks.append(np.degrees(psi_grid).ravel(order='F'))
+        delta_chunks.append(delta_grid.ravel(order='F'))  # already in degrees
+        alpha_chunks.append(np.degrees(alpha_grid).ravel(order='F'))
+    
+    # --- Concatenate across all alpha iterations -------------------------------
+    strain_33_list = np.concatenate(strain_33_chunks)
+    phi_list       = np.concatenate(phi_chunks)
+    psi_list       = np.concatenate(psi_chunks)
+    delta_list     = np.concatenate(delta_chunks)
+    alpha_list     = np.concatenate(alpha_chunks)
+
+    #OLD implementation before iteration over alpha lists    
+    #cos_alpha = np.cos(alpha_grid)[..., None]
+    #sin_alpha = np.sin(alpha_grid)[..., None]
+
+    #A_full = np.empty_like(A)
+    #A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * sin_alpha
+    #A_full[..., 1] = A[..., 0] * -1*sin_alpha + A[..., 1] * cos_alpha
+    #A_full[..., 2] = A[..., 2]
     
     # Matrix B is constant
-    B = np.array([
-        [N/M, 0, H/M],
-        [-H*K/(N*M), L/N, K/M],
-        [-H*L/(N*M), -K/N, L/M]
-    ])
+    #B = np.array([
+    #    [N/M, 0, H/M],
+    #    [-H*K/(N*M), L/N, K/M],
+    #    [-H*L/(N*M), -K/N, L/M]
+    #])
     
     # Apply rotation: sigma' = A @ sigma @ A.T
     # This transposes the last two axes of A, swapping the 2 and 3 dimensions, e.g. If A has shape (N, M, 3, 3), then np.transpose(A, (0, 1, 3, 2)) gives shape (N, M, 3, 3), 
     #equivalent of computing A.T for each element of the batch. We cannot simply transpose everything since the batch structure would break down.
     #sigma_prime = A @ sigma @ np.transpose(A, (0, 1, 3, 2))
-    sigma_prime = A_full @ sigma @ np.transpose(A_full, (0, 1, 3, 2)) #Performs transformation including alpha rotation
+    #sigma_prime = A_full @ sigma @ np.transpose(A_full, (0, 1, 3, 2)) #Performs transformation including alpha rotation
     
     # Apply B transform: sigma'' = B @ sigma' @ B.T
-    sigma_double_prime = B @ sigma_prime @ B.T  # shape: [n_phi, n_psi, 3, 3]
+    #sigma_double_prime = B @ sigma_prime @ B.T  # shape: [n_phi, n_psi, 3, 3]
 
     #Convert sigma tensor to voigt form [N,M,3,3] to [N,M,6]
-    sigma_double_prime_voigt = stress_tensor_to_voigt(sigma_double_prime)  
+    #sigma_double_prime_voigt = stress_tensor_to_voigt(sigma_double_prime)  
 
     # Computes the strain from the elastic compliance and the stress matrix using einsum
     # ε'' = S ⋅ σ''
@@ -618,10 +678,10 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         #for y in range(Y):
         #    for i in range(6):
         #        epsilon[x, y, i] = sum(S[i, j] * sigma[x, y, j] for j in range(6))
-    epsilon_double_prime_voigt = np.einsum('ij,xyj->xyi', elastic_compliance, sigma_double_prime_voigt)
+    #epsilon_double_prime_voigt = np.einsum('ij,xyj->xyi', elastic_compliance, sigma_double_prime_voigt)
 
     #Convert from Voigt to full strain tensor
-    ε_double_prime = voigt_to_strain_tensor(epsilon_double_prime_voigt)
+    #ε_double_prime = voigt_to_strain_tensor(epsilon_double_prime_voigt)
     
     # Get ε'_33 component
     #b13, b23, b33 = B[0, 2], B[1, 2], B[2, 2]
@@ -636,54 +696,25 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
 
     #Avoid assumption of orthonormality of B when mapping back from double_prime to prime coordinates
     #Inverts the B matrix transformation without specifying the componets
-    epsilon_prime = np.einsum(
-        'ab,...bc,cd->...ad',
-        B.T,
-        ε_double_prime,
-        B
-    )
+    #epsilon_prime = np.einsum(
+    #    'ab,...bc,cd->...ad',
+    #    B.T,
+    #    ε_double_prime,
+    #    B
+    #)
     #The strain component is now just the sigma'_33 term
-    strain_33_prime = epsilon_prime[..., 2, 2]
+    #strain_33_prime = epsilon_prime[..., 2, 2]
 
-    #CODE BLOCK IS REDUNDANT FROM OLD METHOD OF FLATTENING
-    # Ensure deltas match the length of flattened psi/phi/strain lists
-    #if psi_values.size == 1 and len(deltas) > 1:
-        # Single psi, multiple deltas (axial simulation case) — replicate results for each delta
-    #    n_phi = len(phi_values)
-    #    n_delta = len(deltas)
-    
-        # Flatten the strain grid (shape [n_phi]) and replicate for each delta
-    #    strain_33_prime = np.tile(strain_33_prime, (n_delta, 1)).T  # shape (n_phi, n_delta)
-    
-        # Also replicate psi and phi grids so they align with deltas
-    #    psi_grid = np.full((n_phi, n_delta), psi_values[0])
-    #    phi_grid = np.tile(phi_values[:, np.newaxis], (1, n_delta))
-    #    delta_grid = np.tile(deltas, (n_phi, 1))
-    #else:
-        # Normal case — psi and phi already form a meshgrid
-    #    phi_grid, psi_grid = np.meshgrid(phi_values, psi_values, indexing='ij')
-    #    x, delta_grid = np.meshgrid(phi_values, deltas, indexing='ij') #Generate delta_grid needed for PO
-
-    # Convert psi and phi grid to degrees for output
+    #New flattening code (works because all output are already grids and have same consistent shapes)
     #psi_deg_grid = np.degrees(psi_grid)
     #phi_deg_grid = np.degrees(phi_grid)
+    #alpha_deg_grid = np.degrees(alpha_grid)
     #delta_deg_grid = delta_grid
     #psi_list = psi_deg_grid.ravel(order='F')
     #phi_list = phi_deg_grid.ravel(order='F')
+    #delta_list = delta_deg_grid.ravel(order='F')
+    #alpha_list = alpha_deg_grid.ravel(order='F')
     #strain_33_list = strain_33_prime.ravel(order='F')
-    # Repeat deltas so every phi/psi pair gets one. This way the ordering of the deltas is correct to match up the delta,psi,phi,strain
-    #delta_list = np.repeat(deltas, len(phi_values))
-
-    #New flattening code (works because all output are already grids and have same consistent shapes)
-    psi_deg_grid = np.degrees(psi_grid)
-    phi_deg_grid = np.degrees(phi_grid)
-    alpha_deg_grid = np.degrees(alpha_grid)
-    delta_deg_grid = delta_grid
-    psi_list = psi_deg_grid.ravel(order='F')
-    phi_list = phi_deg_grid.ravel(order='F')
-    delta_list = delta_deg_grid.ravel(order='F')
-    alpha_list = alpha_deg_grid.ravel(order='F')
-    strain_33_list = strain_33_prime.ravel(order='F')
 
     # d0 and 2th
     d0 = get_d0(symmetry,h,k,l,a,b,c)
