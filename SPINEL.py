@@ -503,8 +503,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             #This approximately preserves the number of samping points requested
             alpha_values = np.radians(np.linspace(-180,180, 72))
             phi_sampling = len(phi_values)
-            st.write(phi_sampling)
             new_sampling = int(phi_sampling/len(alpha_values))
+            st.write(new_sampling)
             phi_values = np.asarray(np.radians(np.linspace(0,360, new_sampling)))
             #Add deltas placeholder for completeness
             deltas = np.array([0])
