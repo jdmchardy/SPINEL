@@ -601,7 +601,14 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * sin_alpha
         A_full[..., 1] = A[..., 0] * -1 * sin_alpha + A[..., 1] * cos_alpha
         A_full[..., 2] = A[..., 2]
-    
+
+        # Matrix B is constant
+        B = np.array([
+            [N/M, 0, H/M],
+            [-H*K/(N*M), L/N, K/M],
+            [-H*L/(N*M), -K/N, L/M]
+        ])
+        
         # sigma' = A_full @ sigma @ A_full.T  (batched transpose of last two axes)
         sigma_prime = A_full @ sigma @ np.transpose(A_full, (0, 1, 3, 2))
     
