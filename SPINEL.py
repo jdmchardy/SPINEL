@@ -570,14 +570,6 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     # For axial sigma (sigma_11 = sigma_22, off-diagonals zero) this collapses
     # back to the original Uchida result; for non-axial sigma it reproduces
     # the lab-azimuth dependence (Merkel 2006 Fig. 3 c-f).
-    if isinstance(alpha_values, None):
-        delta_grid_rad = np.radians(delta_grid)
-        #Evaluate alphas from deltas, theta and chi
-        chi_rad = np.radians(chi)
-        alpha_grid = compute_alpha(theta0, chi_rad, delta_grid_rad)
-    else:
-        #Tile a grid of alpha values for the Funamori plots
-        #Loop over alpha values somehow
 
     # --- Build list of alpha_grids to iterate over -----------------------------
     # Case A: alpha_values is None  -> single delta-derived alpha_grid (Merkel correction)
