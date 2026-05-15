@@ -782,20 +782,22 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     df["Mean strain @ delta"] = np.nan
     df["Mean two_th @ delta"] = np.nan
     df["Mean I @ delta"] = np.nan
-    #Compute the average strains and append to df
-    for delta in np.unique(delta_list):
-        #Obtain all the strains at this particular delta
-        mask = np.isclose(delta_list, delta, atol=1e-4) #safer implementation
-        strains = strain_33_list[mask]
-        PO_intensity = I_list[mask]
-        mean_strain = np.average(strains, weights = PO_intensity) #Average of the strains weighted by the PO
-        mean_dstrain = d0*(1-mean_strain)
-        mean_sin_th = wavelength / (2 * mean_dstrain)
-        mean_two_th = 2 * np.degrees(np.arcsin(mean_sin_th))
-        #Compute the average peak intensity at this delta
-        av_I = intensity*np.mean(PO_intensity)
-        #Update the mean_strain, mean_two_th column at the correct psi values
-        df.loc[df["delta (degrees)"] == delta, ["Mean strain @ delta", "Mean two_th @ delta", "Mean I @ delta"]] = [mean_strain, mean_two_th, av_I]
+    #Only compute if deltas are meaningful (skip Funamori-style placeholder case)
+    if n_delta > 1:
+        #Compute the average strains and append to df
+        for delta in np.unique(delta_list):
+            #Obtain all the strains at this particular delta
+            mask = np.isclose(delta_list, delta, atol=1e-4) #safer implementation
+            strains = strain_33_list[mask]
+            PO_intensity = I_list[mask]
+            mean_strain = np.average(strains, weights = PO_intensity) #Average of the strains weighted by the PO
+            mean_dstrain = d0*(1-mean_strain)
+            mean_sin_th = wavelength / (2 * mean_dstrain)
+            mean_two_th = 2 * np.degrees(np.arcsin(mean_sin_th))
+            #Compute the average peak intensity at this delta
+            av_I = intensity*np.mean(PO_intensity)
+            #Update the mean_strain, mean_two_th column at the correct psi values
+            df.loc[df["delta (degrees)"] == delta, ["Mean strain @ delta", "Mean two_th @ delta", "Mean I @ delta"]] = [mean_strain, mean_two_th, av_I]
 
     # Group by hkl label and sort by azimuth
     df = df.sort_values(by=["hkl", "delta (degrees)"], ignore_index=True)
