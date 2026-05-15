@@ -723,40 +723,6 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         "intensity": intensity,
         "PO_intensity": I_list
     })
-    
-    #Old PO implementation
-    #Insert a placeholder column for the intensity for each phi, psi pair computed from the PO model
-    #I_list = np.ones(np.shape(delta_list)) #It will have the shape of the delta_list
-    #df["PO_intensity"] = I_list
-
-    #if st.session_state.params.get("PO_toggle"):
-    #    components = [
-    #        {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
-    #        }
-    #    ]
-    #    hkl_POD = st.session_state.params.get("hkl_POD")
-    #    PO_MODEL = PO.PO_Model(po_model=po_model,
-    #                           components=components,
-    #                           baseline=st.session_state.params.get("baseline"),
-    #                           symmetry = symmetry,
-    #                           wavelength = wavelength,
-    #                           lattice_params = lattice_params,
-    #                           chi_deg = chi,
-    #                           POD_xtal = hkl_POD
-    #                          )
-    #    
-    #    phi_PO = np.linspace(0,360,32)
-    #    delta_PO = np.linspace(-180,180,32)                   
-    #    I_grid, phi_grid_PO, delta_grid_PO, = PO_MODEL.intensity_for_hkl(hkl, phi_PO, delta_PO)
-
-    #    #Evaluate the PO intensity
-    #    x = phi_grid_PO[:, 0] 
-    #    y = delta_grid_PO[0, :] 
-    #    interp_func = RegularGridInterpolator((x, y), I_grid)
-    #    new_points = np.stack([phi_deg_grid.ravel(), delta_deg_grid.ravel()], axis=-1)
-    #    I_new = interp_func(new_points).reshape(len(phi_values), len(deltas))
-    #    I_list = I_new.ravel(order='F')
-    #    df["PO_intensity"] = I_list
 
     #Insert a placeholder column for the average strain, 2th, intensity at each psi
     df["Mean strain @ psi"] = np.nan
