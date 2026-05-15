@@ -2052,8 +2052,9 @@ if uploaded_file is not None:
         
                             worksheet = writer.sheets[sheet_name]
                             for i, col in enumerate(df.columns):
+                                # Measure data width on non-NaN values only; fall back to 0 if all NaN
                                 max_width = max(
-                                    df[col].astype(str).map(len).max(),
+                                    df[col].dropna().astype(str).map(len).max(),
                                     len(col)
                                 ) + 2
                                 worksheet.set_column(i, i, max_width)
@@ -2123,7 +2124,7 @@ if uploaded_file is not None:
                                 worksheet = writer.sheets[sheet_name]
                                 for i, col in enumerate(df.columns):
                                     max_width = max(
-                                        df[col].astype(str).map(len).max(),
+                                        df[col].dropna().astype(str).map(len).max(),
                                         len(col)
                                     ) + 2
                                     worksheet.set_column(i, i, max_width)
