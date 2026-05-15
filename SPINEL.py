@@ -347,7 +347,7 @@ def compute_alpha(theta0, chi_rad, delta_grid_rad):
         whenever the sign factor changes.
     """
     num = np.cos(theta0) * np.sin(delta_grid_rad)
-    den = np.cos(chi_rad)**2 * np.cos(theta0)**2 * np.cos(delta_grid_rad)**2 + np.sin(chi_rad)**2 * np.sin(theta0)**2
+    den = np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad) + np.sin(chi_rad) * np.sin(theta0)
     alpha = np.arctan2(num, den)
     return alpha
     
