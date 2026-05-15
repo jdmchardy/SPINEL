@@ -507,15 +507,15 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             phi_sampling = 8*len(phi_values)
             #Split this sampling between phi and alpha values
             #This approximately preserves the number of samping points requested
-            alpha_sampling = int(0.5*phi_sampling)
+            alpha_sampling = int(0.2*phi_sampling)
             phi_sampling = int(phi_sampling/alpha_sampling)
             alpha_values = np.radians(np.linspace(-180,180, alpha_sampling))
             phi_values = np.asarray(np.radians(np.linspace(0,360, phi_sampling)))
             #Add deltas placeholder for completeness
             deltas = np.array([0])
-            st.write(new_psi_sampling)
-            st.write(phi_sampling)
-            st.write(alpha_sampling)
+            st.write("Psi sampling: {}".format(new_psi_sampling))
+            st.write("Phi sampling: {}".format(phi_sampling))
+            st.write("Alpha sampling: {}".format(alpha_sampling))
             st.write("Total points:{}".format(new_psi_sampling*phi_sampling*alpha_sampling))
 
     #modified GRID construction to preserve psi-delta relationship
