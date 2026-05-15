@@ -533,7 +533,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
             + np.sin(chi_rad) * np.sin(theta0)
         )
-        alpha = np.arctan2(numerator, sign_factor * denominator_mag)
+        alpha_grid = np.arctan2(numerator, sign_factor * denominator_mag)
         st.write(delta_grid)
         st.write(alpha_grid)
     else:
