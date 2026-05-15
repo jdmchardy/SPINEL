@@ -347,15 +347,9 @@ def compute_alpha(theta0, chi_rad, delta_grid_rad):
         whenever the sign factor changes.
     """
     num = np.cos(theta0) * np.sin(delta_grid_rad)
-    den_mag = np.sqrt(
-        np.cos(chi_rad)**2 * np.cos(theta0)**2 * np.cos(delta_grid_rad)**2
+    den = np.cos(chi_rad)**2 * np.cos(theta0)**2 * np.cos(delta_grid_rad)**2
         + np.sin(chi_rad)**2 * np.sin(theta0)**2
-    )
-    sign_factor = np.sign(
-        np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
-        + np.sin(chi_rad) * np.sin(theta0)
-    )
-    alpha = np.arctan2(num, sign_factor * den_mag)
+    alpha = np.arctan2(num, den)
     return alpha
     
 def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_params, sigma_params, chi, phi_values, psi_values):
