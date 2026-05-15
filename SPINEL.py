@@ -504,7 +504,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             alpha_values = np.radians(np.linspace(-180,180, 10))
             phi_samping = len(phi_values)
             new_sampling = int(phi_samping/len(alpha_values))
-            phi_values = np.asarray(np.radians(np.linspace(0,360, int(samples/new_sampling))))
+            phi_values = np.asarray(np.radians(np.linspace(0,360, new_sampling)))
             #Add deltas placeholder for completeness
             deltas = np.array([0])
 
