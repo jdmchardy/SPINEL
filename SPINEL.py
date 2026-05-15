@@ -530,6 +530,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             + np.sin(chi_rad)**2 * np.sin(theta0)**2
         )
         alpha_grid = np.arctan2(numerator, denominator)
+        st.write(delta_grid)
         st.write(alpha_grid)
     else:
         #Tile a grid of alpha values for the Funamori plots
