@@ -303,6 +303,60 @@ def get_elastic(symmetry, hkl, lattice_params, cij_params):
         elastic = 0
 
     return H, K, L, elastic
+
+def compute_alpha(theta0, chi_rad, delta_grid_rad):
+    """
+    Compute the signed angle α stress rotation angle from the Bragg angle, sample tilt, and azimuth grid.
+
+    The magnitude follows the squared relation
+
+        tan²α = (cos²θ₀ sin²δ) /
+                (cos²χ cos²θ₀ cos²δ + sin²χ sin²θ₀),
+
+    which is invariant under δ → -δ and δ → π - δ and therefore loses the
+    physical sign of α. The sign is restored using
+
+        sign(α) = sign(cos χ cos θ₀ cos δ + sin χ sin θ₀),
+
+    chosen so that the two limiting cases behave correctly:
+
+      * χ = 0:    sign reduces to sign(cos δ); α flips at δ = ±π/2,
+                  recovering α = arctan(tan δ) folded into (-π/2, π/2).
+      * χ = π/2:  sign reduces to sign(sin θ₀) = +1 (for θ₀ ∈ (0, π/2));
+                  α tracks sign(sin δ) only, with no flip at δ = ±π/2.
+
+    For intermediate χ the rule smoothly interpolates between these limits.
+    At δ = ±π/2 the sign factor evaluates to sign(sin χ sin θ₀); the
+    numerator is non-zero there, so arctan2 returns the correct ±π/2 limit
+    without special-casing.
+
+    Parameters
+    ----------
+    theta0 : float
+        Bragg angle in radians. Assumed to lie in (0, π/2).
+    chi_rad : float or ndarray
+        Sample/detector tilt angle in radians.
+    delta_grid_rad : ndarray
+        Azimuthal angle grid in radians, typically spanning (-π, π].
+
+    Returns
+    -------
+    alpha : ndarray
+        Signed angle in radians, in (-π/2, π/2), broadcast over the inputs.
+        Discontinuities of π appear at the δ = ±π/2 branch boundaries
+        whenever the sign factor changes.
+    """
+    num = np.cos(theta0) * np.sin(delta_grid_rad)
+    den_mag = np.sqrt(
+        np.cos(chi_rad)**2 * np.cos(theta0)**2 * np.cos(delta_grid_rad)**2
+        + np.sin(chi_rad)**2 * np.sin(theta0)**2
+    )
+    sign_factor = np.sign(
+        np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
+        + np.sin(chi_rad) * np.sin(theta0)
+    )
+    alpha = np.arctan2(num, sign_factor * den_mag)
+    return alpha
     
 def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_params, sigma_params, chi, phi_values, psi_values):
     """
@@ -524,18 +578,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         delta_grid_rad = np.radians(delta_grid)
         #Evaluate alphas from deltas, theta and chi
         chi_rad = np.radians(chi)
-        numerator = np.cos(theta0) * np.sin(delta_grid_rad)
-        denominator_mag = np.sqrt(
-            np.cos(chi_rad)**2 * np.cos(theta0)**2 * np.cos(delta_grid_rad)**2
-            + np.sin(chi_rad)**2 * np.sin(theta0)**2
-        )
-        sign_factor = np.sign(
-            np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
-            + np.sin(chi_rad) * np.sin(theta0)
-        )
-        alpha_grid = np.arctan2(numerator, sign_factor * denominator_mag)
-        st.write(delta_grid)
-        st.write(alpha_grid)
+        alpha_grid = compute_alpha(theta0, chi_rad, delta_grid_rad)
     else:
         #Tile a grid of alpha values for the Funamori plots
         alpha_grid = np.tile(alpha_values, (n_psi, 1)).T
@@ -544,8 +587,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     sin_alpha = np.sin(alpha_grid)[..., None]
 
     A_full = np.empty_like(A)
-    A_full[..., 0] = A[..., 0] * cos_alpha - A[..., 1] * sin_alpha
-    A_full[..., 1] = A[..., 0] * sin_alpha + A[..., 1] * cos_alpha
+    A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * sin_alpha
+    A_full[..., 1] = A[..., 0] * -1*sin_alpha + A[..., 1] * cos_alpha
     A_full[..., 2] = A[..., 2]
     
     # Matrix B is constant
