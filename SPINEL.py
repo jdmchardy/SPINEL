@@ -306,48 +306,54 @@ def get_elastic(symmetry, hkl, lattice_params, cij_params):
 
 def compute_alpha(theta0, chi_rad, delta_grid_rad):
     """
-    Compute the signed angle α stress rotation angle from the Bragg angle, sample tilt, and azimuth grid.
+    Compute the SPINEL rotation angle α about z_s that keeps the scattering
+    vector K in the y_s–z_s plane of the stress coordinate system.
 
-    The magnitude follows the squared relation
+    Derived from the constraint dot product x1.K^s = 0, i.e the scattering vector is perpendicular to x1 of the stress coordinates which
+    yields the relation
 
-        tan²α = (cos²θ₀ sin²δ) /
-                (cos²χ cos²θ₀ cos²δ + sin²χ sin²θ₀),
+        tan α = (cos θ₀ sin δ) /
+                (cos χ cos θ₀ cos δ + sin χ sin θ₀).
 
-    which is invariant under δ → -δ and δ → π - δ and therefore loses the
-    physical sign of α. The sign is restored using
+    Limiting cases:
 
-        sign(α) = sign(cos χ cos θ₀ cos δ + sin χ sin θ₀),
+      * χ = 0  (axial): denominator reduces to cos θ₀ cos δ, giving
+                  α = arctan2(sin δ, cos δ) = δ. z_x-ray and z_s are
+                  aligned, so α tracks δ over the full (−π, π].
+      * χ = π/2 (radial): denominator reduces to sin θ₀, giving
+                  tan α = cos θ₀ sin δ / sin θ₀ = sin δ / tan θ₀.
+                  α is bounded in (−(π/2 − θ₀), π/2 − θ₀) and smooth.
 
-    chosen so that the two limiting cases behave correctly:
-
-      * χ = 0:    sign reduces to sign(cos δ); α flips at δ = ±π/2,
-                  recovering α = arctan(tan δ) folded into (-π/2, π/2).
-      * χ = π/2:  sign reduces to sign(sin θ₀) = +1 (for θ₀ ∈ (0, π/2));
-                  α tracks sign(sin δ) only, with no flip at δ = ±π/2.
-
-    For intermediate χ the rule smoothly interpolates between these limits.
-    At δ = ±π/2 the sign factor evaluates to sign(sin χ sin θ₀); the
-    numerator is non-zero there, so arctan2 returns the correct ±π/2 limit
-    without special-casing.
+    For intermediate χ the denominator passes smoothly through zero where
+    cos δ = −tan χ tan θ₀, and α transitions continuously through ±π/2
+    because the numerator is nonzero there. The only discontinuity in the
+    output is the natural arctan2 branch wrap at δ = ±π, where α jumps
+    between +π and −π — this is the 2π identification of the circle, not
+    a physical jump. Apply np.unwrap along the δ axis for a monotone trace.
 
     Parameters
     ----------
     theta0 : float
-        Bragg angle in radians. Assumed to lie in (0, π/2).
+        Bragg angle θ₀ in radians. Assumed to lie in (0, π/2).
     chi_rad : float or ndarray
-        Sample/detector tilt angle in radians.
+        Sample/detector tilt angle χ in radians (angle between the x-ray
+        and stress z-axes).
     delta_grid_rad : ndarray
-        Azimuthal angle grid in radians, typically spanning (-π, π].
+        Azimuth δ around the Debye–Scherrer ring, in radians, typically
+        spanning (−π, π].
 
     Returns
     -------
     alpha : ndarray
-        Signed angle in radians, in (-π/2, π/2), broadcast over the inputs.
-        Discontinuities of π appear at the δ = ±π/2 branch boundaries
-        whenever the sign factor changes.
+        Signed rotation angle in radians, in (−π, π], broadcast over the
+        inputs. Continuous in δ except for the arctan2 branch wrap at
+        δ = ±π.
     """
     num = np.cos(theta0) * np.sin(delta_grid_rad)
-    den = np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad) + np.sin(chi_rad) * np.sin(theta0)
+    den = (
+        np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
+        + np.sin(chi_rad) * np.sin(theta0)
+    )
     alpha = np.arctan2(num, den)
     return alpha
     
