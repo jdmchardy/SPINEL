@@ -587,10 +587,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         chi_rad = np.radians(chi)
         alpha_grid_list = [compute_alpha(theta0, chi_rad, delta_grid_rad)]
     else:
-        # np.atleast_1d handles both the scalar (0) and the np.linspace(...) cases
-        alpha_values_arr = np.atleast_1d(alpha_values)
         alpha_grid_list = [
-            np.full_like(phi_grid, a) for a in alpha_values_arr
+            np.full_like(phi_grid, a) for a in alpha_values
         ]
 
     # --- Accumulators for per-alpha flattened outputs --------------------------
@@ -650,78 +648,51 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     delta_list     = np.concatenate(delta_chunks)
     alpha_list     = np.concatenate(alpha_chunks)
 
-    #OLD implementation before iteration over alpha lists    
-    #cos_alpha = np.cos(alpha_grid)[..., None]
-    #sin_alpha = np.sin(alpha_grid)[..., None]
+    n_alpha = len(alpha_grid_list)
 
-    #A_full = np.empty_like(A)
-    #A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * sin_alpha
-    #A_full[..., 1] = A[..., 0] * -1*sin_alpha + A[..., 1] * cos_alpha
-    #A_full[..., 2] = A[..., 2]
-    
-    # Matrix B is constant
-    #B = np.array([
-    #    [N/M, 0, H/M],
-    #    [-H*K/(N*M), L/N, K/M],
-    #    [-H*L/(N*M), -K/N, L/M]
-    #])
-    
-    # Apply rotation: sigma' = A @ sigma @ A.T
-    # This transposes the last two axes of A, swapping the 2 and 3 dimensions, e.g. If A has shape (N, M, 3, 3), then np.transpose(A, (0, 1, 3, 2)) gives shape (N, M, 3, 3), 
-    #equivalent of computing A.T for each element of the batch. We cannot simply transpose everything since the batch structure would break down.
-    #sigma_prime = A @ sigma @ np.transpose(A, (0, 1, 3, 2))
-    #sigma_prime = A_full @ sigma @ np.transpose(A_full, (0, 1, 3, 2)) #Performs transformation including alpha rotation
-    
-    # Apply B transform: sigma'' = B @ sigma' @ B.T
-    #sigma_double_prime = B @ sigma_prime @ B.T  # shape: [n_phi, n_psi, 3, 3]
+    # --- PO intensity (evaluated once on the (phi, delta) grid) ---------------
+    # PO depends only on (phi, delta), which are identical across alpha
+    # iterations. So evaluate it on the un-stacked grid (size n_phi * n_psi
+    # or n_phi * n_delta), then np.tile by n_alpha to match strain_33_list.
+    phi_deg_flat   = np.degrees(phi_grid).ravel(order='F')
+    delta_deg_flat = delta_grid.ravel(order='F')  # already in degrees
 
-    #Convert sigma tensor to voigt form [N,M,3,3] to [N,M,6]
-    #sigma_double_prime_voigt = stress_tensor_to_voigt(sigma_double_prime)  
+    if st.session_state.params.get("PO_toggle"):
+        components = [
+            {"tau":    st.session_state.params.get("tau"),
+             "rho":    st.session_state.params.get("rho"),
+             "R":      st.session_state.params.get("R"),
+             "weight": st.session_state.params.get("weight")}
+        ]
+        hkl_POD = st.session_state.params.get("hkl_POD")
+        PO_MODEL = PO.PO_Model(
+            po_model       = po_model,
+            components     = components,
+            baseline       = st.session_state.params.get("baseline"),
+            symmetry       = symmetry,
+            wavelength     = wavelength,
+            lattice_params = lattice_params,
+            chi_deg        = chi,
+            POD_xtal       = hkl_POD,
+        )
 
-    # Computes the strain from the elastic compliance and the stress matrix using einsum
-    # ε'' = S ⋅ σ''
-    #Here is the equivalent code written explicitly for explaination that the einsum is performing where stress matrix has shape (X, Y, 6) and the resulting strain has shape (X, Y, 6)
-        #for x in range(X):
-        #for y in range(Y):
-        #    for i in range(6):
-        #        epsilon[x, y, i] = sum(S[i, j] * sigma[x, y, j] for j in range(6))
-    #epsilon_double_prime_voigt = np.einsum('ij,xyj->xyi', elastic_compliance, sigma_double_prime_voigt)
+        phi_PO   = np.linspace(0, 360, 32)
+        delta_PO = np.linspace(-180, 180, 32)
+        I_grid, phi_grid_PO, delta_grid_PO = PO_MODEL.intensity_for_hkl(
+            hkl, phi_PO, delta_PO
+        )
 
-    #Convert from Voigt to full strain tensor
-    #ε_double_prime = voigt_to_strain_tensor(epsilon_double_prime_voigt)
-    
-    # Get ε'_33 component
-    #b13, b23, b33 = B[0, 2], B[1, 2], B[2, 2]
-    #strain_33_prime = (
-    #    b13**2 * ε_double_prime[..., 0, 0] +
-    #    b23**2 * ε_double_prime[..., 1, 1] +
-    #    b33**2 * ε_double_prime[..., 2, 2] +
-    #    2 * b13 * b23 * ε_double_prime[..., 0, 1] +
-    #    2 * b13 * b33 * ε_double_prime[..., 0, 2] +
-    #    2 * b23 * b33 * ε_double_prime[..., 1, 2]
-    #)
+        x = phi_grid_PO[:, 0]
+        y = delta_grid_PO[0, :]
+        interp_func = RegularGridInterpolator((x, y), I_grid, method='linear', bounds_error=False, fill_value=None)
+        new_points = np.stack([phi_deg_flat, delta_deg_flat], axis=-1)
+        I_one_alpha = interp_func(new_points)
+    else:
+        # Flat ones with the same length as one alpha-chunk
+        I_one_alpha = np.ones(phi_deg_flat.size)
 
-    #Avoid assumption of orthonormality of B when mapping back from double_prime to prime coordinates
-    #Inverts the B matrix transformation without specifying the componets
-    #epsilon_prime = np.einsum(
-    #    'ab,...bc,cd->...ad',
-    #    B.T,
-    #    ε_double_prime,
-    #    B
-    #)
-    #The strain component is now just the sigma'_33 term
-    #strain_33_prime = epsilon_prime[..., 2, 2]
-
-    #New flattening code (works because all output are already grids and have same consistent shapes)
-    #psi_deg_grid = np.degrees(psi_grid)
-    #phi_deg_grid = np.degrees(phi_grid)
-    #alpha_deg_grid = np.degrees(alpha_grid)
-    #delta_deg_grid = delta_grid
-    #psi_list = psi_deg_grid.ravel(order='F')
-    #phi_list = phi_deg_grid.ravel(order='F')
-    #delta_list = delta_deg_grid.ravel(order='F')
-    #alpha_list = alpha_deg_grid.ravel(order='F')
-    #strain_33_list = strain_33_prime.ravel(order='F')
+    # Tile across the alpha-stacked output so I_list aligns with strain_33_list
+    I_list = np.tile(I_one_alpha, n_alpha)
 
     # d0 and 2th
     d0 = get_d0(symmetry,h,k,l,a,b,c)
@@ -749,41 +720,43 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         "alpha (degrees)": alpha_list,
         "d strain": d_strain,
         "2th" : two_th,
-        "intensity": intensity
+        "intensity": intensity,
+        "PO_intensity": I_list
     })
-
+    
+    #Old PO implementation
     #Insert a placeholder column for the intensity for each phi, psi pair computed from the PO model
-    I_list = np.ones(np.shape(delta_list)) #It will have the shape of the delta_list
-    df["PO_intensity"] = I_list
+    #I_list = np.ones(np.shape(delta_list)) #It will have the shape of the delta_list
+    #df["PO_intensity"] = I_list
 
-    if st.session_state.params.get("PO_toggle"):
-        components = [
-            {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
-            }
-        ]
-        hkl_POD = st.session_state.params.get("hkl_POD")
-        PO_MODEL = PO.PO_Model(po_model=po_model,
-                               components=components,
-                               baseline=st.session_state.params.get("baseline"),
-                               symmetry = symmetry,
-                               wavelength = wavelength,
-                               lattice_params = lattice_params,
-                               chi_deg = chi,
-                               POD_xtal = hkl_POD
-                              )
-        
-        phi_PO = np.linspace(0,360,32)
-        delta_PO = np.linspace(-180,180,32)                   
-        I_grid, phi_grid_PO, delta_grid_PO, = PO_MODEL.intensity_for_hkl(hkl, phi_PO, delta_PO)
+    #if st.session_state.params.get("PO_toggle"):
+    #    components = [
+    #        {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
+    #        }
+    #    ]
+    #    hkl_POD = st.session_state.params.get("hkl_POD")
+    #    PO_MODEL = PO.PO_Model(po_model=po_model,
+    #                           components=components,
+    #                           baseline=st.session_state.params.get("baseline"),
+    #                           symmetry = symmetry,
+    #                           wavelength = wavelength,
+    #                           lattice_params = lattice_params,
+    #                           chi_deg = chi,
+    #                           POD_xtal = hkl_POD
+    #                          )
+    #    
+    #    phi_PO = np.linspace(0,360,32)
+    #    delta_PO = np.linspace(-180,180,32)                   
+    #    I_grid, phi_grid_PO, delta_grid_PO, = PO_MODEL.intensity_for_hkl(hkl, phi_PO, delta_PO)
 
-        #Evaluate the PO intensity
-        x = phi_grid_PO[:, 0] 
-        y = delta_grid_PO[0, :] 
-        interp_func = RegularGridInterpolator((x, y), I_grid)
-        new_points = np.stack([phi_deg_grid.ravel(), delta_deg_grid.ravel()], axis=-1)
-        I_new = interp_func(new_points).reshape(len(phi_values), len(deltas))
-        I_list = I_new.ravel(order='F')
-        df["PO_intensity"] = I_list
+    #    #Evaluate the PO intensity
+    #    x = phi_grid_PO[:, 0] 
+    #    y = delta_grid_PO[0, :] 
+    #    interp_func = RegularGridInterpolator((x, y), I_grid)
+    #    new_points = np.stack([phi_deg_grid.ravel(), delta_deg_grid.ravel()], axis=-1)
+    #    I_new = interp_func(new_points).reshape(len(phi_values), len(deltas))
+    #    I_list = I_new.ravel(order='F')
+    #    df["PO_intensity"] = I_list
 
     #Insert a placeholder column for the average strain, 2th, intensity at each psi
     df["Mean strain @ psi"] = np.nan
