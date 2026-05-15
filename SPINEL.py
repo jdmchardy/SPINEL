@@ -501,7 +501,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         else:
             #Reduce the sampling of datapoints in phi as we must also iterate over alpha
             #This approximately preserves the number of samping points requested
-            alpha_values = np.radians(np.linspace(-180,180, 72))
+            alpha_values = np.radians(np.linspace(-180,180, 36))
             phi_sampling = len(phi_values)
             new_sampling = int(phi_sampling/len(alpha_values))
             st.write(new_sampling)
