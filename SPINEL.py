@@ -579,6 +579,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         #Evaluate alphas from deltas, theta and chi
         chi_rad = np.radians(chi)
         alpha_grid = compute_alpha(theta0, chi_rad, delta_grid_rad)
+        st.write(delta_grid)
+        st.write(np.degrees(alpha_grid))
     else:
         #Tile a grid of alpha values for the Funamori plots
         alpha_grid = np.tile(alpha_values, (n_psi, 1)).T
