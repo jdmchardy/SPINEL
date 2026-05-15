@@ -525,10 +525,15 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         #Evaluate alphas from deltas, theta and chi
         chi_rad = np.radians(chi)
         numerator = np.cos(theta0) * np.sin(delta_grid_rad)
-        denominator = np.sign(np.cos(delta_grid_rad)) * np.sqrt(
-                                np.cos(chi_rad)**2 * np.cos(theta0)**2 * np.cos(delta_grid_rad)**2
-                                + np.sin(chi_rad)**2 * np.sin(theta0)**2)
-        alpha_grid = np.arctan2(numerator, denominator)
+        denominator_mag = np.sqrt(
+            np.cos(chi_rad)**2 * np.cos(theta0)**2 * np.cos(delta_grid_rad)**2
+            + np.sin(chi_rad)**2 * np.sin(theta0)**2
+        )
+        sign_factor = np.sign(
+            np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
+            + np.sin(chi_rad) * np.sin(theta0)
+        )
+        alpha = np.arctan2(numerator, sign_factor * denominator_mag)
         st.write(delta_grid)
         st.write(alpha_grid)
     else:
