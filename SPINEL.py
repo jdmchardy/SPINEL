@@ -577,7 +577,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     # We derive the alpha values from the delta, theta and chi values using a function above
     # based on the constraint that the dot-product of k and the x axis of the stress coordinates must be zero
     #
-    # A_full = A_Uchida @ R_z(alpha): mixes columns 0 and 1, leaves col 2.
+    # A_full = A_Uchida @ R_z(-alpha): mixes columns 0 and 1, leaves col 2.
     # For axial sigma (sigma_11 = sigma_22, off-diagonals zero) this collapses
     # back to the original Uchida result; for non-axial sigma it reproduces
     # the lab-azimuth dependence (Merkel 2006 Fig. 3 c-f).
@@ -605,7 +605,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         cos_alpha = np.cos(alpha_grid)[..., None]
         sin_alpha = np.sin(alpha_grid)[..., None]
     
-        # A_full = A_Uchida @ R_z(alpha)
+        # A_full = A_Uchida @ R_z(-alpha)
+        #A rotation by -alpha is the same as the inverse rotation of alpha R_z^(-1)(alpha) which is how we implement below, i.e cos_alpha remains unchanged and sin(-alpha) = -1*sin_alpha
         A_full = np.empty_like(A)
         A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * -1*sin_alpha
         A_full[..., 1] = A[..., 0] * sin_alpha + A[..., 1] * cos_alpha
