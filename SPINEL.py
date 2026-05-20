@@ -458,7 +458,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     #Check if psi_values are given or if it must be calculated for XRD generation
     if isinstance(psi_values, int):
         if psi_values==0: #Standard setting for fine-resolution XRD generation
-            deltas = np.arange(-180,180,5)
+            deltas = np.arange(-180,180,2)
             #Set alphas to zero to trigger computation later
             alpha_values = None
             #Check if chi value is zero (axial case) or non-zero (radial)
@@ -945,7 +945,7 @@ def cake_data(selected_hkls, intensities, symmetry, lattice_params, wavelength, 
     cake_dict = {}
     
     for hkl, intensity in zip(selected_hkls, intensities):
-        phi_values = np.radians(np.arange(0, 360, 2))
+        phi_values = np.radians(np.arange(0, 360, 5))
         psi_values = 0  # let compute_strain calculate psi for each HKL
         hkl_label, df, psi_list, strain_33_list = compute_strain(
             hkl, intensity, symmetry, lattice_params, wavelength, cijs,
