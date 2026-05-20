@@ -607,8 +607,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     
         # A_full = A_Uchida @ R_z(alpha)
         A_full = np.empty_like(A)
-        A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * sin_alpha
-        A_full[..., 1] = A[..., 0] * -1 * sin_alpha + A[..., 1] * cos_alpha
+        A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * -1*sin_alpha
+        A_full[..., 1] = A[..., 0] * sin_alpha + A[..., 1] * cos_alpha
         A_full[..., 2] = A[..., 2]
 
         # Matrix B is constant
