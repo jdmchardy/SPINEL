@@ -458,7 +458,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     #Check if psi_values are given or if it must be calculated for XRD generation
     if isinstance(psi_values, int):
         if psi_values==0: #Standard setting for fine-resolution XRD generation
-            deltas = np.arange(-180,180,1)
+            deltas = np.arange(-180,180,0.5)
             #Set alphas to zero to trigger computation later
             alpha_values = None
             #Check if chi value is zero (axial case) or non-zero (radial)
