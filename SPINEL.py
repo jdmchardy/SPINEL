@@ -2406,7 +2406,7 @@ if uploaded_file is not None:
         uploaded_XRD = st.file_uploader("Upload .xy experimental XRD file", type=[".xy"])
 
     if uploaded_XRD is not None:
-        raw_lines = uploaded_XRD.read().decode("utf-8").splitlines()
+        raw_lines = uploaded_XRD.read().decode("utf-8", errors="replace").splitlines()
         data_lines = [line for line in raw_lines if not line.strip().startswith("#") and line.strip()]
         data = pd.read_csv(io.StringIO("\n".join(data_lines)), sep=r'\s+', header=None, names=['2th', 'intensity'])
         x_exp = data['2th'].values
