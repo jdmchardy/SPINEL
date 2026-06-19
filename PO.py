@@ -97,6 +97,8 @@ class PO_Model:
             d0 = np.sqrt((a**2*c**2)/((h**2+k**2)*c**2+a**2*l**2))
         elif symmetry == "orthorhombic":
             d0 = np.sqrt(1/(h**2/a**2+k**2/b**2+l**2/c**2))
+        elif symmetry == "trigonal_A":
+            d0 = np.sqrt((3*a**2*c**2)/(4*c**2*(h**2+h*k+k**2)+3*a**2*l**2))
         else:
             st.write("Support not yet provided for {} symmetry".format(symmetry))
             d0 = 0
