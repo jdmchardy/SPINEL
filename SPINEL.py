@@ -355,6 +355,13 @@ def compute_alpha(theta0, chi_rad, delta_grid_rad):
         + np.sin(chi_rad) * np.sin(theta0)
     )
     alpha = np.arctan2(num, den)
+
+    #Revised to test new derivation. This is not what is in the SPINEL paper!!!
+    den = np.cos(theta0) * np.sin(delta_grid_rad)
+    num = (
+        np.sin(chi_rad) * np.sin(theta0)-np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
+    )
+    alpha = np.arctan2(num, den)
     return alpha
     
 def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_params, sigma_params, chi, phi_values, psi_values):
