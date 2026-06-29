@@ -357,11 +357,11 @@ def compute_alpha(theta0, chi_rad, delta_grid_rad):
     alpha = np.arctan2(num, den)
 
     #Revised to test new derivation. This is not what is in the SPINEL paper!!!
-    den = np.cos(theta0) * np.sin(delta_grid_rad)
-    num = (
-        np.sin(chi_rad) * np.sin(theta0)-np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
-    )
-    alpha = np.arctan2(num, den)
+    #den = np.cos(theta0) * np.sin(delta_grid_rad)
+    #num = (
+    #    np.sin(chi_rad) * np.sin(theta0)-np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
+    #)
+    #alpha = np.arctan2(num, den)
     return alpha
     
 def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_params, sigma_params, chi, phi_values, psi_values):
@@ -616,11 +616,11 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         #A rotation by -alpha is the same as the inverse rotation of alpha R_z^(-1)(alpha) which is how we implement below, i.e cos_alpha remains unchanged and sin(-alpha) = -1*sin_alpha
         A_full = np.empty_like(A)
         #original
-        A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * -1*sin_alpha
-        A_full[..., 1] = A[..., 0] * sin_alpha + A[..., 1] * cos_alpha
+        #A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * -1*sin_alpha
+        #A_full[..., 1] = A[..., 0] * sin_alpha + A[..., 1] * cos_alpha
         #flipped rotation
-        #A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * sin_alpha
-        #A_full[..., 1] = A[..., 0] * -1*sin_alpha + A[..., 1] * cos_alpha
+        A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * sin_alpha
+        A_full[..., 1] = A[..., 0] * -1*sin_alpha + A[..., 1] * cos_alpha
         A_full[..., 2] = A[..., 2]
 
         # Matrix B is constant
