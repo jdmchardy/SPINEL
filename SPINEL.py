@@ -2068,7 +2068,7 @@ if uploaded_file is not None:
                 Kx_rot = ca*Ks[:, 0] - sa*Ks[:, 1]
             
                 max_x = np.max(np.abs(Kx_rot))
-                print(f"chi={chi_deg:5.1f}°: max |x_s-component after R_z(alpha)| = {max_x:.2e}  "
+                st.write(f"chi={chi_deg:5.1f}°: max |x_s-component after R_z(alpha)| = {max_x:.2e}  "
                       f"-> {'PASS' if max_x < tol else 'FAIL'}")
                 return max_x
 
