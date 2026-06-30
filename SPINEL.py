@@ -364,17 +364,10 @@ def compute_alpha(theta0, chi_rad, delta_grid_rad):
     #alpha = np.arctan2(num, den)
 
     #third option
-    #num = np.cos(theta0) * np.sin(delta_grid_rad)
-    #den = (
-    #    np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
-    #    - np.sin(chi_rad) * np.sin(theta0)
-    #)
-    #alpha = np.arctan2(num, den)
-
-    #fourth option
-    den = np.cos(theta0) * np.sin(delta_grid_rad)
-    num = (np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad) 
-           - np.sin(chi_rad) * np.sin(theta0)
+    num = np.cos(theta0) * np.sin(delta_grid_rad)
+    den = (
+        np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
+        - np.sin(chi_rad) * np.sin(theta0)
     )
     alpha = np.arctan2(num, den)
     return alpha
