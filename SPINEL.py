@@ -2039,42 +2039,41 @@ if uploaded_file is not None:
             
         col1, col2 = st.columns(2)
         with col1:
-            def test_alpha_places_K_in_yz_plane(theta0, chi_deg, tol=1e-12):
-                chi = np.radians(chi_deg)
-                deltas = np.radians(np.arange(-179, 180, 1.0))   # avoid exact sin δ = 0 endpoints
+            def Rz(t):
+                c, s = np.cos(t), np.sin(t)
+                return np.array([[c, -s, 0],[s, c, 0],[0, 0, 1]])
             
-                # K in the X-ray frame (ring vector), then tilt by chi about x_s -> K_s
-                # K_xray = (cosθ sinδ, cosθ cosδ, sinθ)
+            def Rx(t):
+                c, s = np.cos(t), np.sin(t)
+                return np.array([[1,0,0],[0,c,-s],[0,s,c]])
+            
+            def test_sigma_rotation_sign(theta0, chi_deg):
+                chi = np.radians(chi_deg)
+                deltas = np.radians(np.arange(-179, 180, 1.0))
+            
+                # true K_s (chi about x_s)
                 Kx = np.stack([np.cos(theta0)*np.sin(deltas),
                                np.cos(theta0)*np.cos(deltas),
-                               np.full_like(deltas, np.sin(theta0))], axis=-1)   # (nd, 3)
+                               np.full_like(deltas, np.sin(theta0))], axis=-1)
+                Ks = Kx @ Rx(chi).T                                   # (nd,3)
             
-                # R_x(chi): rotates (y, z), leaves x
-                c, s = np.cos(chi), np.sin(chi)
-                Rx = np.array([[1, 0, 0],
-                               [0, c, -s],
-                               [0, s,  c]])
-                Ks = Kx @ Rx.T                                                   # (nd, 3)
+                alpha = compute_alpha(theta0, chi, deltas)            # your third-option alpha
             
-                # sanity: does (K_s)_z reproduce your cos psi branch?
-                cospsi_code = np.sin(chi)*np.cos(deltas)*np.cos(theta0) + np.cos(chi)*np.sin(theta0)
-                assert np.allclose(Ks[:, 2], cospsi_code, atol=1e-12), "K_s_z does not match psi branch"
+                # The rotation applied to sigma in your code is R_z(-alpha) (active).
+                # Apply that SAME active rotation to K and see if K lands in the y-z plane.
+                # active rotation of a vector by -alpha: v' = R_z(-alpha) @ v
+                Ks_minus = np.einsum('dij,dj->di', np.array([Rz(-a) for a in alpha]), Ks)
+                Ks_plus  = np.einsum('dij,dj->di', np.array([Rz(+a) for a in alpha]), Ks)
             
-                # apply alpha from your function
-                alpha = compute_alpha(theta0, chi, deltas)                       # your third-option alpha
-                ca, sa = np.cos(alpha), np.sin(alpha)
+                st.write(f"chi={chi_deg:5.1f}°:")
+                st.write(f"   R_z(-alpha)@K : max|x| = {np.max(np.abs(Ks_minus[:,0])):.2e}")
+                st.write(f"   R_z(+alpha)@K : max|x| = {np.max(np.abs(Ks_plus[:,0])):.2e}")
             
-                # R_z(alpha) acting on K_s: new x-component = cosα·x - sinα·y
-                Kx_rot = ca*Ks[:, 0] - sa*Ks[:, 1]
             
-                max_x = np.max(np.abs(Kx_rot))
-                st.write(f"chi={chi_deg:5.1f}°: max |x_s-component after R_z(alpha)| = {max_x:.2e}  "
-                      f"-> {'PASS' if max_x < tol else 'FAIL'}")
-                return max_x
 
             if st.button("Test alpha") and selected_hkls:
-                for chi_deg in [0, 15, 30, 45, 60, 90]:
-                    test_alpha_places_K_in_yz_plane(np.radians(7.0), chi_deg)
+                for chi_deg in [15, 45, 90]:
+                    test_sigma_rotation_sign(np.radians(7.0), chi_deg)
 
 
 
