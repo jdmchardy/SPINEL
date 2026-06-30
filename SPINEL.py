@@ -349,17 +349,10 @@ def compute_alpha(theta0, chi_rad, delta_grid_rad):
         inputs. Continuous in δ except for the arctan2 branch wrap at
         δ = ±π.
     """
-    #num = np.cos(theta0) * np.sin(delta_grid_rad)
-    #den = (
-    #    np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
-    #    - np.sin(chi_rad) * np.sin(theta0)
-    #)
-    #alpha = np.arctan2(num, den)
-
     num = np.cos(theta0) * np.sin(delta_grid_rad)
     den = (
         np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
-        + np.sin(chi_rad) * np.sin(theta0)
+        - np.sin(chi_rad) * np.sin(theta0)
     )
     alpha = np.arctan2(num, den)
     return alpha
@@ -2046,6 +2039,56 @@ if uploaded_file is not None:
             
         col1, col2 = st.columns(2)
         with col1:
+            def test_alpha_places_K_in_yz_plane(theta0, chi_deg, tol=1e-12):
+                chi = np.radians(chi_deg)
+                deltas = np.radians(np.arange(-179, 180, 1.0))   # avoid exact sin δ = 0 endpoints
+            
+                # K in the X-ray frame (ring vector), then tilt by chi about x_s -> K_s
+                # K_xray = (cosθ sinδ, cosθ cosδ, sinθ)
+                Kx = np.stack([np.cos(theta0)*np.sin(deltas),
+                               np.cos(theta0)*np.cos(deltas),
+                               np.full_like(deltas, np.sin(theta0))], axis=-1)   # (nd, 3)
+            
+                # R_x(chi): rotates (y, z), leaves x
+                c, s = np.cos(chi), np.sin(chi)
+                Rx = np.array([[1, 0, 0],
+                               [0, c, -s],
+                               [0, s,  c]])
+                Ks = Kx @ Rx.T                                                   # (nd, 3)
+            
+                # sanity: does (K_s)_z reproduce your cos psi branch?
+                cospsi_code = np.sin(chi)*np.cos(deltas)*np.cos(theta0) + np.cos(chi)*np.sin(theta0)
+                assert np.allclose(Ks[:, 2], cospsi_code, atol=1e-12), "K_s_z does not match psi branch"
+            
+                # apply alpha from your function
+                alpha = compute_alpha(theta0, chi, deltas)                       # your third-option alpha
+                ca, sa = np.cos(alpha), np.sin(alpha)
+            
+                # R_z(alpha) acting on K_s: new x-component = cosα·x - sinα·y
+                Kx_rot = ca*Ks[:, 0] - sa*Ks[:, 1]
+            
+                max_x = np.max(np.abs(Kx_rot))
+                print(f"chi={chi_deg:5.1f}°: max |x_s-component after R_z(alpha)| = {max_x:.2e}  "
+                      f"-> {'PASS' if max_x < tol else 'FAIL'}")
+                return max_x
+
+            if st.button("Test alpha") and selected_hkls:
+                for chi_deg in [0, 15, 30, 45, 60, 90]:
+                    test_alpha_places_K_in_yz_plane(np.radians(7.0), chi_deg)
+
+
+
+
+
+
+
+
+
+
+
+
+
+            
             st.subheader("Execute Calculations")
             #---------------------         
             #Generating epsilon-psi curves
