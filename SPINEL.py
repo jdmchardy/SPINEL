@@ -602,6 +602,11 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         #A rotation by -alpha is the same as the inverse rotation of alpha R_z^(-1)(alpha) which is how we implement below, i.e cos_alpha remains unchanged and sin(-alpha) = -1*sin_alpha
         A_full = np.empty_like(A)
         #original
+        #To be clear, the implementation below is equivalent to an alpha rotation matrix 
+        #M = (cos(alpha), sin(alpha), 0)
+        #    (-sin(alpha), cos(alpha), 0)
+        #    (    0            0       1)
+        #We have been careful to get this correct. The python convention can mess it up. 
         A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * -1*sin_alpha
         A_full[..., 1] = A[..., 0] * sin_alpha + A[..., 1] * cos_alpha
         A_full[..., 2] = A[..., 2]
