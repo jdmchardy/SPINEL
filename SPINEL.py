@@ -313,7 +313,7 @@ def compute_alpha(theta0, chi_rad, delta_grid_rad):
     yields the relation
 
         tan α = (cos θ₀ sin δ) /
-                (cos χ cos θ₀ cos δ + sin χ sin θ₀).
+                (cos χ cos θ₀ cos δ - sin χ sin θ₀).
 
     Limiting cases:
 
@@ -321,7 +321,7 @@ def compute_alpha(theta0, chi_rad, delta_grid_rad):
                   α = arctan2(sin δ, cos δ) = δ. z_x-ray and z_s are
                   aligned, so α tracks δ over the full (−π, π].
       * χ = π/2 (radial): denominator reduces to sin θ₀, giving
-                  tan α = cos θ₀ sin δ / sin θ₀ = sin δ / tan θ₀.
+                  tan α = -cos θ₀ sin δ / sin θ₀ = -sin δ / tan θ₀.
                   α is bounded in (−(π/2 − θ₀), π/2 − θ₀) and smooth.
 
     For intermediate χ the denominator passes smoothly through zero where
@@ -349,21 +349,6 @@ def compute_alpha(theta0, chi_rad, delta_grid_rad):
         inputs. Continuous in δ except for the arctan2 branch wrap at
         δ = ±π.
     """
-    #num = np.cos(theta0) * np.sin(delta_grid_rad)
-    #den = (
-    #    np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
-    #    + np.sin(chi_rad) * np.sin(theta0)
-    #)
-    #alpha = np.arctan2(num, den)
-
-    #Revised to test new derivation.
-    #den = np.cos(theta0) * np.sin(delta_grid_rad)
-    #num = (
-    #    np.sin(chi_rad) * np.sin(theta0)-np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
-    #)
-    #alpha = np.arctan2(num, den)
-
-    #third option
     num = np.cos(theta0) * np.sin(delta_grid_rad)
     den = (
         np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
