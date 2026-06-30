@@ -324,13 +324,6 @@ def compute_alpha(theta0, chi_rad, delta_grid_rad):
                   tan α = -cos θ₀ sin δ / sin θ₀ = -sin δ / tan θ₀.
                   α is bounded in (−(π/2 − θ₀), π/2 − θ₀) and smooth.
 
-    For intermediate χ the denominator passes smoothly through zero where
-    cos δ = −tan χ tan θ₀, and α transitions continuously through ±π/2
-    because the numerator is nonzero there. The only discontinuity in the
-    output is the natural arctan2 branch wrap at δ = ±π, where α jumps
-    between +π and −π — this is the 2π identification of the circle, not
-    a physical jump. Apply np.unwrap along the δ axis for a monotone trace.
-
     Parameters
     ----------
     theta0 : float
@@ -611,8 +604,6 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         #original
         A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * -1*sin_alpha
         A_full[..., 1] = A[..., 0] * sin_alpha + A[..., 1] * cos_alpha
-        #A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * sin_alpha
-        #A_full[..., 1] = A[..., 0] * -1*sin_alpha + A[..., 1] * cos_alpha
         A_full[..., 2] = A[..., 2]
 
         # Matrix B is constant
@@ -2039,55 +2030,6 @@ if uploaded_file is not None:
             
         col1, col2 = st.columns(2)
         with col1:
-            def Rz(t):
-                c, s = np.cos(t), np.sin(t)
-                return np.array([[c, -s, 0],[s, c, 0],[0, 0, 1]])
-            
-            def Rx(t):
-                c, s = np.cos(t), np.sin(t)
-                return np.array([[1,0,0],[0,c,-s],[0,s,c]])
-            
-            def test_sigma_rotation_sign(theta0, chi_deg):
-                chi = np.radians(chi_deg)
-                deltas = np.radians(np.arange(-179, 180, 1.0))
-            
-                # true K_s (chi about x_s)
-                Kx = np.stack([np.cos(theta0)*np.sin(deltas),
-                               np.cos(theta0)*np.cos(deltas),
-                               np.full_like(deltas, np.sin(theta0))], axis=-1)
-                Ks = Kx @ Rx(chi).T                                   # (nd,3)
-            
-                alpha = compute_alpha(theta0, chi, deltas)            # your third-option alpha
-            
-                # The rotation applied to sigma in your code is R_z(-alpha) (active).
-                # Apply that SAME active rotation to K and see if K lands in the y-z plane.
-                # active rotation of a vector by -alpha: v' = R_z(-alpha) @ v
-                Ks_minus = np.einsum('dij,dj->di', np.array([Rz(-a) for a in alpha]), Ks)
-                Ks_plus  = np.einsum('dij,dj->di', np.array([Rz(+a) for a in alpha]), Ks)
-            
-                st.write(f"chi={chi_deg:5.1f}°:")
-                st.write(f"   R_z(-alpha)@K : max|x| = {np.max(np.abs(Ks_minus[:,0])):.2e}")
-                st.write(f"   R_z(+alpha)@K : max|x| = {np.max(np.abs(Ks_plus[:,0])):.2e}")
-            
-            
-
-            if st.button("Test alpha") and selected_hkls:
-                for chi_deg in [15, 45, 90]:
-                    test_sigma_rotation_sign(np.radians(7.0), chi_deg)
-
-
-
-
-
-
-
-
-
-
-
-
-
-            
             st.subheader("Execute Calculations")
             #---------------------         
             #Generating epsilon-psi curves
