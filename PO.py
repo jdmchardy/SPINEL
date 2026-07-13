@@ -318,15 +318,15 @@ class PO_Model:
             np.cos(beta)
         ], axis=-1)
 
-    def MD_func(self, alpha, R):
+    def MD_func(self, eta, R):
         """
         March-Dollase function.
-        alpha: array-like of angles in radians
+        eta: array-like of angles in radians
         R: scalar or array-like broadcastable to alpha
         Returns: MD values elementwise
         """
-        alpha = np.asarray(alpha)
-        return ((np.sin(alpha)**2)/R + (R**2)*(np.cos(alpha)**2))**(-3/2)
+        eta = np.asarray(eta)
+        return ((np.sin(eta)**2)/R + (R**2)*(np.cos(eta)**2))**(-3/2)
 
     def multi_MD_PO_model(self, angle_array, R_array, weight_array):
         """
@@ -353,10 +353,10 @@ class PO_Model:
             weights_normed = weight_array * (1-baseline) / np.sum(weight_array)
         
         # Evaluate MD function elementwise (broadcasting over last axis)
-        P_alpha = self.MD_func(angle_array, R_array)  # (..., n_pref)
+        P_eta = self.MD_func(angle_array, R_array)  # (..., n_pref)
     
         # Weighted sum over preferred directions (last axis)
-        return baseline + np.sum(P_alpha * weights_normed, axis=-1)
+        return baseline + np.sum(P_eta * weights_normed, axis=-1)
 
     def intensity_for_hkl(self, hkl, phi, delta):
         """
