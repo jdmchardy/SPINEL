@@ -10,7 +10,7 @@ class PO_Model:
     Models the effects of preferred orientation on diffracted x-ray intensity
     """
     def __init__(self, po_model="MarchDollase",
-                 components=[{"tau": 0,  "rho": 0,  "R": 1, "weight": 1}], #default of one component direction (R=1 is isotropic = no PO) aligned with stress z-axis
+                 components=[{"tau": 0,  "omega": 0,  "R": 1, "weight": 1}], #default of one component direction (R=1 is isotropic = no PO) aligned with stress z-axis
                  baseline=0, #A constant baseline value
                  symmetry = "cubic", 
                  wavelength = 0.4,
@@ -33,7 +33,7 @@ class PO_Model:
             One dictionary per component direction. Each dictionary contains
             "tau" : float (degrees)
                   The tilt angle from the stress axis
-            "rho" : float (degrees)
+            "omega" : float (degrees)
                   The rotation angle around the stress axis
             "R" : float (Typically between 0 and 1)
                   The March-Dollase factor
@@ -202,6 +202,7 @@ class PO_Model:
 
     def X_matrix_vectorised(self, phi, delta):
         """Maps from xray coordinates to stress coordinates"""
+        #Need to update
 
         chi = np.full(np.shape(phi), self.chi) #make array of chi values same shape as phi to ensure mesh grids are same shape
     
@@ -227,21 +228,21 @@ class PO_Model:
         X[..., 2, 2] = cos_chi
         return X
 
-    def X_matrix(self, omega_deg, chi_deg):
+    def X_matrix(self, alpha_deg, chi_deg):
         """Maps from xray coordinates to stress coordinates"""
     
         chi = np.radians(chi_deg)
-        omega = np.radians(omega_deg)
+        alpha = np.radians(alpha_deg)
     
         cos_chi = np.cos(chi)
         sin_chi = np.sin(chi)
-        cos_omega = np.cos(omega)
-        sin_omega = np.sin(omega)
+        cos_alpha = np.cos(alpha)
+        sin_alpha = np.sin(alpha)
 
         X = np.array([
-            [cos_omega, sin_omega, 0],
-            [-1*cos_chi*sin_omega, cos_chi*cos_omega, -1*sin_chi],
-            [sin_chi*sin_omega, sin_chi*cos_omega, cos_chi]
+            [cos_alpha, sin_alpha, 0],
+            [-1*cos_chi*sin_alpha, cos_chi*cos_alpha, sin_chi],
+            [sin_chi*sin_alpha, -1*sin_chi*cos_alpha, cos_chi]
         ])
         return X
 
