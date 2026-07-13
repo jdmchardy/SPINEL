@@ -451,7 +451,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     #Check if psi_values are given or if it must be calculated for XRD generation
     if isinstance(psi_values, int):
         if psi_values==0: #Standard setting for fine-resolution XRD generation
-            deltas = np.arange(-180,180,0.5)
+            deltas = np.arange(-180,180,2)
             #Set alphas to zero to trigger computation later
             alpha_values = None
             #Check if chi value is zero (axial case) or non-zero (radial)
@@ -663,7 +663,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     if st.session_state.params.get("PO_toggle"):
         components = [
             {"tau":    st.session_state.params.get("tau"),
-             "rho":    st.session_state.params.get("rho"),
+             "omega":    st.session_state.params.get("omega"),
              "R":      st.session_state.params.get("R"),
              "weight": st.session_state.params.get("weight")}
         ]
@@ -2006,7 +2006,7 @@ if uploaded_file is not None:
                     st.session_state.params["baseline"] = st.number_input("Baseline (between 0 and 1)", value=0.0, step=0.1, format="%.2f")
                     st.session_state.params["R"] = st.number_input("R", value=0.5, step=0.1, format="%.2f")
                     st.session_state.params["tau"] = st.number_input("tau (deg)", value=0.0, step=5.0, format="%.1f")
-                    st.session_state.params["rho"] = st.number_input("rho (deg)", value=0.0, step=5.0, format="%.1f")
+                    st.session_state.params["omega"] = st.number_input("omega (deg)", value=0.0, step=5.0, format="%.1f")
                     st.session_state.params["weight"] = st.number_input("weight", value=1.0, step=0.1, format="%.1f")
                 else:
                     st.write("{} model is not supported".format(po_model))
