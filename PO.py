@@ -295,8 +295,8 @@ class PO_Model:
     
         for comp in components:
             tau = np.radians(comp["tau"])
-            rho = np.radians(comp["rho"])
-            vec = self.make_polar_vector(tau, rho) #Vector in the stress coordinates
+            omega = np.radians(comp["omega"])
+            vec = self.make_polar_vector(tau, omega) #Vector in the stress coordinates
             vec_xray = self.transform_stress_2_xray(X, vec) #vector transformed to the xray coordinates (rotation of chi)
             pref_dirs.append({
                 "vector": vec_xray,
