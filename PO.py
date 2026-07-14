@@ -395,9 +395,6 @@ class PO_Model:
         return baseline + np.sum(P_eta * weights_normed, axis=-1)
 
     def intensity_for_hkl(self, hkl, phi, delta):
-       
-
-    def intensity_for_hkl(self, hkl, phi, delta):
         """
         Computes the intensities over a grid of phi x delta values, averaged across all hkl permutations.
 
