@@ -432,7 +432,7 @@ class PO_Model:
 
         # --- Uchida A(phi, psi) then Merkel alpha rotation about z_S ----------
         # A_full = A_Uchida @ R_z(-alpha)  (identical construction to SPINEL)
-        alpha = compute_alpha(theta0, self.chi, delta_grid)   # (n_phi, n_delta)
+        alpha = self.compute_alpha(theta0, self.chi, delta_grid)   # (n_phi, n_delta)
         A = self.A_matrix_vectorised(phi, psi)                # (n_phi, n_delta, 3, 3)
         cos_alpha = np.cos(alpha)[..., None]
         sin_alpha = np.sin(alpha)[..., None]
