@@ -349,6 +349,28 @@ class PO_Model:
             })
         return pref_dirs
 
+    def build_preferred_directions(self):
+        """
+        Preferred orientation axes (POA) expressed in x-ray (lab) coordinates.
+        The POA is defined in the stress frame by (tau, omega) and mapped to the
+        lab frame by the FIXED stress->x-ray rotation X^-1(0, chi) = R_x(-chi).
+        Only the chi tilt enters.
+        """
+        pref_dirs = []
+        # X_matrix(0, chi) already returns the PDF X^-1 (stress -> x-ray).
+        X_s2x = self.X_matrix(0, np.degrees(self.chi))
+        for comp in self.components:
+            tau   = np.radians(comp["tau"])
+            omega = np.radians(comp["omega"])
+            vec_S = self.make_polar_vector(tau, omega)   # POA in stress coords
+            vec_xray = X_s2x @ vec_S                      # apply DIRECTLY (no inverse)
+            pref_dirs.append({
+                "vector": vec_xray,
+                "R": comp["R"],
+                "weight": comp["weight"]
+            })
+        return pref_dirs
+
     def equal_area_projection(self, beta, gamma):
         r = 2 * np.sin(beta / 2) #With this scaling the circle radius is sqrt(2) giving area = 2pi (equal to the hemispere surface area for unit sphere)
         x = r * np.cos(gamma)
