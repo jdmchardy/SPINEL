@@ -2135,7 +2135,7 @@ if uploaded_file is not None:
                 st.subheader("Preferred Orientation")
                 if st.button("Plot PO Model"):
                     components = [
-                        {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
+                        {"tau": st.session_state.params.get("tau"), "omega": st.session_state.params.get("omega"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
                         }
                     ]
                     hkl_POD = st.session_state.params.get("hkl_POD")
@@ -2150,7 +2150,7 @@ if uploaded_file is not None:
 
                 if st.button("TEST PO Model"):
                     components = [
-                    {"tau": st.session_state.params.get("tau"), "rho": st.session_state.params.get("rho"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
+                    {"tau": st.session_state.params.get("tau"), "omega": st.session_state.params.get("omega"),"R": st.session_state.params.get("R") , "weight" : st.session_state.params.get("weight")
                     }
                     ]
                     hkl_POD = st.session_state.params.get("hkl_POD")
