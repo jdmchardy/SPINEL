@@ -4,6 +4,50 @@ import itertools
 import streamlit as st
 import math
 
+def compute_alpha(theta0, chi_rad, delta_grid_rad):
+    """
+    Rotation angle alpha about z_S that keeps the scattering vector K in the
+    y_S-z_S plane of the stress frame. Reduces to alpha = delta
+    in the axial case (chi = 0). Shared with SPINEL.compute_strain.
+    Derived from the constraint dot product x1.K^s = 0, i.e the scattering vector is perpendicular to x1 of the stress coordinates which
+    yields the relation
+
+        tan α = (cos θ₀ sin δ) /
+                (cos χ cos θ₀ cos δ - sin χ sin θ₀).
+
+    Limiting cases:
+
+      * χ = 0  (axial): denominator reduces to cos θ₀ cos δ, giving
+                  α = arctan2(sin δ, cos δ) = δ. z_x-ray and z_s are
+                  aligned, so α tracks δ over the full (−π, π].
+      * χ = π/2 (radial): denominator reduces to sin θ₀, giving
+                  tan α = -cos θ₀ sin δ / sin θ₀ = -sin δ / tan θ₀.
+                  α is bounded in (−(π/2 − θ₀), π/2 − θ₀) and smooth.
+
+    Parameters
+    ----------
+    theta0 : float
+        Bragg angle θ₀ in radians. Assumed to lie in (0, π/2).
+    chi_rad : float or ndarray
+        Sample/detector tilt angle χ in radians (angle between the x-ray
+        and stress z-axes).
+    delta_grid_rad : ndarray
+        Azimuth δ around the Debye–Scherrer ring, in radians, typically
+        spanning (−π, π].
+
+    Returns
+    -------
+    alpha : ndarray
+        Signed rotation angle in radians, in (−π, π], broadcast over the
+        inputs. Continuous in δ except for the arctan2 branch wrap at
+        δ = ±π.
+
+    """
+    num = np.cos(theta0) * np.sin(delta_grid_rad)
+    den = (np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
+           - np.sin(chi_rad) * np.sin(theta0))
+    return np.arctan2(num, den)
+
 class PO_Model:
     """
     Preferred Orientation Model
@@ -61,50 +105,6 @@ class PO_Model:
         self.chi = np.radians(chi_deg) #Convert to radians
         self.POD_xtal = POD_xtal
         self.pref_directions = self.build_preferred_directions()
-
-    def compute_alpha(theta0, chi_rad, delta_grid_rad):
-        """
-        Rotation angle alpha about z_S that keeps the scattering vector K in the
-        y_S-z_S plane of the stress frame. Reduces to alpha = delta
-        in the axial case (chi = 0). Shared with SPINEL.compute_strain.
-        Derived from the constraint dot product x1.K^s = 0, i.e the scattering vector is perpendicular to x1 of the stress coordinates which
-        yields the relation
-    
-            tan α = (cos θ₀ sin δ) /
-                    (cos χ cos θ₀ cos δ - sin χ sin θ₀).
-    
-        Limiting cases:
-    
-          * χ = 0  (axial): denominator reduces to cos θ₀ cos δ, giving
-                      α = arctan2(sin δ, cos δ) = δ. z_x-ray and z_s are
-                      aligned, so α tracks δ over the full (−π, π].
-          * χ = π/2 (radial): denominator reduces to sin θ₀, giving
-                      tan α = -cos θ₀ sin δ / sin θ₀ = -sin δ / tan θ₀.
-                      α is bounded in (−(π/2 − θ₀), π/2 − θ₀) and smooth.
-    
-        Parameters
-        ----------
-        theta0 : float
-            Bragg angle θ₀ in radians. Assumed to lie in (0, π/2).
-        chi_rad : float or ndarray
-            Sample/detector tilt angle χ in radians (angle between the x-ray
-            and stress z-axes).
-        delta_grid_rad : ndarray
-            Azimuth δ around the Debye–Scherrer ring, in radians, typically
-            spanning (−π, π].
-    
-        Returns
-        -------
-        alpha : ndarray
-            Signed rotation angle in radians, in (−π, π], broadcast over the
-            inputs. Continuous in δ except for the arctan2 branch wrap at
-            δ = ±π.
-    
-        """
-        num = np.cos(theta0) * np.sin(delta_grid_rad)
-        den = (np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
-               - np.sin(chi_rad) * np.sin(theta0))
-        return np.arctan2(num, den)
 
     def get_permutations(self, hkl):
         """Generates all the permutaions given some seed hkl)"""
@@ -432,7 +432,7 @@ class PO_Model:
 
         # --- Uchida A(phi, psi) then Merkel alpha rotation about z_S ----------
         # A_full = A_Uchida @ R_z(-alpha)  (identical construction to SPINEL)
-        alpha = self.compute_alpha(theta0, self.chi, delta_grid)   # (n_phi, n_delta)
+        alpha = compute_alpha(theta0, self.chi, delta_grid)   # (n_phi, n_delta)
         A = self.A_matrix_vectorised(phi, psi)                # (n_phi, n_delta, 3, 3)
         cos_alpha = np.cos(alpha)[..., None]
         sin_alpha = np.sin(alpha)[..., None]
