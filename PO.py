@@ -335,13 +335,14 @@ class PO_Model:
         X = self.X_matrix(0, np.degrees(self.chi)) # x-ray -> stress, alpha=0
         for comp in self.components:
             st.write(comp)
-            st.write(comp.keys)
+            st.write(comp.items)
+            st.write("1")
             tau   = np.radians(comp["tau"])
-            omega = np.radians(comp["omega"])
-            vec_S    = self.make_polar_vector(tau, omega)    # POA in stress coords
-            vec_xray = self.transform_stress_2_xray(X, vec_S)  # applies inv(X) @ v to convert from stress to x-ray coords
-            pref_dirs.append({"vector": vec_xray, "R": comp["R"], "weight": comp["weight"]})
-        return pref_dirs
+            #omega = np.radians(comp["omega"])
+            #vec_S    = self.make_polar_vector(tau, omega)    # POA in stress coords
+            #vec_xray = self.transform_stress_2_xray(X, vec_S)  # applies inv(X) @ v to convert from stress to x-ray coords
+            #pref_dirs.append({"vector": vec_xray, "R": comp["R"], "weight": comp["weight"]})
+        #return pref_dirs
 
     def equal_area_projection(self, beta, gamma):
         r = 2 * np.sin(beta / 2) #With this scaling the circle radius is sqrt(2) giving area = 2pi (equal to the hemispere surface area for unit sphere)
