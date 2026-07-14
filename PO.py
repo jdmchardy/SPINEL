@@ -444,8 +444,14 @@ class PO_Model:
         A_full[..., 2] = A[..., 2]
 
         # --- fixed stress -> x-ray map (physical mounting: only the chi tilt) --
-        X = self.X_matrix(0, np.degrees(self.chi)) # x-ray -> stress, alpha=0
-        X_s2x = X.T #compute inverse to map from stress to x-ray
+        X = self.X_matrix(0, np.degrees(self.chi))     # x-ray -> stress, alpha=0
+        X_s2x = X.T                                     # orthonormal: inverse = transpose (stress -> x-ray)
+
+        # Compose the permutation-independent transform once:
+        #  POD_xray = X_s2x @ A_full^T @ (B^T @ POD_xtal)
+        # A_full is orthonormal, so A_full^-1 = A_full^T (no np.linalg.inv needed).
+        A_full_T = np.swapaxes(A_full, -1, -2)         # diffraction -> stress
+        M = X_s2x @ A_full_T                            # (n_phi, n_delta, 3, 3), built once
 
         # POD in crystal coords (normalised)
         POD_xtal = np.asarray(self.POD_xtal, dtype=float)
@@ -454,11 +460,10 @@ class PO_Model:
         I = np.zeros_like(phi_grid, dtype=float)
         for hkl_perm in all_permutations:
             # crystal -> diffraction uses B^T (B maps diffraction -> crystal)
-            B = self.B_matrix(hkl_perm) # rebuilt PER hkl permutation
-            POD_diff = B.T @ POD_xtal   # (3,)
-            POD_stress = self.transform_diffraction_2_stress_vectorised(A_full, POD_diff) # diffraction -> stress
-            POD_xray = np.einsum('ij,...j->...i', X_s2x, POD_stress) # stress -> x-ray (SAME fixed rotation applied to the POA)
-            I += self.intensity_from_directions(POD_xray) #Add to intensity grid
+            B   = self.B_matrix(hkl_perm)              # rebuilt per hkl permutation
+            vec = B.T @ POD_xtal                        # (3,), already unit
+            POD_xray = np.einsum('...ij,j->...i', M, vec)  # crystal -> x-ray
+            I += self.intensity_from_directions(POD_xray)
 
         I = I / num_perms
         return I, np.degrees(phi_grid), np.degrees(delta_grid)
