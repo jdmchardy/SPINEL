@@ -303,52 +303,6 @@ def get_elastic(symmetry, hkl, lattice_params, cij_params):
         elastic = 0
 
     return H, K, L, elastic
-
-def compute_alpha(theta0, chi_rad, delta_grid_rad):
-    """
-    Compute the SPINEL rotation angle α about z_s that keeps the scattering
-    vector K in the y_s–z_s plane of the stress coordinate system.
-
-    Derived from the constraint dot product x1.K^s = 0, i.e the scattering vector is perpendicular to x1 of the stress coordinates which
-    yields the relation
-
-        tan α = (cos θ₀ sin δ) /
-                (cos χ cos θ₀ cos δ - sin χ sin θ₀).
-
-    Limiting cases:
-
-      * χ = 0  (axial): denominator reduces to cos θ₀ cos δ, giving
-                  α = arctan2(sin δ, cos δ) = δ. z_x-ray and z_s are
-                  aligned, so α tracks δ over the full (−π, π].
-      * χ = π/2 (radial): denominator reduces to sin θ₀, giving
-                  tan α = -cos θ₀ sin δ / sin θ₀ = -sin δ / tan θ₀.
-                  α is bounded in (−(π/2 − θ₀), π/2 − θ₀) and smooth.
-
-    Parameters
-    ----------
-    theta0 : float
-        Bragg angle θ₀ in radians. Assumed to lie in (0, π/2).
-    chi_rad : float or ndarray
-        Sample/detector tilt angle χ in radians (angle between the x-ray
-        and stress z-axes).
-    delta_grid_rad : ndarray
-        Azimuth δ around the Debye–Scherrer ring, in radians, typically
-        spanning (−π, π].
-
-    Returns
-    -------
-    alpha : ndarray
-        Signed rotation angle in radians, in (−π, π], broadcast over the
-        inputs. Continuous in δ except for the arctan2 branch wrap at
-        δ = ±π.
-    """
-    num = np.cos(theta0) * np.sin(delta_grid_rad)
-    den = (
-        np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
-        - np.sin(chi_rad) * np.sin(theta0)
-    )
-    alpha = np.arctan2(num, den)
-    return alpha
     
 def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_params, sigma_params, chi, phi_values, psi_values):
     """
@@ -581,7 +535,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     if alpha_values is None:
         delta_grid_rad = np.radians(delta_grid)
         chi_rad = np.radians(chi)
-        alpha_grid_list = [compute_alpha(theta0, chi_rad, delta_grid_rad)]
+        alpha_grid_list = [PO.compute_alpha(theta0, chi_rad, delta_grid_rad)]
     else:
         alpha_grid_list = [
             np.full_like(phi_grid, a) for a in alpha_values
