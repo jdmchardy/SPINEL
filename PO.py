@@ -63,14 +63,14 @@ class PO_Model:
         self.pref_directions = self.build_preferred_directions()
 
     def compute_alpha(theta0, chi_rad, delta_grid_rad):
-    """
-    Rotation angle alpha about z_S that keeps the scattering vector K in the
-    y_S-z_S plane of the stress frame. Reduces to alpha = delta
-    in the axial case (chi = 0). Shared with SPINEL.compute_strain.
-    """
-    num = np.cos(theta0) * np.sin(delta_grid_rad)
-    den = (np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
-           - np.sin(chi_rad) * np.sin(theta0))
+        """
+        Rotation angle alpha about z_S that keeps the scattering vector K in the
+        y_S-z_S plane of the stress frame. Reduces to alpha = delta
+        in the axial case (chi = 0). Shared with SPINEL.compute_strain.
+        """
+        num = np.cos(theta0) * np.sin(delta_grid_rad)
+        den = (np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
+               - np.sin(chi_rad) * np.sin(theta0))
     return np.arctan2(num, den)
 
     def get_permutations(self, hkl):
