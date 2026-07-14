@@ -284,9 +284,9 @@ class PO_Model:
         sin_alpha = np.sin(alpha)
 
         X = np.array([
-            [cos_alpha, sin_alpha, 0],
-            [-1*cos_chi*sin_alpha, cos_chi*cos_alpha, sin_chi],
-            [sin_chi*sin_alpha, -1*sin_chi*cos_alpha, cos_chi]
+            [cos_alpha, -1*cos_chi*sin_alpha, sin_chi*sin_alpha],
+            [sin_alpha, cos_chi*cos_alpha, -1*sin_chi*cos_alpha],
+            [0, sin_chi, cos_chi]
         ])
         return X
 
