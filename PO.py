@@ -332,45 +332,13 @@ class PO_Model:
         Generates the preferred directions in the xray coordinate system
         """
         pref_dirs = []
-
-        chi_deg = np.degrees(self.chi)
-        components = self.components
-    
-        #Compute X matrix
-        X = self.X_matrix(0, chi_deg)
-    
-        for comp in components:
-            tau = np.radians(comp["tau"])
-            omega = np.radians(comp["omega"])
-            vec = self.make_polar_vector(tau, omega) #Vector in the stress coordinates
-            vec_xray = self.transform_stress_2_xray(X, vec) #vector transformed to the xray coordinates (rotation of chi)
-            pref_dirs.append({
-                "vector": vec_xray,
-                "R": comp["R"],
-                "weight": comp["weight"]
-            })
-        return pref_dirs
-
-    def build_preferred_directions(self):
-        """
-        Preferred orientation axes (POA) expressed in x-ray (lab) coordinates.
-        The POA is defined in the stress frame by (tau, omega) and mapped to the
-        lab frame by the FIXED stress->x-ray rotation X^-1(0, chi) = R_x(-chi).
-        Only the chi tilt enters.
-        """
-        pref_dirs = []
-        # X_matrix(0, chi) already returns the PDF X^-1 (stress -> x-ray).
-        X_s2x = self.X_matrix(0, np.degrees(self.chi))
+        X = self.X_matrix(0, np.degrees(self.chi)) # x-ray -> stress, alpha=0
         for comp in self.components:
             tau   = np.radians(comp["tau"])
             omega = np.radians(comp["omega"])
-            vec_S = self.make_polar_vector(tau, omega)   # POA in stress coords
-            vec_xray = X_s2x @ vec_S                      # apply DIRECTLY (no inverse)
-            pref_dirs.append({
-                "vector": vec_xray,
-                "R": comp["R"],
-                "weight": comp["weight"]
-            })
+            vec_S    = self.make_polar_vector(tau, omega)    # POA in stress coords
+            vec_xray = self.transform_stress_2_xray(X, vec_S)  # applies inv(X) @ v to convert from stress to x-ray coords
+            pref_dirs.append({"vector": vec_xray, "R": comp["R"], "weight": comp["weight"]})
         return pref_dirs
 
     def equal_area_projection(self, beta, gamma):
