@@ -10,7 +10,7 @@ class PO_Model:
     Models the effects of preferred orientation on diffracted x-ray intensity
     """
     def __init__(self, po_model="MarchDollase",
-                 components=[{"tau": 0,  "omega": 0,  "R": 1, "weight": 1}], #default of one component direction (R=1 is isotropic = no PO) aligned with stress z-axis
+                 components=[{"tau": 0, "omega": 0,  "R": 1, "weight": 1}], #default of one component direction (R=1 is isotropic = no PO) aligned with stress z-axis
                  baseline=0, #A constant baseline value
                  symmetry = "cubic", 
                  wavelength = 0.4,
@@ -334,6 +334,8 @@ class PO_Model:
         pref_dirs = []
         X = self.X_matrix(0, np.degrees(self.chi)) # x-ray -> stress, alpha=0
         for comp in self.components:
+            st.write(comp)
+            st.write(comp.keys())
             tau   = np.radians(comp["tau"])
             omega = np.radians(comp["omega"])
             vec_S    = self.make_polar_vector(tau, omega)    # POA in stress coords
