@@ -335,7 +335,7 @@ class PO_Model:
         X = self.X_matrix(0, np.degrees(self.chi)) # x-ray -> stress, alpha=0
         for comp in self.components:
             st.write(comp)
-            st.write(comp.keys())
+            st.write(comp.keys)
             tau   = np.radians(comp["tau"])
             omega = np.radians(comp["omega"])
             vec_S    = self.make_polar_vector(tau, omega)    # POA in stress coords
