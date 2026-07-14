@@ -104,7 +104,7 @@ class PO_Model:
         num = np.cos(theta0) * np.sin(delta_grid_rad)
         den = (np.cos(chi_rad) * np.cos(theta0) * np.cos(delta_grid_rad)
                - np.sin(chi_rad) * np.sin(theta0))
-    return np.arctan2(num, den)
+        return np.arctan2(num, den)
 
     def get_permutations(self, hkl):
         """Generates all the permutaions given some seed hkl)"""
