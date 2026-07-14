@@ -273,20 +273,22 @@ class PO_Model:
         return X
 
     def X_matrix(self, alpha_deg, chi_deg):
-        """Maps from xray coordinates to stress coordinates"""
-    
+        """
+        Maps x-ray coordinates -> stress coordinates.
+            alpha (deg) : rotation about z_S (=delta for chi=0)
+            chi   (deg) : tilt of z_S from the x-ray z-axis
+        Orthonormal, so inv(X) = X.T = the stress -> x-ray map
+        """
         chi = np.radians(chi_deg)
         alpha = np.radians(alpha_deg)
-    
-        cos_chi = np.cos(chi)
-        sin_chi = np.sin(chi)
-        cos_alpha = np.cos(alpha)
-        sin_alpha = np.sin(alpha)
+
+        cos_chi, sin_chi = np.cos(chi), np.sin(chi)
+        cos_alpha, sin_alpha = np.cos(alpha), np.sin(alpha)
 
         X = np.array([
-            [cos_alpha, -1*cos_chi*sin_alpha, sin_chi*sin_alpha],
-            [sin_alpha, cos_chi*cos_alpha, -1*sin_chi*cos_alpha],
-            [0, sin_chi, cos_chi]
+            [cos_alpha,-1*sin_alpha*cos_chi,sin_alpha*sin_chi],
+            [sin_alpha,cos_alpha*cos_chi,-1*cos_alpha*sin_chi],
+            [0,sin_chi,cos_chi]
         ])
         return X
 
