@@ -395,8 +395,16 @@ class PO_Model:
         return baseline + np.sum(P_eta * weights_normed, axis=-1)
 
     def intensity_for_hkl(self, hkl, phi, delta):
+       
+
+    def intensity_for_hkl(self, hkl, phi, delta):
         """
-        Computes the intensities over a grid of phi x delta values, averaged across all hkl permutations
+        Computes the intensities over a grid of phi x delta values, averaged across all hkl permutations.
+
+        POD is transformed from crystal -> diffraction (B^T) -> stress (A_full^T) -> x-ray (fixed X_s2x); 
+        POA is already in x-ray coords. All delta-dependence
+        resides in A_full via alpha.
+        
         Parameters: 
         ---------------
         hkl : tuple
@@ -409,50 +417,51 @@ class PO_Model:
         ---------------
         I : mesh_grid object (tuple of intensity value arrays of shape (phi, delta))
         """
-
-        #Unpack the tuple
         h,k,l = hkl
-
-        #Compute the hkl permutations
         num_perms, all_permutations = self.get_permutations(hkl)
 
-        #Compute the psi values from deltas
+        # psi from azimuth delta (PDF Eq. 5)
         psi = self.get_psi(hkl, delta)
+        # Bragg angle for this reflection (needed by the alpha constraint)
+        theta0 = self.get_theta(self.get_d0(hkl))
 
-        #Convert to radians
+        # to radians
         phi = np.radians(phi)
         psi = np.radians(psi)
         delta = np.radians(delta)
 
-        #Make meshgrids
+        # grids (phi x delta); psi is one-per-delta so it rides the delta axis
         phi_grid, delta_grid = np.meshgrid(phi, delta, indexing="ij")
 
-        #Make B matrix
-        B = self.B_matrix(hkl)
-        #Initialise intensity grid
+        # --- Uchida A(phi, psi) then Merkel alpha rotation about z_S ----------
+        # A_full = A_Uchida @ R_z(-alpha)  (identical construction to SPINEL)
+        alpha = compute_alpha(theta0, self.chi, delta_grid)   # (n_phi, n_delta)
+        A = self.A_matrix_vectorised(phi, psi)                # (n_phi, n_delta, 3, 3)
+        cos_alpha = np.cos(alpha)[..., None]
+        sin_alpha = np.sin(alpha)[..., None]
+        A_full = np.empty_like(A)
+        A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * (-1*sin_alpha)
+        A_full[..., 1] = A[..., 0] * sin_alpha + A[..., 1] * cos_alpha
+        A_full[..., 2] = A[..., 2]
+
+        # --- fixed stress -> x-ray map (physical mounting: only the chi tilt) --
+        X = self.X_matrix(0, np.degrees(self.chi)) # x-ray -> stress, alpha=0
+        X_s2x = X.T #compute inverse to map from stress to x-ray
+
+        # POD in crystal coords (normalised)
+        POD_xtal = np.asarray(self.POD_xtal, dtype=float)
+        POD_xtal = POD_xtal / np.linalg.norm(POD_xtal)
+
         I = np.zeros_like(phi_grid, dtype=float)
         for hkl_perm in all_permutations:
-            #Make A matrix
-            A = self.A_matrix_vectorised(phi,psi)
-            #Make X matrix
-            X = self.X_matrix_vectorised(phi,delta)
-    
-            #Define POD vector in crystal coordinates
-            POD_xtal = self.POD_xtal
-            POD_xtal = POD_xtal/np.linalg.norm(POD_xtal) #Confirm its normalised
-            #Transform to diffraction plane coordiantes
-            POD_diff_plane = B @ POD_xtal
-            #Transform to stress coordinates
-            POD_stress = self.transform_diffraction_2_stress_vectorised(A, POD_diff_plane)
-            #Transform to xray coordinates
-            POD_xray = self.transform_stress_2_xray_vectorised(X, POD_stress)
-            #Evaluate intensity grid
-            I_hkl = self.intensity_from_directions(POD_xray)
-            #Add to intensity grid
-            I = np.add(I, I_hkl)
+            # crystal -> diffraction uses B^T (B maps diffraction -> crystal)
+            B = self.B_matrix(hkl_perm) # rebuilt PER hkl permutation
+            POD_diff = B.T @ POD_xtal   # (3,)
+            POD_stress = self.transform_diffraction_2_stress_vectorised(A_full, POD_diff) # diffraction -> stress
+            POD_xray = np.einsum('ij,...j->...i', X_s2x, POD_stress) # stress -> x-ray (SAME fixed rotation applied to the POA)
+            I += self.intensity_from_directions(POD_xray) #Add to intensity grid
 
-        #Remove the multiplicity scaling
-        I = I/num_perms
+        I = I / num_perms
         return I, np.degrees(phi_grid), np.degrees(delta_grid)
         
     def intensity_from_directions(self, vectors):
