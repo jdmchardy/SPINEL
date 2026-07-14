@@ -316,12 +316,12 @@ class PO_Model:
 
     def make_polar_vector(self, tilt, rot):
         """
-        tilt  = tilt from lab z-axis (radians)
-        rot = rotation around z-axis (radians)
+        tilt = tilt from the frame z-axis (radians)
+        rot  = azimuth measured from the y-axis (radians) 
         """
         return np.stack([
-            np.sin(tilt) * np.cos(rot),
             np.sin(tilt) * np.sin(rot),
+            np.sin(tilt) * np.cos(rot),
             np.cos(tilt)
         ], axis=-1)
 
