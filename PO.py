@@ -335,7 +335,6 @@ class PO_Model:
         X = self.X_matrix(0, np.degrees(self.chi)) # x-ray -> stress, alpha=0
         for comp in self.components:
             st.write(comp)
-            st.write(comp.items)
             st.write("1")
             tau   = np.radians(comp["tau"])
             #omega = np.radians(comp["omega"])
