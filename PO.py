@@ -196,7 +196,7 @@ class PO_Model:
 
     def B_matrix(self, hkl):
         """
-        Matrix to transform from crystal coordinates to diffraction plane coordinates
+        Matrix to transform from diffraction plane to crystal coordinates
         """
         a = self.lattice_params.get("a_val")
         b = self.lattice_params.get("b_val")
