@@ -535,12 +535,32 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
             np.full_like(phi_grid, a) for a in alpha_values
         ]
 
+    PO_on = st.session_state.params.get("PO_toggle")
+    if PO_on:
+        po_components = [
+            {"tau":    st.session_state.params.get("tau"),
+             "omega":  st.session_state.params.get("omega"),
+             "R":      st.session_state.params.get("R"),
+             "weight": st.session_state.params.get("weight")}
+        ]
+        PO_MODEL = PO.PO_Model(
+            po_model=po_model, 
+            components=po_components,
+            baseline=st.session_state.params.get("baseline"),
+            symmetry=symmetry, 
+            wavelength=wavelength,
+            lattice_params=lattice_params, 
+            chi_deg=chi,
+            POD_xtal=st.session_state.params.get("hkl_POD"),
+        )
+
     # --- Accumulators for per-alpha flattened outputs --------------------------
     strain_33_chunks = []
     phi_chunks       = []
     psi_chunks       = []
     delta_chunks     = []
     alpha_chunks     = []
+    I_chunks = []
     
     for alpha_grid in alpha_grid_list:
         cos_alpha = np.cos(alpha_grid)[..., None]
@@ -591,6 +611,13 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         psi_chunks.append(np.degrees(psi_grid).ravel(order='F'))
         delta_chunks.append(delta_grid.ravel(order='F'))  # already in degrees
         alpha_chunks.append(np.degrees(alpha_grid).ravel(order='F'))
+
+        # PO intensity on THIS orientation grid (phi, psi, alpha)
+        if PO_on:
+            I_PO = PO_MODEL.intensity_from_orientation(hkl, phi_grid, psi_grid, alpha_grid)
+        else:
+            I_PO = np.ones_like(phi_grid)
+        I_chunks.append(I_PO.ravel(order='F'))
     
     # --- Concatenate across all alpha iterations -------------------------------
     strain_33_list = np.concatenate(strain_33_chunks)
@@ -598,6 +625,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     psi_list       = np.concatenate(psi_chunks)
     delta_list     = np.concatenate(delta_chunks)
     alpha_list     = np.concatenate(alpha_chunks)
+    I_list = np.concatenate(I_chunks)
 
     n_alpha = len(alpha_grid_list)
 
