@@ -244,34 +244,6 @@ class PO_Model:
         ])
         return B
 
-    def X_matrix_vectorised(self, phi, delta):
-        """Maps from xray coordinates to stress coordinates"""
-        #Need to update
-
-        chi = np.full(np.shape(phi), self.chi) #make array of chi values same shape as phi to ensure mesh grids are same shape
-    
-        cos_chi = np.cos(chi)
-        sin_chi = np.sin(chi)
-        cos_delta = np.cos(delta)
-        sin_delta = np.sin(delta)
-
-        #Create mesgrids
-        cos_chi, cos_delta = np.meshgrid(cos_chi, cos_delta, indexing='ij')
-        sin_chi, sin_delta = np.meshgrid(sin_chi, sin_delta, indexing='ij')
-        
-        #Based on the same principle as constructing the A matix. Should have analogous shape.
-        X = np.empty((cos_chi.shape[0], cos_chi.shape[1], 3, 3))
-        X[..., 0, 0] = cos_delta
-        X[..., 0, 1] = sin_delta
-        X[..., 0, 2] = 0
-        X[..., 1, 0] = -1*cos_chi*sin_delta
-        X[..., 1, 1] =  cos_chi*cos_delta
-        X[..., 1, 2] = -1*sin_chi
-        X[..., 2, 0] = sin_chi*sin_delta
-        X[..., 2, 1] = sin_chi*cos_delta
-        X[..., 2, 2] = cos_chi
-        return X
-
     def X_matrix(self, alpha_deg, chi_deg):
         """
         Maps x-ray coordinates -> stress coordinates.
