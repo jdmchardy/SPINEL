@@ -1617,11 +1617,12 @@ st.subheader("Cake Import (Dioptas .txt)")
 cake_col1, cake_col2 = st.columns([1, 3])
 with cake_col1:
     cake_file = st.file_uploader("Dioptas cake .txt", type=["txt"], key="cake_txt")
-    cake_intensity_scale = st.slider(
-        "Display intensity scale",
-        min_value=0.001, max_value=1.0, value=0.01, step=0.001, format="%.3f",
-        help="Upper display clip as a fraction of the maximum intensity. "
-             "Lower values brighten faint rings.",
+    cake_percentile = st.slider(
+        "Display contrast (percentile)",
+        min_value=90.0, max_value=100.0, value=99.5, step=0.1, format="%.1f",
+        help="Upper display clip set to this percentile of pixel intensities "
+             "(auto-adapts per file). Higher = darker (clips fewer bright "
+             "pixels); lower = brighter faint rings.",
     )
 
 if cake_file is not None:
@@ -1633,7 +1634,7 @@ if cake_file is not None:
         st.session_state.imported_cake = cake
         with cake_col2:
             st.plotly_chart(
-                cp.plot_cake_heatmap(cake, intensity_scale=cake_intensity_scale),
+                cp.plot_cake_heatmap(cake, percentile=cake_percentile),
                 width='stretch',
             )
             st.caption(

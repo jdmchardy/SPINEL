@@ -130,19 +130,28 @@ def cake_to_long_dataframe(cake: CakeData) -> pd.DataFrame:
     )
 
 
-def plot_cake_heatmap(cake: CakeData, intensity_scale: float = 0.01) -> go.Figure:
+def plot_cake_heatmap(cake: CakeData, percentile: float = 99.5) -> go.Figure:
     """Build an interactive Plotly heatmap of the imported cake.
 
     Parameters
     ----------
     cake : CakeData
-    intensity_scale : float
-        Upper display clip as a fraction of the maximum intensity (``zmax =
-        intensity_scale * max``). Lower values brighten faint rings. Mirrors the
-        ``vmax = 0.01 * max`` scaling used by the reference cheesecake app.
+    percentile : float
+        Upper display clip set to this percentile of the pixel-intensity
+        distribution (``zmax = nanpercentile(intensity, percentile)``). This
+        auto-adapts per file, unlike a fixed fraction of the maximum: cake data
+        is heavily skewed by a few hot pixels, so a high percentile (e.g. 99.5)
+        picks a robust clip that keeps faint rings visible. Higher values darken
+        the image (clip fewer bright pixels); lower values brighten it.
     """
-    max_intensity = float(np.nanmax(cake.intensity)) if cake.intensity.size else 0.0
-    zmax = max_intensity * intensity_scale
+    intensity = cake.intensity
+    max_intensity = float(np.nanmax(intensity)) if intensity.size else 0.0
+    if intensity.size:
+        percentile = float(np.clip(percentile, 0.0, 100.0))
+        zmax = float(np.nanpercentile(intensity, percentile))
+    else:
+        zmax = 0.0
+    # Guard against a degenerate clip (e.g. mostly-zero data at low percentile).
     if zmax <= 0:
         zmax = max_intensity if max_intensity > 0 else 1.0
 
