@@ -314,15 +314,21 @@ class PO_Model:
         return pref_dirs
 
     def equal_area_projection(self, beta, gamma):
-        r = 2 * np.sin(beta / 2) #With this scaling the circle radius is sqrt(2) giving area = 2pi (equal to the hemispere surface area for unit sphere)
-        x = r * np.cos(gamma)
-        y = r * np.sin(gamma)
+        # radius sqrt(2) at beta=pi/2 -> area 2*pi (equal to the hemispere surface area for unit sphere)
+        r = 2 * np.sin(beta / 2)
+        # gamma measured from the y-axis: gamma=0 -> +Y, increasing toward +X
+        x = r * np.sin(gamma)
+        y = r * np.cos(gamma)
         return x, y
 
     def spherical_to_vector(self, beta, gamma):
+        """
+        beta  = tilt from the z-axis (radians)
+        gamma = azimuth measured from the y-axis (radians)
+        """
         return np.stack([
-            np.sin(beta) * np.cos(gamma),
             np.sin(beta) * np.sin(gamma),
+            np.sin(beta) * np.cos(gamma),
             np.cos(beta)
         ], axis=-1)
 
