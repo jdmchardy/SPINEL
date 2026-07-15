@@ -536,11 +536,12 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         ]
 
     PO_on = st.session_state.params.get("PO_toggle")
+    direct_PO = PO_on and (alpha_values is not None)   # Funamori: per-orientation eval
     if PO_on:
         po_components = [
-            {"tau":    st.session_state.params.get("tau"),
-             "omega":  st.session_state.params.get("omega"),
-             "R":      st.session_state.params.get("R"),
+            {"tau": st.session_state.params.get("tau"),
+             "omega": st.session_state.params.get("omega"),
+             "R": st.session_state.params.get("R"),
              "weight": st.session_state.params.get("weight")}
         ]
         PO_MODEL = PO.PO_Model(
@@ -556,10 +557,10 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
 
     # --- Accumulators for per-alpha flattened outputs --------------------------
     strain_33_chunks = []
-    phi_chunks       = []
-    psi_chunks       = []
-    delta_chunks     = []
-    alpha_chunks     = []
+    phi_chunks = []
+    psi_chunks = []
+    delta_chunks = []
+    alpha_chunks = []
     I_chunks = []
     
     for alpha_grid in alpha_grid_list:
@@ -612,12 +613,9 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         delta_chunks.append(delta_grid.ravel(order='F'))  # already in degrees
         alpha_chunks.append(np.degrees(alpha_grid).ravel(order='F'))
 
-        # PO intensity on THIS orientation grid (phi, psi, alpha)
-        if PO_on:
+        if direct_PO:
             I_PO = PO_MODEL.intensity_from_orientation(hkl, phi_grid, psi_grid, alpha_grid)
-        else:
-            I_PO = np.ones_like(phi_grid)
-        I_chunks.append(I_PO.ravel(order='F'))
+            I_chunks.append(I_PO.ravel(order='F'))
     
     # --- Concatenate across all alpha iterations -------------------------------
     strain_33_list = np.concatenate(strain_33_chunks)
@@ -625,53 +623,24 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     psi_list       = np.concatenate(psi_chunks)
     delta_list     = np.concatenate(delta_chunks)
     alpha_list     = np.concatenate(alpha_chunks)
-    I_list = np.concatenate(I_chunks)
 
-    n_alpha = len(alpha_grid_list)
-
-    # --- PO intensity (evaluated once on the (phi, delta) grid) ---------------
-    # PO depends only on (phi, delta), which are identical across alpha
-    # iterations. So evaluate it on the un-stacked grid (size n_phi * n_psi
-    # or n_phi * n_delta), then np.tile by n_alpha to match strain_33_list.
-    phi_deg_flat   = np.degrees(phi_grid).ravel(order='F')
-    delta_deg_flat = delta_grid.ravel(order='F')  # already in degrees
-
-    if st.session_state.params.get("PO_toggle"):
-        components = [
-            {"tau":    st.session_state.params.get("tau"),
-             "omega":    st.session_state.params.get("omega"),
-             "R":      st.session_state.params.get("R"),
-             "weight": st.session_state.params.get("weight")}
-        ]
-        hkl_POD = st.session_state.params.get("hkl_POD")
-        PO_MODEL = PO.PO_Model(
-            po_model       = po_model,
-            components     = components,
-            baseline       = st.session_state.params.get("baseline"),
-            symmetry       = symmetry,
-            wavelength     = wavelength,
-            lattice_params = lattice_params,
-            chi_deg        = chi,
-            POD_xtal       = hkl_POD,
-        )
-
+    if not PO_on:
+        I_list = np.ones(strain_33_list.size)
+    elif direct_PO:
+        I_list = np.concatenate(I_chunks)  # aligns with strain_33_list shape
+    else:
+        # Downsized coarse evaluation of PO model on (phi, delta) grid then interpolate
         phi_PO   = np.linspace(0, 360, 32)
         delta_PO = np.linspace(-180, 180, 32)
-        I_grid, phi_grid_PO, delta_grid_PO = PO_MODEL.intensity_for_hkl(
-            hkl, phi_PO, delta_PO
-        )
+        I_grid, phi_grid_PO, delta_grid_PO = PO_MODEL.intensity_for_hkl(hkl, phi_PO, delta_PO)
+        interp = RegularGridInterpolator(
+            (phi_grid_PO[:, 0], delta_grid_PO[0, :]), I_grid,
+            method='linear', bounds_error=False, fill_value=None)
+        phi_deg_flat   = np.degrees(phi_grid).ravel(order='F')
+        delta_deg_flat = delta_grid.ravel(order='F') # already degrees
+        I_list = interp(np.stack([phi_deg_flat, delta_deg_flat], axis=-1))
 
-        x = phi_grid_PO[:, 0]
-        y = delta_grid_PO[0, :]
-        interp_func = RegularGridInterpolator((x, y), I_grid, method='linear', bounds_error=False, fill_value=None)
-        new_points = np.stack([phi_deg_flat, delta_deg_flat], axis=-1)
-        I_one_alpha = interp_func(new_points)
-    else:
-        # Flat ones with the same length as one alpha-chunk
-        I_one_alpha = np.ones(phi_deg_flat.size)
-
-    # Tile across the alpha-stacked output so I_list aligns with strain_33_list
-    I_list = np.tile(I_one_alpha, n_alpha)
+    n_alpha = len(alpha_grid_list)
 
     # d0 and 2th
     d0 = get_d0(symmetry,h,k,l,a,b,c)
