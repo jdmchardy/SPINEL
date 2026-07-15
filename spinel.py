@@ -1660,8 +1660,11 @@ if st.session_state.get("imported_cake") is not None:
     n_az_bins = st.number_input(
         "Number of azimuth bins", min_value=1, max_value=_n_az,
         value=min(72, _n_az), step=1,
-        help="Rows are grouped into this many equal azimuth bins. The background is "
-             "fit on each binned profile and applied to every row in the bin.")
+        help="Azimuth rows are grouped into this many equal bins. Within a bin the "
+             "rows are averaged, ONE background is fitted to that averaged profile, "
+             "and it is subtracted from every (finer-resolution) row in the bin. "
+             "Fewer bins → cleaner profile to fit but coarser azimuthal variation; "
+             "more bins → finer variation but noisier per-bin profiles.")
     _bin_width = cp.assign_azimuth_bins(_cake.azimuth, int(n_az_bins))[2]
     st.caption(
         f"Effective azimuth binning: {_bin_width:.2f}° per bin "
@@ -1672,32 +1675,60 @@ if st.session_state.get("imported_cake") is not None:
         with bg_cols[0]:
             bg_smoothing_sigma = st.number_input(
                 "Smoothing σ", value=10.0, min_value=0.0, step=1.0,
-                help="Gaussian smoothing sigma used for peak detection.")
+                help="Width (in 2θ points) of the Gaussian smoothing applied before "
+                     "peak detection. Larger σ suppresses noise so only broader "
+                     "features are flagged as peaks; too large can merge or miss "
+                     "sharp peaks. Affects peak finding only — not the fitted curve.")
             bg_poly_degree = st.number_input(
                 "Polynomial degree", value=20, min_value=1, step=1,
-                help="Chebyshev degree per azimuth bin.")
+                help="Order of the Chebyshev polynomial fitted to the background "
+                     "points of each binned profile. Higher follows more curvature "
+                     "(undulating background) but can start bending into peak tails; "
+                     "lower is stiffer and smoother.")
         with bg_cols[1]:
             bg_prominence_factor = st.number_input(
                 "Prominence factor", value=0.1, min_value=0.0, step=0.01, format="%.3f",
-                help="Peak prominence as a fraction of the smoothed max.")
+                help="Peak-detection sensitivity. A feature must rise at least this "
+                     "fraction of the current maximum of the smoothed, peak-excluded "
+                     "signal to be flagged and cut out before fitting. Lower → more "
+                     "sensitive (excludes weaker peaks); higher → only strong peaks.")
             bg_max_iter = st.number_input(
-                "Peak-reject iterations", value=3, min_value=0, step=1)
+                "Peak-reject iterations", value=3, min_value=0, step=1,
+                help="Number of peak-search passes. Each pass re-runs the search with "
+                     "already-found peaks removed, so the running maximum drops and "
+                     "progressively weaker peaks get caught and excluded. More passes "
+                     "→ more thorough removal of small peaks from the fit.")
         with bg_cols[2]:
             bg_exclusion_window = st.number_input(
                 "Peak exclusion window", value=10, min_value=0, step=1,
-                help="Points excluded either side of each detected peak.")
+                help="Number of 2θ points removed on EACH side of every detected "
+                     "peak before fitting, so peak flanks don't pull the background "
+                     "up. Increase if peak wings drag the fit upward; decrease if too "
+                     "much genuine background is being discarded.")
             bg_zero_removal_fraction = st.slider(
                 "Zero-removal fraction", min_value=0.0, max_value=1.0, value=0.8, step=0.05,
-                help="Drop zero-intensity points within this leading fraction of 2θ.")
+                help="Zero-intensity points within this leading fraction of the 2θ "
+                     "axis are treated as beamstop/gap and dropped from the fit. "
+                     "0.8 = ignore zeros in the first 80% of 2θ (keeps a genuine zero "
+                     "baseline at high angle).")
         with bg_cols[3]:
             bg_negative_clip = st.number_input(
                 "Negative clip", value=-10.0, step=1.0,
-                help="After subtraction, values below this are set to 0.")
+                help="After subtracting the background, any value below this is set "
+                     "to 0. Removes large negative dips left where the fit overshoots "
+                     "data gaps. More negative keeps more of the (noisier) sub-zero "
+                     "signal; nearer 0 forces a cleaner but harder floor.")
             bg_gap_fill = st.checkbox(
                 "Gap fill (interpolate)", value=True,
-                help="Anchor the fit across large gaps with interpolated pseudo points.")
+                help="Bridge large detector gaps by inserting pseudo background points "
+                     "across them, linearly interpolated from the real background on "
+                     "either side, so the polynomial can't swing wildly through empty "
+                     "regions.")
             bg_gap_min_width = st.number_input(
-                "Gap min width (points)", value=5, min_value=1, step=1)
+                "Gap min width (points)", value=5, min_value=1, step=1,
+                help="Minimum width (in 2θ points) of a contiguous run of zeros to be "
+                     "treated as a gap and bridged with pseudo points. Smaller catches "
+                     "more/narrower gaps.")
         bg_submitted = st.form_submit_button("Compute background")
 
     if bg_submitted:
