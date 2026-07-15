@@ -353,13 +353,53 @@ class PO_Model:
         # Weighted sum over preferred directions (last axis)
         return baseline + np.sum(P_eta * weights_normed, axis=-1)
 
+    def po_intensity_engine(self, hkl, phi_grid, psi_grid, alpha_grid):
+        """
+        PO intensity on matched orientation grids (phi, psi, alpha) — all in
+        radians, identical shape. Shared engine for the delta-parametrised path
+        (intensity_for_hkl) and the direct-orientation path used for the
+        Funamori integration (intensity_from_orientation).
+        """
+        num_perms, all_permutations = self.get_permutations(hkl)
+
+        # Uchida A(phi, psi) built element-wise on the grids
+        cos_phi, sin_phi = np.cos(phi_grid), np.sin(phi_grid)
+        cos_psi, sin_psi = np.cos(psi_grid), np.sin(psi_grid)
+        A = np.empty(phi_grid.shape + (3, 3))
+        A[..., 0, 0] = cos_phi;  A[..., 0, 1] = -sin_phi * cos_psi;  A[..., 0, 2] = sin_phi * spsi
+        A[..., 1, 0] = sin_phi;  A[..., 1, 1] =  cos_phi * cos_psi;  A[..., 1, 2] = -cos_phi * sin_psi
+        A[..., 2, 0] = 0.0;  A[..., 2, 1] =  sin_psi;  A[..., 2, 2] = cos_psi
+
+        # Merkel alpha rotation:  A_full = A_Uchida @ R_z(-alpha)
+        cos_alpha = np.cos(alpha_grid)[..., None]
+        sin_alpha = np.sin(alpha_grid)[..., None]
+        A_full = np.empty_like(A)
+        A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * (-sin_alpha)
+        A_full[..., 1] = A[..., 0] * sin_alpha + A[..., 1] * cos_alpha
+        A_full[..., 2] = A[..., 2]
+        A_full_T = np.swapaxes(A_full, -1, -2)  # diffraction -> stress matrix
+
+        # fixed stress -> x-ray, pre-composed (same rotation the POA uses)
+        X_s2x = self.X_matrix(0, np.degrees(self.chi)).T #Transpose the X-matrix which is the inverse
+        M = X_s2x @ A_full_T #Now diffraction -> x-ray matrix
+
+        POD_xtal = np.asarray(self.POD_xtal, dtype=float)
+        POD_xtal = POD_xtal / np.linalg.norm(POD_xtal)
+
+        I = np.zeros(phi_grid.shape, dtype=float)
+        for hkl_perm in all_permutations:
+            B   = self.B_matrix(hkl_perm)
+            vec = B.T @ POD_xtal  # crystal -> diffraction transformation
+            POD_xray = np.einsum('...ij,j->...i', M, vec) #diffraction -> x-ray transformation
+            I += self.intensity_from_directions(POD_xray)
+        return I / num_perms
+
     def intensity_for_hkl(self, hkl, phi, delta):
         """
-        Computes the intensities over a grid of phi x delta values, averaged across all hkl permutations.
-
-        POD is transformed from crystal -> diffraction (B^T) -> stress (A_full^T) -> x-ray (fixed X_s2x); 
-        POA is already in x-ray coords. All delta-dependence
-        resides in A_full via alpha.
+        Computes the PO intensity over a (phi, delta) grid, averaged across hkl permutations.
+        psi and alpha are derived from the azimuth delta; 
+        POD is transformed from crystal -> diffraction (B^T) -> stress (A_full^T) -> x-ray (fixed X_s2x) 
+        The PO engine used is po_intensity_engine.
         
         Parameters: 
         ---------------
@@ -373,57 +413,27 @@ class PO_Model:
         ---------------
         I : mesh_grid object (tuple of intensity value arrays of shape (phi, delta))
         """
-        h,k,l = hkl
-        num_perms, all_permutations = self.get_permutations(hkl)
-
-        # psi from azimuth delta (PDF Eq. 5)
-        psi = self.get_psi(hkl, delta)
-        # Bragg angle for this reflection (needed by the alpha constraint)
+        psi = self.get_psi(hkl, delta)               # degrees
         theta0 = self.get_theta(self.get_d0(hkl))
 
-        # to radians
         phi = np.radians(phi)
         psi = np.radians(psi)
         delta = np.radians(delta)
 
-        # grids (phi x delta); psi is one-per-delta so it rides the delta axis
         phi_grid, delta_grid = np.meshgrid(phi, delta, indexing="ij")
+        _, psi_grid   = np.meshgrid(phi, psi, indexing="ij")   # psi rides the delta axis
+        alpha_grid = compute_alpha(theta0, self.chi, delta_grid)
 
-        # --- Uchida A(phi, psi) then Merkel alpha rotation about z_S ----------
-        # A_full = A_Uchida @ R_z(-alpha)  (identical construction to SPINEL)
-        alpha = compute_alpha(theta0, self.chi, delta_grid)   # (n_phi, n_delta)
-        A = self.A_matrix_vectorised(phi, psi)                # (n_phi, n_delta, 3, 3)
-        cos_alpha = np.cos(alpha)[..., None]
-        sin_alpha = np.sin(alpha)[..., None]
-        A_full = np.empty_like(A)
-        A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * (-1*sin_alpha)
-        A_full[..., 1] = A[..., 0] * sin_alpha + A[..., 1] * cos_alpha
-        A_full[..., 2] = A[..., 2]
-
-        # --- fixed stress -> x-ray map (physical mounting: only the chi tilt) --
-        X = self.X_matrix(0, np.degrees(self.chi))     # x-ray -> stress, alpha=0
-        X_s2x = X.T                                     # orthonormal: inverse = transpose (stress -> x-ray)
-
-        # Compose the permutation-independent transform once:
-        #  POD_xray = X_s2x @ A_full^T @ (B^T @ POD_xtal)
-        # A_full is orthonormal, so A_full^-1 = A_full^T (no np.linalg.inv needed).
-        A_full_T = np.swapaxes(A_full, -1, -2)         # diffraction -> stress
-        M = X_s2x @ A_full_T                            # (n_phi, n_delta, 3, 3), built once
-
-        # POD in crystal coords (normalised)
-        POD_xtal = np.asarray(self.POD_xtal, dtype=float)
-        POD_xtal = POD_xtal / np.linalg.norm(POD_xtal)
-
-        I = np.zeros_like(phi_grid, dtype=float)
-        for hkl_perm in all_permutations:
-            # crystal -> diffraction uses B^T (B maps diffraction -> crystal)
-            B   = self.B_matrix(hkl_perm)              # rebuilt per hkl permutation
-            vec = B.T @ POD_xtal                        # (3,), already unit
-            POD_xray = np.einsum('...ij,j->...i', M, vec)  # crystal -> x-ray
-            I += self.intensity_from_directions(POD_xray)
-
-        I = I / num_perms
+        I = self._po_intensity_engine(hkl, phi_grid, psi_grid, alpha_grid)
         return I, np.degrees(phi_grid), np.degrees(delta_grid)
+
+    def intensity_from_orientation(self, hkl, phi_grid, psi_grid, alpha_grid):
+        """
+        PO intensity on an explicit (phi, psi, alpha) orientation grid (radians,
+        matched shapes). Use when orientation is parametrised directly rather
+        than via delta (e.g. the Funamori integration).
+        """
+        return self.po_intensity_engine(hkl, phi_grid, psi_grid, alpha_grid)
         
     def intensity_from_directions(self, vectors):
         """
