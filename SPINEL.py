@@ -640,8 +640,6 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         delta_deg_flat = delta_grid.ravel(order='F') # already degrees
         I_list = interp(np.stack([phi_deg_flat, delta_deg_flat], axis=-1))
 
-    n_alpha = len(alpha_grid_list)
-
     # d0 and 2th
     d0 = get_d0(symmetry,h,k,l,a,b,c)
     if d0 == 0:
