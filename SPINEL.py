@@ -1947,7 +1947,7 @@ if uploaded_file is not None:
                     else:
                         st.session_state.params["hkl_POD"] = tuple(map(int, POD_hkl_input))
                     st.session_state.params["baseline"] = st.number_input("Baseline (between 0 and 1)", value=0.0, step=0.1, format="%.2f")
-                    st.session_state.params["R"] = st.number_input("R", value=0.5, step=0.1, format="%.2f")
+                    st.session_state.params["R"] = st.number_input("R", value=0.5, step=0.1, format="%.3f")
                     st.session_state.params["tau"] = st.number_input("tau (deg)", value=0.0, step=5.0, format="%.1f")
                     st.session_state.params["omega"] = st.number_input("omega (deg)", value=0.0, step=5.0, format="%.1f")
                     st.session_state.params["weight"] = st.number_input("weight", value=1.0, step=0.1, format="%.1f")
