@@ -21,6 +21,9 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from numpy.polynomial.chebyshev import Chebyshev
+from scipy.ndimage import gaussian_filter1d
+from scipy.signal import find_peaks
 
 
 @dataclass
@@ -43,6 +46,23 @@ class CakeData:
     azimuth: np.ndarray
     intensity: np.ndarray
     filename: str = ""
+
+
+@dataclass
+class CakeBackground:
+    """Result of a background subtraction.
+
+    Attributes
+    ----------
+    background : np.ndarray
+        2D fitted background, same shape as the source intensity grid.
+    subtracted : np.ndarray
+        2D background-subtracted intensity (intensity - background), with values
+        below the negative clip set to zero. Same shape as the source grid.
+    """
+
+    background: np.ndarray
+    subtracted: np.ndarray
 
 
 def _read_matrix(file):
@@ -130,6 +150,206 @@ def cake_to_long_dataframe(cake: CakeData) -> pd.DataFrame:
     )
 
 
+def background_samples(
+    twotheta,
+    profile,
+    *,
+    smoothing_sigma: float = 10.0,
+    prominence_factor: float = 0.1,
+    max_iter: int = 3,
+    exclusion_window: int = 10,
+    zero_removal_fraction: float = 0.8,
+    gap_fill: bool = True,
+    gap_min_width: int = 5,
+):
+    """Select the background-sample points for a single azimuth row.
+
+    Adapted from cheesecake's ``sample_background_points``. The row is smoothed,
+    peak regions are iteratively excluded, and zero/gap points are removed. Where
+    a contiguous zero run (detector gap / beamstop) is wider than ``gap_min_width``,
+    pseudo background points are injected across the gap by *linearly interpolating*
+    between the surrounding real background points — this anchors the polynomial fit
+    so it cannot swing wildly across the gap.
+
+    Parameters
+    ----------
+    twotheta, profile : array-like
+        The 2th axis and the intensity profile for one azimuth row.
+    smoothing_sigma : float
+        Gaussian smoothing sigma used when detecting peaks.
+    prominence_factor : float
+        Peak prominence as a fraction of the smoothed max.
+    max_iter : int
+        Number of iterative peak-exclusion passes.
+    exclusion_window : int
+        Number of points excluded either side of each detected peak.
+    zero_removal_fraction : float
+        Zero-intensity points in the first this-fraction of the 2th axis are
+        dropped (low-angle beamstop region).
+    gap_fill : bool
+        If True, inject interpolated pseudo points across large zero gaps.
+    gap_min_width : int
+        Minimum contiguous zero-run width (in points) treated as a gap to fill.
+
+    Returns
+    -------
+    (sample_twotheta, sample_intensity) : tuple of np.ndarray
+        The 2th-sorted background-sample points (real + interpolated pseudo) that
+        feed the polynomial fit.
+    """
+    twotheta = np.asarray(twotheta, dtype=float)
+    profile = np.asarray(profile, dtype=float)
+    n = profile.size
+
+    smoothed = gaussian_filter1d(profile, sigma=smoothing_sigma)
+
+    valid = np.ones(n, dtype=bool)
+    # Drop zero-intensity points in the low-angle region (beamstop / gaps).
+    zero_threshold = int(n * zero_removal_fraction)
+    valid[:zero_threshold] &= profile[:zero_threshold] != 0
+
+    # Iteratively reject points around detected peaks.
+    for _ in range(max_iter):
+        valid_smoothed = smoothed[valid]
+        if valid_smoothed.size == 0:
+            break
+        peaks, _ = find_peaks(
+            valid_smoothed, prominence=prominence_factor * np.max(valid_smoothed)
+        )
+        if peaks.size == 0:
+            break
+        peak_indices = np.where(valid)[0][peaks]
+        for peak_idx in peak_indices:
+            start = max(peak_idx - exclusion_window, 0)
+            end = min(peak_idx + exclusion_window + 1, n)
+            valid[start:end] = False
+        if valid.sum() < 2 * exclusion_window:
+            break
+
+    # Identify large zero-gap runs anywhere on the axis; exclude their raw zeros
+    # from the fit and remember them for pseudo-point interpolation.
+    gap_runs = []
+    if gap_fill:
+        is_gap = profile == 0
+        # Run boundaries via padded diff: edges come in (start, end) pairs.
+        edges = np.flatnonzero(
+            np.diff(np.concatenate(([0], is_gap.astype(np.int8), [0])))
+        )
+        for start, end in zip(edges[0::2], edges[1::2]):
+            if (end - start) >= gap_min_width:
+                gap_runs.append((start, end))
+                valid[start:end] = False
+
+    sample_twotheta = twotheta[valid]
+    sample_intensity = profile[valid]
+
+    # Inject interpolated pseudo points across the large gaps.
+    if gap_runs and sample_twotheta.size >= 2:
+        pseudo_twotheta = np.concatenate([twotheta[s:e] for s, e in gap_runs])
+        pseudo_intensity = np.interp(pseudo_twotheta, sample_twotheta, sample_intensity)
+        sample_twotheta = np.concatenate([sample_twotheta, pseudo_twotheta])
+        sample_intensity = np.concatenate([sample_intensity, pseudo_intensity])
+        order = np.argsort(sample_twotheta)
+        sample_twotheta = sample_twotheta[order]
+        sample_intensity = sample_intensity[order]
+
+    return sample_twotheta, sample_intensity
+
+
+def compute_cake_background(
+    cake: CakeData,
+    *,
+    poly_degree: int = 20,
+    negative_clip: float = -10.0,
+    **sample_kwargs,
+) -> CakeBackground:
+    """Fit and subtract a per-azimuth polynomial background over the whole cake.
+
+    For each azimuth row the background-sample points are selected with
+    :func:`background_samples` and a Chebyshev polynomial is fitted and evaluated
+    over the full 2th axis. Rows are stacked into a 2D background image which is
+    subtracted from the intensity grid.
+
+    Parameters
+    ----------
+    cake : CakeData
+    poly_degree : int
+        Chebyshev polynomial degree (clamped to ``n_samples - 1`` per row).
+    negative_clip : float
+        After subtraction, values below this are set to 0 (removes large negative
+        excursions from data gaps).
+    **sample_kwargs
+        Forwarded to :func:`background_samples` (smoothing_sigma, prominence_factor,
+        max_iter, exclusion_window, zero_removal_fraction, gap_fill, gap_min_width).
+
+    Returns
+    -------
+    CakeBackground
+    """
+    intensity = np.asarray(cake.intensity, dtype=float)
+    twotheta = np.asarray(cake.twotheta, dtype=float)
+    background = np.zeros_like(intensity)
+
+    for row_idx in range(intensity.shape[0]):
+        profile = intensity[row_idx]
+        sample_tth, sample_I = background_samples(twotheta, profile, **sample_kwargs)
+        if sample_tth.size < 2:
+            continue  # leave background row at zero
+        degree = int(min(poly_degree, sample_tth.size - 1))
+        try:
+            fit = Chebyshev.fit(sample_tth, sample_I, deg=degree)
+            row_background = fit(twotheta)
+        except Exception:
+            row_background = np.zeros_like(twotheta)
+        background[row_idx] = np.nan_to_num(
+            row_background, nan=0.0, posinf=0.0, neginf=0.0
+        )
+
+    subtracted = intensity - background
+    subtracted[subtracted < negative_clip] = 0.0
+    return CakeBackground(background=background, subtracted=subtracted)
+
+
+def _build_heatmap(x, y, z, title: str, percentile: float) -> go.Figure:
+    """Build a percentile-scaled grayscale Plotly heatmap for a 2D grid."""
+    z = np.asarray(z)
+    max_intensity = float(np.nanmax(z)) if z.size else 0.0
+    if z.size:
+        percentile = float(np.clip(percentile, 0.0, 100.0))
+        zmax = float(np.nanpercentile(z, percentile))
+    else:
+        zmax = 0.0
+    if zmax <= 0:
+        zmax = max_intensity if max_intensity > 0 else 1.0
+
+    fig = go.Figure(
+        data=go.Heatmap(
+            x=x,
+            y=y,
+            z=z,
+            zmin=0,
+            zmax=zmax,
+            # Low intensity -> black, high intensity -> white.
+            colorscale=[[0.0, "black"], [1.0, "white"]],
+            colorbar=dict(title="Intensity"),
+        )
+    )
+    fig.update_layout(
+        title=title,
+        xaxis_title="2th (degrees)",
+        yaxis_title="azimuth (degrees)",
+        margin=dict(l=60, r=20, t=40, b=50),
+    )
+    return fig
+
+
+def plot_grid_heatmap(
+    cake: CakeData, grid, title: str, percentile: float = 99.5
+) -> go.Figure:
+    """Plot an arbitrary 2D grid (e.g. background or subtracted) on the cake axes."""
+    return _build_heatmap(cake.twotheta, cake.azimuth, grid, title, percentile)
+
+
 def plot_cake_heatmap(cake: CakeData, percentile: float = 99.5) -> go.Figure:
     """Build an interactive Plotly heatmap of the imported cake.
 
@@ -144,34 +364,10 @@ def plot_cake_heatmap(cake: CakeData, percentile: float = 99.5) -> go.Figure:
         picks a robust clip that keeps faint rings visible. Higher values darken
         the image (clip fewer bright pixels); lower values brighten it.
     """
-    intensity = cake.intensity
-    max_intensity = float(np.nanmax(intensity)) if intensity.size else 0.0
-    if intensity.size:
-        percentile = float(np.clip(percentile, 0.0, 100.0))
-        zmax = float(np.nanpercentile(intensity, percentile))
-    else:
-        zmax = 0.0
-    # Guard against a degenerate clip (e.g. mostly-zero data at low percentile).
-    if zmax <= 0:
-        zmax = max_intensity if max_intensity > 0 else 1.0
-
-    fig = go.Figure(
-        data=go.Heatmap(
-            x=cake.twotheta,
-            y=cake.azimuth,
-            z=cake.intensity,
-            zmin=0,
-            zmax=zmax,
-            # Low intensity -> black, high intensity -> white (matches Dioptas/
-            # cheesecake 'gray' rendering).
-            colorscale=[[0.0, "black"], [1.0, "white"]],
-            colorbar=dict(title="Intensity"),
-        )
+    return _build_heatmap(
+        cake.twotheta,
+        cake.azimuth,
+        cake.intensity,
+        cake.filename or "Imported cake",
+        percentile,
     )
-    fig.update_layout(
-        title=cake.filename or "Imported cake",
-        xaxis_title="2th (degrees)",
-        yaxis_title="azimuth (degrees)",
-        margin=dict(l=60, r=20, t=40, b=50),
-    )
-    return fig

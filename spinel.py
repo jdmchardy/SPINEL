@@ -1645,6 +1645,79 @@ if cake_file is not None:
                 )
             )
 
+# --- Background Subtraction (per-azimuth Chebyshev polynomial) ---
+# Builds a 2D background image by fitting a polynomial to the peak-masked, gap-
+# filled background points of each azimuth row, then subtracts it. Result is
+# stored in st.session_state.cake_background for later phases.
+if st.session_state.get("imported_cake") is not None:
+    st.subheader("Background Subtraction")
+    _cake = st.session_state.imported_cake
+
+    with st.form("cake_background_form"):
+        bg_cols = st.columns(4)
+        with bg_cols[0]:
+            bg_smoothing_sigma = st.number_input(
+                "Smoothing σ", value=10.0, min_value=0.0, step=1.0,
+                help="Gaussian smoothing sigma used for peak detection.")
+            bg_poly_degree = st.number_input(
+                "Polynomial degree", value=20, min_value=1, step=1,
+                help="Chebyshev degree per azimuth row.")
+        with bg_cols[1]:
+            bg_prominence_factor = st.number_input(
+                "Prominence factor", value=0.1, min_value=0.0, step=0.01, format="%.3f",
+                help="Peak prominence as a fraction of the smoothed max.")
+            bg_max_iter = st.number_input(
+                "Peak-reject iterations", value=3, min_value=0, step=1)
+        with bg_cols[2]:
+            bg_exclusion_window = st.number_input(
+                "Peak exclusion window", value=10, min_value=0, step=1,
+                help="Points excluded either side of each detected peak.")
+            bg_zero_removal_fraction = st.slider(
+                "Zero-removal fraction", min_value=0.0, max_value=1.0, value=0.8, step=0.05,
+                help="Drop zero-intensity points within this leading fraction of 2θ.")
+        with bg_cols[3]:
+            bg_negative_clip = st.number_input(
+                "Negative clip", value=-10.0, step=1.0,
+                help="After subtraction, values below this are set to 0.")
+            bg_gap_fill = st.checkbox(
+                "Gap fill (interpolate)", value=True,
+                help="Anchor the fit across large gaps with interpolated pseudo points.")
+            bg_gap_min_width = st.number_input(
+                "Gap min width (points)", value=5, min_value=1, step=1)
+        bg_submitted = st.form_submit_button("Compute background")
+
+    if bg_submitted:
+        with st.spinner("Fitting per-azimuth background..."):
+            st.session_state.cake_background = cp.compute_cake_background(
+                _cake,
+                poly_degree=int(bg_poly_degree),
+                negative_clip=float(bg_negative_clip),
+                smoothing_sigma=float(bg_smoothing_sigma),
+                prominence_factor=float(bg_prominence_factor),
+                max_iter=int(bg_max_iter),
+                exclusion_window=int(bg_exclusion_window),
+                zero_removal_fraction=float(bg_zero_removal_fraction),
+                gap_fill=bool(bg_gap_fill),
+                gap_min_width=int(bg_gap_min_width),
+            )
+
+    _bg = st.session_state.get("cake_background")
+    # Guard against a stale result from a previously-loaded cake of a different size.
+    if _bg is not None and _bg.background.shape == _cake.intensity.shape:
+        bg_result_cols = st.columns(2)
+        with bg_result_cols[0]:
+            st.plotly_chart(
+                cp.plot_grid_heatmap(_cake, _bg.background, "Fitted background",
+                                     percentile=cake_percentile),
+                width='stretch',
+            )
+        with bg_result_cols[1]:
+            st.plotly_chart(
+                cp.plot_grid_heatmap(_cake, _bg.subtracted, "Background-subtracted",
+                                     percentile=cake_percentile),
+                width='stretch',
+            )
+
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 
 with col1:
