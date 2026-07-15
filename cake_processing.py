@@ -326,6 +326,31 @@ def compute_cake_background(
     return CakeBackground(background=background, subtracted=subtracted)
 
 
+def assign_azimuth_bins(azimuth, n_bins: int):
+    """Group azimuth rows into ``n_bins`` equal-width bins.
+
+    Bins span the full angular coverage (each row is treated as one azimuth step
+    wide), so e.g. 360 rows at 1° with 72 bins gives exactly 5.0° per bin.
+
+    Returns
+    -------
+    (edges, bin_index, bin_width) :
+        ``edges`` (length n_bins+1) the bin boundaries in degrees; ``bin_index``
+        the 0-based bin each azimuth row falls in (same length as ``azimuth``);
+        ``bin_width`` the effective bin width in degrees.
+    """
+    azimuth = np.asarray(azimuth, dtype=float)
+    n_bins = int(n_bins)
+    step = float(np.median(np.diff(azimuth))) if azimuth.size > 1 else 1.0
+    step = abs(step) or 1.0
+    lo = azimuth.min() - step / 2.0
+    hi = azimuth.max() + step / 2.0
+    edges = np.linspace(lo, hi, n_bins + 1)
+    bin_index = np.clip(np.digitize(azimuth, edges) - 1, 0, n_bins - 1)
+    bin_width = (hi - lo) / n_bins
+    return edges, bin_index, bin_width
+
+
 def _build_heatmap(x, y, z, title: str, percentile: float) -> go.Figure:
     """Build a percentile-scaled grayscale Plotly heatmap for a 2D grid."""
     z = np.asarray(z)
@@ -369,11 +394,11 @@ def plot_grid_heatmap(
 def plot_azimuth_lineout(
     cake: CakeData,
     background: CakeBackground,
-    row_index: int,
+    rows,
     *,
     sample_kwargs: dict = None,
 ) -> go.Figure:
-    """Plot the 1D lineout (2th profile) at one azimuth row for diagnostics.
+    """Plot the 1D lineout (2th profile) for one azimuth bin for diagnostics.
 
     Overlays the raw profile, the fitted background, the background-subtracted
     result, and the background-sample points (real + gap-interpolated pseudo). Each
@@ -386,8 +411,10 @@ def plot_azimuth_lineout(
     cake : CakeData
     background : CakeBackground
         Result from :func:`compute_cake_background`.
-    row_index : int
-        Index into the azimuth axis selecting the row to plot.
+    rows : int or array-like of int
+        Azimuth-row index, or the set of row indices making up an azimuth bin. When
+        several rows are given the raw / background / subtracted profiles are
+        averaged across the bin.
     sample_kwargs : dict, optional
         The keyword arguments passed to :func:`background_samples` when the
         background was computed (smoothing_sigma, prominence_factor, etc.), so the
@@ -396,12 +423,19 @@ def plot_azimuth_lineout(
     sample_kwargs = dict(sample_kwargs or {})
     sample_kwargs.pop("return_detail", None)
 
+    rows = np.atleast_1d(np.asarray(rows, dtype=int))
     twotheta = np.asarray(cake.twotheta, dtype=float)
-    profile = np.asarray(cake.intensity[row_index], dtype=float)
-    fitted = np.asarray(background.background[row_index], dtype=float)
-    subtracted = np.asarray(background.subtracted[row_index], dtype=float)
+    profile = np.asarray(cake.intensity[rows], dtype=float).mean(axis=0)
+    fitted = np.asarray(background.background[rows], dtype=float).mean(axis=0)
+    subtracted = np.asarray(background.subtracted[rows], dtype=float).mean(axis=0)
     detail = background_samples(twotheta, profile, return_detail=True, **sample_kwargs)
-    azimuth = float(cake.azimuth[row_index])
+
+    az_vals = np.asarray(cake.azimuth, dtype=float)[rows]
+    if rows.size == 1:
+        title = f"Azimuth lineout @ {az_vals[0]:.1f}°"
+    else:
+        title = (f"Azimuth bin {az_vals.min():.1f}° to {az_vals.max():.1f}° "
+                 f"(mean of {rows.size} rows)")
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -423,7 +457,7 @@ def plot_azimuth_lineout(
         visible="legendonly"))
 
     fig.update_layout(
-        title=f"Azimuth lineout @ {azimuth:.1f}°",
+        title=title,
         xaxis_title="2th (degrees)",
         yaxis_title="Intensity",
         margin=dict(l=60, r=20, t=40, b=50),

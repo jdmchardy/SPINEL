@@ -1709,6 +1709,18 @@ if st.session_state.get("imported_cake") is not None:
     _bg = st.session_state.get("cake_background")
     # Guard against a stale result from a previously-loaded cake of a different size.
     if _bg is not None and _bg.background.shape == _cake.intensity.shape:
+        # Azimuth binning control: rows are grouped into equal-width bins.
+        _n_az = int(_cake.azimuth.size)
+        n_az_bins = st.number_input(
+            "Number of azimuth bins", min_value=1, max_value=_n_az,
+            value=min(72, _n_az), step=1,
+            help="Azimuth rows are grouped into this many equal bins for the "
+                 "lineout (and later extraction).")
+        _edges, _bin_index, _bin_width = cp.assign_azimuth_bins(_cake.azimuth, int(n_az_bins))
+        st.caption(
+            f"Effective azimuth binning: {_bin_width:.2f}° per bin "
+            f"({int(n_az_bins)} bins over {_bin_width * int(n_az_bins):.1f}°)")
+
         bg_result_cols = st.columns(2)
         with bg_result_cols[0]:
             st.plotly_chart(
@@ -1717,26 +1729,40 @@ if st.session_state.get("imported_cake") is not None:
                 width='stretch',
             )
         with bg_result_cols[1]:
-            st.plotly_chart(
-                cp.plot_grid_heatmap(_cake, _bg.subtracted, "Background-subtracted",
-                                     percentile=cake_percentile),
-                width='stretch',
+            st.caption("Drag a box over the cake to pick the azimuth bin for the lineout below.")
+            _sel_fig = cp.plot_grid_heatmap(
+                _cake, _bg.subtracted, "Background-subtracted (drag to select bin)",
+                percentile=cake_percentile)
+            _sel_fig.update_layout(dragmode="select")
+            _sel = st.plotly_chart(
+                _sel_fig, width='stretch', key="cake_bin_select",
+                on_select="rerun", selection_mode="box",
             )
+            # Capture the selected azimuth from the box y-range midpoint.
+            try:
+                _boxes = _sel["selection"]["box"]
+            except Exception:
+                _boxes = []
+            if _boxes and _boxes[0].get("y"):
+                st.session_state.cake_lineout_azimuth = float(np.mean(_boxes[0]["y"]))
 
-        # Lineout inspector: raw / fitted background / pseudo points / subtracted
-        # at a selected azimuth. Traces are toggled via the Plotly legend.
-        st.markdown("**Lineout inspector** (toggle traces via the legend)")
-        _az = _cake.azimuth
-        _az_step = float(np.median(np.diff(_az))) if _az.size > 1 else 1.0
-        _sel_az = st.slider(
-            "Azimuth (°) for lineout",
-            min_value=float(_az.min()), max_value=float(_az.max()),
-            value=float(_az[len(_az) // 2]), step=abs(_az_step) or 1.0,
-        )
-        _row = int(np.argmin(np.abs(_az - _sel_az)))
+        # Resolve the selected azimuth bin (default: middle bin).
+        _sel_az = st.session_state.get("cake_lineout_azimuth",
+                                       float(_cake.azimuth[_n_az // 2]))
+        _sel_bin = int(_bin_index[int(np.argmin(np.abs(_cake.azimuth - _sel_az)))])
+        _rows_in_bin = np.where(_bin_index == _sel_bin)[0]
+        _bin_lo = float(_cake.azimuth[_rows_in_bin].min())
+        _bin_hi = float(_cake.azimuth[_rows_in_bin].max())
+
+        # Lineout inspector: raw / fitted background / pseudo points / subtracted,
+        # averaged over the selected azimuth bin. Traces toggle via the legend.
+        st.markdown(
+            f"**Lineout inspector** — azimuth bin {_sel_bin} "
+            f"({_bin_lo:.1f}° to {_bin_hi:.1f}°, {_rows_in_bin.size} rows). "
+            f"Toggle traces via the legend.")
         st.plotly_chart(
             cp.plot_azimuth_lineout(
-                _cake, _bg, _row,
+                _cake, _bg, _rows_in_bin,
                 sample_kwargs=st.session_state.get("cake_background_params", {}),
             ),
             width='stretch',
