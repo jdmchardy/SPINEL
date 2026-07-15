@@ -1118,7 +1118,7 @@ def run_refinement(params, refine_flags, selected_hkls, selected_indices, intens
         if name in ["t",'sigma_12','sigma_13', 'sigma_23']:
             min_val, max_val = -25, 25
         elif "c" in name.lower():  # elastic constants
-            min_val, max_val = 0, 1500
+            min_val, max_val = 0.5 * val, 1.5 * val
         elif name == "a_val" or name == "b_val" or name == "c_val":
             min_val, max_val = 0.75 * val, 1.25 * val
         elif name == "chi":
