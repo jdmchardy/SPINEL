@@ -455,10 +455,6 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         phi_values = np.asarray(np.radians(np.linspace(0,360, phi_sampling)))
         #Add deltas placeholder for completeness
         deltas = np.array([0])
-        st.write("# psi sampling bins: {}".format(new_psi_sampling))
-        st.write("# phi sampling bins: {}".format(phi_sampling))
-        st.write("# alpha sampling bins: {}".format(alpha_sampling))
-        st.write("# Total points:{}".format(new_psi_sampling*phi_sampling*alpha_sampling))
             
     #modified GRID construction to preserve psi-delta relationship
     n_phi = len(phi_values)
