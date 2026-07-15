@@ -440,21 +440,19 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         #However, alpha does have an effect for the preferred orientation model so we include it by default
         #to reduce branching complexity in the logic. This means a resampling of the points over psi, phi, and alpha as below
 
-        psi_sampling = len(psi_values)
-        #Reduce sampling of psi
-        new_psi_sampling = int(psi_sampling/4)
-        psi_values = np.asarray(np.radians(np.linspace(0,90, new_psi_sampling)))
-        #Increase the phi sampling by the corresponding factor as we will then reduce it since we iterate over alpha
-        phi_sampling = 4*len(phi_values)
-        #Split this sampling between phi and alpha values
-        #This approximately preserves the number of samping points requested
-        points = np.sqrt(phi_sampling)
-        alpha_sampling = int(2*points)
-        phi_sampling = int(points/2)
-        alpha_values = np.radians(np.linspace(-180,180, alpha_sampling))
-        phi_values = np.asarray(np.radians(np.linspace(0,360, phi_sampling)))
-        #Add deltas placeholder for completeness
-        deltas = np.array([0])
+        # psi  = OUTPUT axis   -> keep at the requested resolution (plot density).
+        # phi, alpha = INTEGRATION axes -> averaged away per psi; size for
+        # convergence, independent of psi. Periodic axes use endpoint=False so
+        # 0deg==360deg / -180deg==180deg are not double-counted in the average.
+
+        N_ALPHA_INT = 18      # rotation about z_S  (raise for accuracy, lower for speed)
+
+        n_psi_out = max(int(len(psi_values)), 2)          # unreduced plot resolution
+        n_phi_int = max(int(len(phi_values)), 24)         # ring azimuth (integration)
+
+        psi_values   = np.radians(np.linspace(0, 90, n_psi_out))
+        phi_values   = np.radians(np.linspace(0, 360, n_phi_int, endpoint=False))
+        alpha_values = np.radians(np.linspace(-180, 180, N_ALPHA_INT, endpoint=False))
             
     #modified GRID construction to preserve psi-delta relationship
     n_phi = len(phi_values)
