@@ -436,36 +436,30 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         phi_values = np.asarray(phi_values)
     
     else:
-        #Determine if the stress matrix is radially symmetric (meaning alpha rotaion has no effect)
-        if sigma_11 == sigma_22 and sigma_12 == 0 and sigma_13 == 0 and sigma_23 == 0:
-            #Psi is not evaluated for deltas as above (Funamori plots)
-            # Assume phi_values and psi_values are 1D numpy arrays.
-            psi_values = np.asarray(psi_values)
-            phi_values = np.asarray(phi_values)
-            #Add deltas placeholder for completeness
-            deltas = np.array([0])
-            alpha_values = None
-        else:
-            psi_sampling = len(psi_values)
-            #Reduce sampling of psi
-            new_psi_sampling = int(psi_sampling/4)
-            psi_values = np.asarray(np.radians(np.linspace(0,90, new_psi_sampling)))
-            #Increase the phi sampling by the corresponding factor as we will then reduce it since we iterate over alpha
-            phi_sampling = 4*len(phi_values)
-            #Split this sampling between phi and alpha values
-            #This approximately preserves the number of samping points requested
-            points = np.sqrt(phi_sampling)
-            alpha_sampling = int(2*points)
-            phi_sampling = int(points/2)
-            alpha_values = np.radians(np.linspace(-180,180, alpha_sampling))
-            phi_values = np.asarray(np.radians(np.linspace(0,360, phi_sampling)))
-            #Add deltas placeholder for completeness
-            deltas = np.array([0])
-            st.write("# psi sampling bins: {}".format(new_psi_sampling))
-            st.write("# phi sampling bins: {}".format(phi_sampling))
-            st.write("# alpha sampling bins: {}".format(alpha_sampling))
-            st.write("# Total points:{}".format(new_psi_sampling*phi_sampling*alpha_sampling))
+        #We used to check if the stress matrix was radially symmetric (in which case alpha has no effect for the strains computed)
+        #However, alpha does have an effect for the preferred orientation model so we include it by default
+        #to reduce branching complexity in the logic. This means a resampling of the points over psi, phi, and alpha as below
 
+        psi_sampling = len(psi_values)
+        #Reduce sampling of psi
+        new_psi_sampling = int(psi_sampling/4)
+        psi_values = np.asarray(np.radians(np.linspace(0,90, new_psi_sampling)))
+        #Increase the phi sampling by the corresponding factor as we will then reduce it since we iterate over alpha
+        phi_sampling = 4*len(phi_values)
+        #Split this sampling between phi and alpha values
+        #This approximately preserves the number of samping points requested
+        points = np.sqrt(phi_sampling)
+        alpha_sampling = int(2*points)
+        phi_sampling = int(points/2)
+        alpha_values = np.radians(np.linspace(-180,180, alpha_sampling))
+        phi_values = np.asarray(np.radians(np.linspace(0,360, phi_sampling)))
+        #Add deltas placeholder for completeness
+        deltas = np.array([0])
+        st.write("# psi sampling bins: {}".format(new_psi_sampling))
+        st.write("# phi sampling bins: {}".format(phi_sampling))
+        st.write("# alpha sampling bins: {}".format(alpha_sampling))
+        st.write("# Total points:{}".format(new_psi_sampling*phi_sampling*alpha_sampling))
+            
     #modified GRID construction to preserve psi-delta relationship
     n_phi = len(phi_values)
     n_psi = len(psi_values)
