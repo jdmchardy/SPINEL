@@ -1687,19 +1687,24 @@ if st.session_state.get("imported_cake") is not None:
         bg_submitted = st.form_submit_button("Compute background")
 
     if bg_submitted:
+        # Sample-selection kwargs, stored so the lineout inspector matches the fit.
+        _bg_sample_kwargs = dict(
+            smoothing_sigma=float(bg_smoothing_sigma),
+            prominence_factor=float(bg_prominence_factor),
+            max_iter=int(bg_max_iter),
+            exclusion_window=int(bg_exclusion_window),
+            zero_removal_fraction=float(bg_zero_removal_fraction),
+            gap_fill=bool(bg_gap_fill),
+            gap_min_width=int(bg_gap_min_width),
+        )
         with st.spinner("Fitting per-azimuth background..."):
             st.session_state.cake_background = cp.compute_cake_background(
                 _cake,
                 poly_degree=int(bg_poly_degree),
                 negative_clip=float(bg_negative_clip),
-                smoothing_sigma=float(bg_smoothing_sigma),
-                prominence_factor=float(bg_prominence_factor),
-                max_iter=int(bg_max_iter),
-                exclusion_window=int(bg_exclusion_window),
-                zero_removal_fraction=float(bg_zero_removal_fraction),
-                gap_fill=bool(bg_gap_fill),
-                gap_min_width=int(bg_gap_min_width),
+                **_bg_sample_kwargs,
             )
+        st.session_state.cake_background_params = _bg_sample_kwargs
 
     _bg = st.session_state.get("cake_background")
     # Guard against a stale result from a previously-loaded cake of a different size.
@@ -1717,6 +1722,25 @@ if st.session_state.get("imported_cake") is not None:
                                      percentile=cake_percentile),
                 width='stretch',
             )
+
+        # Lineout inspector: raw / fitted background / pseudo points / subtracted
+        # at a selected azimuth. Traces are toggled via the Plotly legend.
+        st.markdown("**Lineout inspector** (toggle traces via the legend)")
+        _az = _cake.azimuth
+        _az_step = float(np.median(np.diff(_az))) if _az.size > 1 else 1.0
+        _sel_az = st.slider(
+            "Azimuth (°) for lineout",
+            min_value=float(_az.min()), max_value=float(_az.max()),
+            value=float(_az[len(_az) // 2]), step=abs(_az_step) or 1.0,
+        )
+        _row = int(np.argmin(np.abs(_az - _sel_az)))
+        st.plotly_chart(
+            cp.plot_azimuth_lineout(
+                _cake, _bg, _row,
+                sample_kwargs=st.session_state.get("cake_background_params", {}),
+            ),
+            width='stretch',
+        )
 
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 

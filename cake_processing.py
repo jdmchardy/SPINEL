@@ -161,6 +161,7 @@ def background_samples(
     zero_removal_fraction: float = 0.8,
     gap_fill: bool = True,
     gap_min_width: int = 5,
+    return_detail: bool = False,
 ):
     """Select the background-sample points for a single azimuth row.
 
@@ -191,11 +192,17 @@ def background_samples(
     gap_min_width : int
         Minimum contiguous zero-run width (in points) treated as a gap to fill.
 
+    return_detail : bool
+        If True, return a dict separating the real and pseudo (gap-interpolated)
+        points instead of the combined tuple (used by the lineout inspector).
+
     Returns
     -------
     (sample_twotheta, sample_intensity) : tuple of np.ndarray
         The 2th-sorted background-sample points (real + interpolated pseudo) that
-        feed the polynomial fit.
+        feed the polynomial fit. If ``return_detail`` is True, instead returns a dict
+        with keys ``real_tth``, ``real_I``, ``pseudo_tth``, ``pseudo_I``,
+        ``valid_mask`` for diagnostics/plotting.
     """
     twotheta = np.asarray(twotheta, dtype=float)
     profile = np.asarray(profile, dtype=float)
@@ -240,20 +247,29 @@ def background_samples(
                 gap_runs.append((start, end))
                 valid[start:end] = False
 
-    sample_twotheta = twotheta[valid]
-    sample_intensity = profile[valid]
+    real_twotheta = twotheta[valid]
+    real_intensity = profile[valid]
 
     # Inject interpolated pseudo points across the large gaps.
-    if gap_runs and sample_twotheta.size >= 2:
+    pseudo_twotheta = np.array([], dtype=float)
+    pseudo_intensity = np.array([], dtype=float)
+    if gap_runs and real_twotheta.size >= 2:
         pseudo_twotheta = np.concatenate([twotheta[s:e] for s, e in gap_runs])
-        pseudo_intensity = np.interp(pseudo_twotheta, sample_twotheta, sample_intensity)
-        sample_twotheta = np.concatenate([sample_twotheta, pseudo_twotheta])
-        sample_intensity = np.concatenate([sample_intensity, pseudo_intensity])
-        order = np.argsort(sample_twotheta)
-        sample_twotheta = sample_twotheta[order]
-        sample_intensity = sample_intensity[order]
+        pseudo_intensity = np.interp(pseudo_twotheta, real_twotheta, real_intensity)
 
-    return sample_twotheta, sample_intensity
+    if return_detail:
+        return {
+            "real_tth": real_twotheta,
+            "real_I": real_intensity,
+            "pseudo_tth": pseudo_twotheta,
+            "pseudo_I": pseudo_intensity,
+            "valid_mask": valid,
+        }
+
+    sample_twotheta = np.concatenate([real_twotheta, pseudo_twotheta])
+    sample_intensity = np.concatenate([real_intensity, pseudo_intensity])
+    order = np.argsort(sample_twotheta)
+    return sample_twotheta[order], sample_intensity[order]
 
 
 def compute_cake_background(
@@ -348,6 +364,72 @@ def plot_grid_heatmap(
 ) -> go.Figure:
     """Plot an arbitrary 2D grid (e.g. background or subtracted) on the cake axes."""
     return _build_heatmap(cake.twotheta, cake.azimuth, grid, title, percentile)
+
+
+def plot_azimuth_lineout(
+    cake: CakeData,
+    background: CakeBackground,
+    row_index: int,
+    *,
+    sample_kwargs: dict = None,
+) -> go.Figure:
+    """Plot the 1D lineout (2th profile) at one azimuth row for diagnostics.
+
+    Overlays the raw profile, the fitted background, the background-subtracted
+    result, and the background-sample points (real + gap-interpolated pseudo). Each
+    is a separate trace, so clicking the Plotly legend toggles it on/off. The pseudo
+    and real sample points are recomputed with ``sample_kwargs`` so they match the
+    parameters used to compute ``background``.
+
+    Parameters
+    ----------
+    cake : CakeData
+    background : CakeBackground
+        Result from :func:`compute_cake_background`.
+    row_index : int
+        Index into the azimuth axis selecting the row to plot.
+    sample_kwargs : dict, optional
+        The keyword arguments passed to :func:`background_samples` when the
+        background was computed (smoothing_sigma, prominence_factor, etc.), so the
+        displayed sample points match the fit.
+    """
+    sample_kwargs = dict(sample_kwargs or {})
+    sample_kwargs.pop("return_detail", None)
+
+    twotheta = np.asarray(cake.twotheta, dtype=float)
+    profile = np.asarray(cake.intensity[row_index], dtype=float)
+    fitted = np.asarray(background.background[row_index], dtype=float)
+    subtracted = np.asarray(background.subtracted[row_index], dtype=float)
+    detail = background_samples(twotheta, profile, return_detail=True, **sample_kwargs)
+    azimuth = float(cake.azimuth[row_index])
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=twotheta, y=profile, name="Raw", mode="lines",
+        line=dict(color="#888888", width=1)))
+    fig.add_trace(go.Scatter(
+        x=twotheta, y=fitted, name="Fitted background", mode="lines",
+        line=dict(color="red", width=1.5)))
+    fig.add_trace(go.Scatter(
+        x=twotheta, y=subtracted, name="Background-subtracted", mode="lines",
+        line=dict(color="green", width=1)))
+    if detail["pseudo_tth"].size:
+        fig.add_trace(go.Scatter(
+            x=detail["pseudo_tth"], y=detail["pseudo_I"], name="Pseudo points (gap)",
+            mode="markers", marker=dict(color="orange", size=5, symbol="circle")))
+    fig.add_trace(go.Scatter(
+        x=detail["real_tth"], y=detail["real_I"], name="Background samples",
+        mode="markers", marker=dict(color="royalblue", size=3, symbol="x"),
+        visible="legendonly"))
+
+    fig.update_layout(
+        title=f"Azimuth lineout @ {azimuth:.1f}°",
+        xaxis_title="2th (degrees)",
+        yaxis_title="Intensity",
+        margin=dict(l=60, r=20, t=40, b=50),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    return fig
 
 
 def plot_cake_heatmap(cake: CakeData, percentile: float = 99.5) -> go.Figure:
