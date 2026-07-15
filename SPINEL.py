@@ -631,11 +631,11 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     else:
         # Downsized coarse evaluation of PO model on (phi, delta) grid then interpolate
         phi_PO   = np.linspace(0, 360, 72)
-        delta_PO = np.linspace(-180, 180, 72)
+        delta_PO = np.linspace(-180, 180, 180)
         I_grid, phi_grid_PO, delta_grid_PO = PO_MODEL.intensity_for_hkl(hkl, phi_PO, delta_PO)
         interp = RegularGridInterpolator(
             (phi_grid_PO[:, 0], delta_grid_PO[0, :]), I_grid,
-            method='cubic', bounds_error=False, fill_value=None)
+            method='linear', bounds_error=False, fill_value=None)
         phi_deg_flat   = np.degrees(phi_grid).ravel(order='F')
         delta_deg_flat = delta_grid.ravel(order='F') # already degrees
         I_list = interp(np.stack([phi_deg_flat, delta_deg_flat], axis=-1))
