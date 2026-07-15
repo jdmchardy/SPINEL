@@ -1692,12 +1692,14 @@ if st.session_state.get("imported_cake") is not None:
                      "fraction of the current maximum of the smoothed, peak-excluded "
                      "signal to be flagged and cut out before fitting. Lower → more "
                      "sensitive (excludes weaker peaks); higher → only strong peaks.")
-            bg_max_iter = st.number_input(
-                "Peak-reject iterations", value=3, min_value=0, step=1,
-                help="Number of peak-search passes. Each pass re-runs the search with "
-                     "already-found peaks removed, so the running maximum drops and "
-                     "progressively weaker peaks get caught and excluded. More passes "
-                     "→ more thorough removal of small peaks from the fit.")
+            bg_iterations = st.number_input(
+                "Refinement iterations", value=3, min_value=0, step=1,
+                help="Residual-refinement passes. After the primary fit the background "
+                     "is subtracted and the residual is searched for peaks the first "
+                     "pass missed (shallow peaks sitting on the background); those are "
+                     "added to the exclusion set and the background is refitted. More "
+                     "passes recover more missed peaks (stops early once none are "
+                     "found). 0 = primary fit only.")
         with bg_cols[2]:
             bg_exclusion_window = st.number_input(
                 "Peak exclusion window", value=10, min_value=0, step=1,
@@ -1732,11 +1734,12 @@ if st.session_state.get("imported_cake") is not None:
         bg_submitted = st.form_submit_button("Compute background")
 
     if bg_submitted:
-        # Sample-selection kwargs, stored so the lineout inspector matches the fit.
-        _bg_sample_kwargs = dict(
+        # Fit kwargs, stored so the lineout inspector reproduces the same fit/peaks.
+        _bg_fit_kwargs = dict(
+            poly_degree=int(bg_poly_degree),
             smoothing_sigma=float(bg_smoothing_sigma),
             prominence_factor=float(bg_prominence_factor),
-            max_iter=int(bg_max_iter),
+            iterations=int(bg_iterations),
             exclusion_window=int(bg_exclusion_window),
             zero_removal_fraction=float(bg_zero_removal_fraction),
             gap_fill=bool(bg_gap_fill),
@@ -1746,11 +1749,10 @@ if st.session_state.get("imported_cake") is not None:
             st.session_state.cake_background = cp.compute_cake_background(
                 _cake,
                 n_bins=int(n_az_bins),
-                poly_degree=int(bg_poly_degree),
                 negative_clip=float(bg_negative_clip),
-                **_bg_sample_kwargs,
+                **_bg_fit_kwargs,
             )
-        st.session_state.cake_background_params = _bg_sample_kwargs
+        st.session_state.cake_background_params = _bg_fit_kwargs
         st.session_state.cake_background_nbins = int(n_az_bins)
 
     _bg = st.session_state.get("cake_background")

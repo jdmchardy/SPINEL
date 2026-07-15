@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "cake-harness",
+      "runtimeExecutable": "streamlit",
+      "runtimeArgs": ["run", "/private/tmp/claude-502/-Users-jmchard2-Library-CloudStorage-OneDrive-UniversityofEdinburgh-Documents---JMcHardy-PostDoc-Software-SPINEL-SPINEL-Github-repo/0f34e9b1-3822-42af-a2d6-4fa2933e3459/scratchpad/cake_harness.py", "--server.headless", "true", "--server.port", "8508"],
+      "port": 8508
+    }
+  ]
+}

@@ -150,95 +150,8 @@ def cake_to_long_dataframe(cake: CakeData) -> pd.DataFrame:
     )
 
 
-def background_samples(
-    twotheta,
-    profile,
-    *,
-    smoothing_sigma: float = 10.0,
-    prominence_factor: float = 0.1,
-    max_iter: int = 3,
-    exclusion_window: int = 10,
-    zero_removal_fraction: float = 0.8,
-    gap_fill: bool = True,
-    gap_min_width: int = 5,
-    return_detail: bool = False,
-):
-    """Select the background-sample points for a single azimuth row.
-
-    Adapted from cheesecake's ``sample_background_points``. The row is smoothed,
-    peak regions are iteratively excluded, and zero/gap points are removed. Where
-    a contiguous zero run (detector gap / beamstop) is wider than ``gap_min_width``,
-    pseudo background points are injected across the gap by *linearly interpolating*
-    between the surrounding real background points — this anchors the polynomial fit
-    so it cannot swing wildly across the gap.
-
-    Parameters
-    ----------
-    twotheta, profile : array-like
-        The 2th axis and the intensity profile for one azimuth row.
-    smoothing_sigma : float
-        Gaussian smoothing sigma used when detecting peaks.
-    prominence_factor : float
-        Peak prominence as a fraction of the smoothed max.
-    max_iter : int
-        Number of iterative peak-exclusion passes.
-    exclusion_window : int
-        Number of points excluded either side of each detected peak.
-    zero_removal_fraction : float
-        Zero-intensity points in the first this-fraction of the 2th axis are
-        dropped (low-angle beamstop region).
-    gap_fill : bool
-        If True, inject interpolated pseudo points across large zero gaps.
-    gap_min_width : int
-        Minimum contiguous zero-run width (in points) treated as a gap to fill.
-
-    return_detail : bool
-        If True, return a dict separating the real and pseudo (gap-interpolated)
-        points instead of the combined tuple (used by the lineout inspector).
-
-    Returns
-    -------
-    (sample_twotheta, sample_intensity) : tuple of np.ndarray
-        The 2th-sorted background-sample points (real + interpolated pseudo) that
-        feed the polynomial fit. If ``return_detail`` is True, instead returns a dict
-        with keys ``real_tth``, ``real_I``, ``pseudo_tth``, ``pseudo_I``,
-        ``valid_mask``, ``peak_tth``, ``peak_I``, ``exclusion_window`` for
-        diagnostics/plotting.
-    """
-    twotheta = np.asarray(twotheta, dtype=float)
-    profile = np.asarray(profile, dtype=float)
-    n = profile.size
-
-    smoothed = gaussian_filter1d(profile, sigma=smoothing_sigma)
-
-    valid = np.ones(n, dtype=bool)
-    # Drop zero-intensity points in the low-angle region (beamstop / gaps).
-    zero_threshold = int(n * zero_removal_fraction)
-    valid[:zero_threshold] &= profile[:zero_threshold] != 0
-
-    # Iteratively reject points around detected peaks, recording the peaks found
-    # (so the UI can show which zones were excluded).
-    detected_peaks = []
-    for _ in range(max_iter):
-        valid_smoothed = smoothed[valid]
-        if valid_smoothed.size == 0:
-            break
-        peaks, _ = find_peaks(
-            valid_smoothed, prominence=prominence_factor * np.max(valid_smoothed)
-        )
-        if peaks.size == 0:
-            break
-        peak_indices = np.where(valid)[0][peaks]
-        detected_peaks.extend(int(i) for i in peak_indices)
-        for peak_idx in peak_indices:
-            start = max(peak_idx - exclusion_window, 0)
-            end = min(peak_idx + exclusion_window + 1, n)
-            valid[start:end] = False
-        if valid.sum() < 2 * exclusion_window:
-            break
-
-    # Identify large zero-gap runs anywhere on the axis; exclude their raw zeros
-    # from the fit and remember them for pseudo-point interpolation.
+def _find_gap_runs(profile, gap_fill, gap_min_width):
+    """Return (start, end) index ranges of contiguous zero runs >= gap_min_width."""
     gap_runs = []
     if gap_fill:
         is_gap = profile == 0
@@ -248,55 +161,182 @@ def background_samples(
         )
         for start, end in zip(edges[0::2], edges[1::2]):
             if (end - start) >= gap_min_width:
-                gap_runs.append((start, end))
-                valid[start:end] = False
+                gap_runs.append((int(start), int(end)))
+    return gap_runs
 
-    real_twotheta = twotheta[valid]
-    real_intensity = profile[valid]
 
-    # Inject interpolated pseudo points across the large gaps.
-    pseudo_twotheta = np.array([], dtype=float)
-    pseudo_intensity = np.array([], dtype=float)
-    if gap_runs and real_twotheta.size >= 2:
-        pseudo_twotheta = np.concatenate([twotheta[s:e] for s, e in gap_runs])
-        pseudo_intensity = np.interp(pseudo_twotheta, real_twotheta, real_intensity)
+def _select_background_samples(twotheta, profile, base_valid, peak_indices,
+                               exclusion_window, gap_runs):
+    """Build background-sample points given the peaks to exclude.
+
+    Starts from ``base_valid`` (leading zeros + large gaps already removed), excludes
+    an exclusion window around each peak, then injects linearly-interpolated pseudo
+    points across the gap runs. Returns
+    ``(valid, real_tth, real_I, pseudo_tth, pseudo_I, sample_tth, sample_I)``.
+    """
+    n = profile.size
+    valid = base_valid.copy()
+    for p in peak_indices:
+        start = max(int(p) - exclusion_window, 0)
+        end = min(int(p) + exclusion_window + 1, n)
+        valid[start:end] = False
+
+    real_tth = twotheta[valid]
+    real_I = profile[valid]
+
+    pseudo_tth = np.array([], dtype=float)
+    pseudo_I = np.array([], dtype=float)
+    if gap_runs and real_tth.size >= 2:
+        pseudo_tth = np.concatenate([twotheta[s:e] for s, e in gap_runs])
+        pseudo_I = np.interp(pseudo_tth, real_tth, real_I)
+
+    sample_tth = np.concatenate([real_tth, pseudo_tth])
+    sample_I = np.concatenate([real_I, pseudo_I])
+    order = np.argsort(sample_tth)
+    return valid, real_tth, real_I, pseudo_tth, pseudo_I, sample_tth[order], sample_I[order]
+
+
+def _fit_polynomial(twotheta, sample_tth, sample_I, poly_degree):
+    """Fit a Chebyshev polynomial to the sample points, evaluated over ``twotheta``."""
+    if sample_tth.size < 2:
+        return np.zeros_like(twotheta)
+    degree = int(min(poly_degree, sample_tth.size - 1))
+    try:
+        background = Chebyshev.fit(sample_tth, sample_I, deg=degree)(twotheta)
+    except Exception:
+        background = np.zeros_like(twotheta)
+    return np.nan_to_num(background, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def fit_bin_background(
+    twotheta,
+    profile,
+    *,
+    poly_degree: int = 20,
+    smoothing_sigma: float = 10.0,
+    prominence_factor: float = 0.1,
+    iterations: int = 3,
+    exclusion_window: int = 10,
+    zero_removal_fraction: float = 0.8,
+    gap_fill: bool = True,
+    gap_min_width: int = 5,
+    return_detail: bool = False,
+):
+    """Fit the polynomial background of one (binned) azimuth profile.
+
+    Procedure:
+      1. Smooth the profile (for peak detection only) and mark leading zeros and
+         large detector gaps as non-background.
+      2. **Primary peak pass**: detect prominent peaks on the smoothed profile,
+         exclude a window around each, and fit an initial Chebyshev background.
+      3. **Residual refinement loop** (run ``iterations`` times): subtract the current
+         background and search the residual *within the current background regions*
+         for peaks the primary pass missed (shallow peaks sitting on the background);
+         add them to the exclusion set and refit. Stops early once a pass finds no
+         new peaks.
+
+    Large gaps are bridged with linearly-interpolated pseudo points so the polynomial
+    stays anchored across them. Peaks are always searched on the full 2th array (not a
+    compressed valid-only array), which avoids spurious peaks at exclusion joins.
+
+    Returns the fitted background evaluated over ``twotheta``. If ``return_detail`` is
+    True, returns a dict with keys ``background``, ``real_tth``, ``real_I``,
+    ``pseudo_tth``, ``pseudo_I``, ``valid_mask``, ``peak_tth``, ``peak_I``,
+    ``exclusion_window`` for diagnostics/plotting.
+    """
+    twotheta = np.asarray(twotheta, dtype=float)
+    profile = np.asarray(profile, dtype=float)
+    n = profile.size
+    smoothed = (gaussian_filter1d(profile, sigma=smoothing_sigma)
+                if smoothing_sigma > 0 else profile)
+
+    # Base validity: drop leading zeros and large gaps (gaps also get pseudo points).
+    base_valid = np.ones(n, dtype=bool)
+    zero_threshold = int(n * zero_removal_fraction)
+    base_valid[:zero_threshold] &= profile[:zero_threshold] != 0
+    gap_runs = _find_gap_runs(profile, gap_fill, gap_min_width)
+    for s, e in gap_runs:
+        base_valid[s:e] = False
+
+    def detect(signal, valid):
+        """Peaks of ``signal`` lying within ``valid`` regions (searched on full array)."""
+        vsig = signal[valid]
+        if vsig.size == 0:
+            return []
+        vmax = float(np.max(vsig))
+        if vmax <= 0:
+            return []
+        peaks, _ = find_peaks(signal, prominence=prominence_factor * vmax)
+        return [int(p) for p in peaks if valid[p]]
+
+    # Primary peak pass + initial fit.
+    detected = set(detect(smoothed, base_valid))
+    (valid, real_tth, real_I, pseudo_tth, pseudo_I,
+     sample_tth, sample_I) = _select_background_samples(
+        twotheta, profile, base_valid, detected, exclusion_window, gap_runs)
+    background = _fit_polynomial(twotheta, sample_tth, sample_I, poly_degree)
+
+    # Residual refinement: find peaks the primary pass missed, exclude them, refit.
+    # Missed peaks must clear a NOISE floor (>= 5 robust sigma above the residual
+    # median), otherwise noise wiggles would be mistaken for peaks and runaway.
+    for _ in range(int(iterations)):
+        residual = profile - background
+        # Only search where we currently treat the signal as background.
+        residual_search = np.where(valid, residual, 0.0)
+        residual_search[residual_search < 0] = 0.0
+        if smoothing_sigma > 0:
+            residual_search = gaussian_filter1d(residual_search, sigma=smoothing_sigma)
+        valid_residual = residual_search[valid]
+        if valid_residual.size == 0:
+            break
+        median = float(np.median(valid_residual))
+        mad = float(np.median(np.abs(valid_residual - median)))
+        sigma = 1.4826 * mad if mad > 0 else float(valid_residual.std())
+        if sigma <= 0:
+            break
+        threshold = median + 5.0 * sigma
+        peaks, _ = find_peaks(residual_search, height=threshold, prominence=5.0 * sigma)
+        new = [int(p) for p in peaks if valid[p] and int(p) not in detected]
+        if not new:
+            break
+        detected.update(new)
+        (valid, real_tth, real_I, pseudo_tth, pseudo_I,
+         sample_tth, sample_I) = _select_background_samples(
+            twotheta, profile, base_valid, detected, exclusion_window, gap_runs)
+        background = _fit_polynomial(twotheta, sample_tth, sample_I, poly_degree)
 
     if return_detail:
-        peak_idx = (np.unique(np.asarray(detected_peaks, dtype=int))
-                    if detected_peaks else np.array([], dtype=int))
+        peak_idx = (np.array(sorted(detected), dtype=int)
+                    if detected else np.array([], dtype=int))
         return {
-            "real_tth": real_twotheta,
-            "real_I": real_intensity,
-            "pseudo_tth": pseudo_twotheta,
-            "pseudo_I": pseudo_intensity,
+            "background": background,
+            "real_tth": real_tth,
+            "real_I": real_I,
+            "pseudo_tth": pseudo_tth,
+            "pseudo_I": pseudo_I,
             "valid_mask": valid,
             "peak_tth": twotheta[peak_idx],
             "peak_I": profile[peak_idx],
             "exclusion_window": int(exclusion_window),
         }
-
-    sample_twotheta = np.concatenate([real_twotheta, pseudo_twotheta])
-    sample_intensity = np.concatenate([real_intensity, pseudo_intensity])
-    order = np.argsort(sample_twotheta)
-    return sample_twotheta[order], sample_intensity[order]
+    return background
 
 
 def compute_cake_background(
     cake: CakeData,
     *,
     n_bins: int = None,
-    poly_degree: int = 20,
     negative_clip: float = -10.0,
-    **sample_kwargs,
+    **fit_kwargs,
 ) -> CakeBackground:
     """Fit and subtract a per-azimuth-bin polynomial background over the cake.
 
     The azimuth rows are grouped into ``n_bins`` equal bins. For each bin the raw
-    rows are averaged into a single binned profile, the background-sample points are
-    selected with :func:`background_samples`, and a Chebyshev polynomial is fitted.
-    That single bin background is then applied to *every* (finer-resolution) row in
-    the bin, and subtracted. This means the user's azimuth binning directly controls
-    how the background is estimated.
+    rows are averaged into a single binned profile, the background is fit with
+    :func:`fit_bin_background` (primary peak pass + residual refinement), and that
+    single bin background is applied to *every* (finer-resolution) row in the bin and
+    subtracted. So the user's azimuth binning directly controls how the background is
+    estimated.
 
     Parameters
     ----------
@@ -304,14 +344,13 @@ def compute_cake_background(
     n_bins : int, optional
         Number of azimuth bins. If None or >= the number of rows, each row is its
         own bin (finest resolution).
-    poly_degree : int
-        Chebyshev polynomial degree (clamped to ``n_samples - 1`` per bin).
     negative_clip : float
         After subtraction, values below this are set to 0 (removes large negative
         excursions from data gaps).
-    **sample_kwargs
-        Forwarded to :func:`background_samples` (smoothing_sigma, prominence_factor,
-        max_iter, exclusion_window, zero_removal_fraction, gap_fill, gap_min_width).
+    **fit_kwargs
+        Forwarded to :func:`fit_bin_background` (poly_degree, smoothing_sigma,
+        prominence_factor, iterations, exclusion_window, zero_removal_fraction,
+        gap_fill, gap_min_width).
 
     Returns
     -------
@@ -335,17 +374,7 @@ def compute_cake_background(
             continue
         # Average the rows in the bin, fit once, apply to all rows in the bin.
         profile = intensity[rows].mean(axis=0)
-        sample_tth, sample_I = background_samples(twotheta, profile, **sample_kwargs)
-        if sample_tth.size < 2:
-            continue  # leave background for these rows at zero
-        degree = int(min(poly_degree, sample_tth.size - 1))
-        try:
-            bin_background = Chebyshev.fit(sample_tth, sample_I, deg=degree)(twotheta)
-        except Exception:
-            bin_background = np.zeros_like(twotheta)
-        background[rows] = np.nan_to_num(
-            bin_background, nan=0.0, posinf=0.0, neginf=0.0
-        )
+        background[rows] = fit_bin_background(twotheta, profile, **fit_kwargs)
 
     subtracted = intensity - background
     subtracted[subtracted < negative_clip] = 0.0
@@ -454,7 +483,7 @@ def plot_azimuth_lineout(
     profile = np.asarray(cake.intensity[rows], dtype=float).mean(axis=0)
     fitted = np.asarray(background.background[rows], dtype=float).mean(axis=0)
     subtracted = np.asarray(background.subtracted[rows], dtype=float).mean(axis=0)
-    detail = background_samples(twotheta, profile, return_detail=True, **sample_kwargs)
+    detail = fit_bin_background(twotheta, profile, return_detail=True, **sample_kwargs)
 
     az_vals = np.asarray(cake.azimuth, dtype=float)[rows]
     if rows.size == 1:
