@@ -165,35 +165,6 @@ class PO_Model:
         psi = np.degrees(np.arccos(cos_psi))
         return psi
 
-    def A_matrix_vectorised(self, phi, psi):
-        """
-        Matrix to transform from diffraction plane to stress coordinates (Uchida matrix)
-        Has shape (N,M,3,3) where N,M are the length of the phi,psi 1d arrays
-        phi : 1d_array (radians)
-        psi : 1d_array (radians)
-        """
-        #Compute sin and cosine
-        cos_phi = np.cos(phi)
-        sin_phi = np.sin(phi)
-        cos_psi = np.cos(psi)
-        sin_psi = np.sin(psi)
-
-        #Create mesgrids
-        cos_phi, cos_psi = np.meshgrid(cos_phi, cos_psi, indexing='ij')
-        sin_phi, sin_psi = np.meshgrid(sin_phi, sin_psi, indexing='ij')
-        
-        A = np.empty((cos_phi.shape[0], cos_phi.shape[1], 3, 3))
-        A[..., 0, 0] = cos_phi
-        A[..., 0, 1] = -sin_phi*cos_psi
-        A[..., 0, 2] = sin_phi * sin_psi
-        A[..., 1, 0] = sin_phi
-        A[..., 1, 1] = cos_phi * cos_psi
-        A[..., 1, 2] = -cos_phi * sin_psi
-        A[..., 2, 0] = 0
-        A[..., 2, 1] = sin_psi
-        A[..., 2, 2] = cos_psi
-        return A
-
     def B_matrix(self, hkl):
         """
         Matrix to transform from diffraction plane to crystal coordinates
