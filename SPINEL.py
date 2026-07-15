@@ -453,6 +453,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         psi_values   = np.radians(np.linspace(0, 90, n_psi_out))
         phi_values   = np.radians(np.linspace(0, 360, n_phi_int, endpoint=False))
         alpha_values = np.radians(np.linspace(-180, 180, N_ALPHA_INT, endpoint=False))
+        deltas = np.array([0])
             
     #modified GRID construction to preserve psi-delta relationship
     n_phi = len(phi_values)
