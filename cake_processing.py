@@ -202,7 +202,8 @@ def background_samples(
         The 2th-sorted background-sample points (real + interpolated pseudo) that
         feed the polynomial fit. If ``return_detail`` is True, instead returns a dict
         with keys ``real_tth``, ``real_I``, ``pseudo_tth``, ``pseudo_I``,
-        ``valid_mask`` for diagnostics/plotting.
+        ``valid_mask``, ``peak_tth``, ``peak_I``, ``exclusion_window`` for
+        diagnostics/plotting.
     """
     twotheta = np.asarray(twotheta, dtype=float)
     profile = np.asarray(profile, dtype=float)
@@ -215,7 +216,9 @@ def background_samples(
     zero_threshold = int(n * zero_removal_fraction)
     valid[:zero_threshold] &= profile[:zero_threshold] != 0
 
-    # Iteratively reject points around detected peaks.
+    # Iteratively reject points around detected peaks, recording the peaks found
+    # (so the UI can show which zones were excluded).
+    detected_peaks = []
     for _ in range(max_iter):
         valid_smoothed = smoothed[valid]
         if valid_smoothed.size == 0:
@@ -226,6 +229,7 @@ def background_samples(
         if peaks.size == 0:
             break
         peak_indices = np.where(valid)[0][peaks]
+        detected_peaks.extend(int(i) for i in peak_indices)
         for peak_idx in peak_indices:
             start = max(peak_idx - exclusion_window, 0)
             end = min(peak_idx + exclusion_window + 1, n)
@@ -258,12 +262,17 @@ def background_samples(
         pseudo_intensity = np.interp(pseudo_twotheta, real_twotheta, real_intensity)
 
     if return_detail:
+        peak_idx = (np.unique(np.asarray(detected_peaks, dtype=int))
+                    if detected_peaks else np.array([], dtype=int))
         return {
             "real_tth": real_twotheta,
             "real_I": real_intensity,
             "pseudo_tth": pseudo_twotheta,
             "pseudo_I": pseudo_intensity,
             "valid_mask": valid,
+            "peak_tth": twotheta[peak_idx],
+            "peak_I": profile[peak_idx],
+            "exclusion_window": int(exclusion_window),
         }
 
     sample_twotheta = np.concatenate([real_twotheta, pseudo_twotheta])
@@ -275,22 +284,28 @@ def background_samples(
 def compute_cake_background(
     cake: CakeData,
     *,
+    n_bins: int = None,
     poly_degree: int = 20,
     negative_clip: float = -10.0,
     **sample_kwargs,
 ) -> CakeBackground:
-    """Fit and subtract a per-azimuth polynomial background over the whole cake.
+    """Fit and subtract a per-azimuth-bin polynomial background over the cake.
 
-    For each azimuth row the background-sample points are selected with
-    :func:`background_samples` and a Chebyshev polynomial is fitted and evaluated
-    over the full 2th axis. Rows are stacked into a 2D background image which is
-    subtracted from the intensity grid.
+    The azimuth rows are grouped into ``n_bins`` equal bins. For each bin the raw
+    rows are averaged into a single binned profile, the background-sample points are
+    selected with :func:`background_samples`, and a Chebyshev polynomial is fitted.
+    That single bin background is then applied to *every* (finer-resolution) row in
+    the bin, and subtracted. This means the user's azimuth binning directly controls
+    how the background is estimated.
 
     Parameters
     ----------
     cake : CakeData
+    n_bins : int, optional
+        Number of azimuth bins. If None or >= the number of rows, each row is its
+        own bin (finest resolution).
     poly_degree : int
-        Chebyshev polynomial degree (clamped to ``n_samples - 1`` per row).
+        Chebyshev polynomial degree (clamped to ``n_samples - 1`` per bin).
     negative_clip : float
         After subtraction, values below this are set to 0 (removes large negative
         excursions from data gaps).
@@ -304,21 +319,32 @@ def compute_cake_background(
     """
     intensity = np.asarray(cake.intensity, dtype=float)
     twotheta = np.asarray(cake.twotheta, dtype=float)
-    background = np.zeros_like(intensity)
+    n_rows = intensity.shape[0]
 
-    for row_idx in range(intensity.shape[0]):
-        profile = intensity[row_idx]
+    if n_bins is None or int(n_bins) >= n_rows:
+        bin_index = np.arange(n_rows)
+        n_eff = n_rows
+    else:
+        _edges, bin_index, _bw = assign_azimuth_bins(cake.azimuth, int(n_bins))
+        n_eff = int(n_bins)
+
+    background = np.zeros_like(intensity)
+    for b in range(n_eff):
+        rows = np.where(bin_index == b)[0]
+        if rows.size == 0:
+            continue
+        # Average the rows in the bin, fit once, apply to all rows in the bin.
+        profile = intensity[rows].mean(axis=0)
         sample_tth, sample_I = background_samples(twotheta, profile, **sample_kwargs)
         if sample_tth.size < 2:
-            continue  # leave background row at zero
+            continue  # leave background for these rows at zero
         degree = int(min(poly_degree, sample_tth.size - 1))
         try:
-            fit = Chebyshev.fit(sample_tth, sample_I, deg=degree)
-            row_background = fit(twotheta)
+            bin_background = Chebyshev.fit(sample_tth, sample_I, deg=degree)(twotheta)
         except Exception:
-            row_background = np.zeros_like(twotheta)
-        background[row_idx] = np.nan_to_num(
-            row_background, nan=0.0, posinf=0.0, neginf=0.0
+            bin_background = np.zeros_like(twotheta)
+        background[rows] = np.nan_to_num(
+            bin_background, nan=0.0, posinf=0.0, neginf=0.0
         )
 
     subtracted = intensity - background
@@ -455,6 +481,14 @@ def plot_azimuth_lineout(
         x=detail["real_tth"], y=detail["real_I"], name="Background samples",
         mode="markers", marker=dict(color="royalblue", size=3, symbol="x"),
         visible="legendonly"))
+    if detail.get("peak_tth") is not None and detail["peak_tth"].size:
+        # Detected peaks whose exclusion windows were removed from the fit; shown so
+        # the user can tune the peak-search parameters.
+        fig.add_trace(go.Scatter(
+            x=detail["peak_tth"], y=detail["peak_I"], name="Detected peaks",
+            mode="markers",
+            marker=dict(color="crimson", size=9, symbol="triangle-down",
+                        line=dict(width=1, color="darkred"))))
 
     fig.update_layout(
         title=title,

@@ -1653,6 +1653,20 @@ if st.session_state.get("imported_cake") is not None:
     st.subheader("Background Subtraction")
     _cake = st.session_state.imported_cake
 
+    # Azimuth binning drives the background: rows are averaged per bin, the fit is
+    # done on the binned profile, then applied to all rows in the bin. Kept outside
+    # the form so the effective bin width updates live.
+    _n_az = int(_cake.azimuth.size)
+    n_az_bins = st.number_input(
+        "Number of azimuth bins", min_value=1, max_value=_n_az,
+        value=min(72, _n_az), step=1,
+        help="Rows are grouped into this many equal azimuth bins. The background is "
+             "fit on each binned profile and applied to every row in the bin.")
+    _bin_width = cp.assign_azimuth_bins(_cake.azimuth, int(n_az_bins))[2]
+    st.caption(
+        f"Effective azimuth binning: {_bin_width:.2f}° per bin "
+        f"({int(n_az_bins)} bins over {_bin_width * int(n_az_bins):.1f}°)")
+
     with st.form("cake_background_form"):
         bg_cols = st.columns(4)
         with bg_cols[0]:
@@ -1661,7 +1675,7 @@ if st.session_state.get("imported_cake") is not None:
                 help="Gaussian smoothing sigma used for peak detection.")
             bg_poly_degree = st.number_input(
                 "Polynomial degree", value=20, min_value=1, step=1,
-                help="Chebyshev degree per azimuth row.")
+                help="Chebyshev degree per azimuth bin.")
         with bg_cols[1]:
             bg_prominence_factor = st.number_input(
                 "Prominence factor", value=0.1, min_value=0.0, step=0.01, format="%.3f",
@@ -1697,29 +1711,24 @@ if st.session_state.get("imported_cake") is not None:
             gap_fill=bool(bg_gap_fill),
             gap_min_width=int(bg_gap_min_width),
         )
-        with st.spinner("Fitting per-azimuth background..."):
+        with st.spinner("Fitting per-bin background..."):
             st.session_state.cake_background = cp.compute_cake_background(
                 _cake,
+                n_bins=int(n_az_bins),
                 poly_degree=int(bg_poly_degree),
                 negative_clip=float(bg_negative_clip),
                 **_bg_sample_kwargs,
             )
         st.session_state.cake_background_params = _bg_sample_kwargs
+        st.session_state.cake_background_nbins = int(n_az_bins)
 
     _bg = st.session_state.get("cake_background")
     # Guard against a stale result from a previously-loaded cake of a different size.
     if _bg is not None and _bg.background.shape == _cake.intensity.shape:
-        # Azimuth binning control: rows are grouped into equal-width bins.
-        _n_az = int(_cake.azimuth.size)
-        n_az_bins = st.number_input(
-            "Number of azimuth bins", min_value=1, max_value=_n_az,
-            value=min(72, _n_az), step=1,
-            help="Azimuth rows are grouped into this many equal bins for the "
-                 "lineout (and later extraction).")
-        _edges, _bin_index, _bin_width = cp.assign_azimuth_bins(_cake.azimuth, int(n_az_bins))
-        st.caption(
-            f"Effective azimuth binning: {_bin_width:.2f}° per bin "
-            f"({int(n_az_bins)} bins over {_bin_width * int(n_az_bins):.1f}°)")
+        # Bin assignment for the lineout uses the n_bins the background was computed
+        # with (so the displayed bin matches the fit even if the input changed since).
+        _nbins_used = int(st.session_state.get("cake_background_nbins", n_az_bins))
+        _edges, _bin_index, _bin_width = cp.assign_azimuth_bins(_cake.azimuth, _nbins_used)
 
         bg_result_cols = st.columns(2)
         with bg_result_cols[0]:
