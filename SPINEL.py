@@ -635,7 +635,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         I_grid, phi_grid_PO, delta_grid_PO = PO_MODEL.intensity_for_hkl(hkl, phi_PO, delta_PO)
         interp = RegularGridInterpolator(
             (phi_grid_PO[:, 0], delta_grid_PO[0, :]), I_grid,
-            method='linear', bounds_error=False, fill_value=None)
+            method='cubic', bounds_error=False, fill_value=None)
         phi_deg_flat   = np.degrees(phi_grid).ravel(order='F')
         delta_deg_flat = delta_grid.ravel(order='F') # already degrees
         I_list = interp(np.stack([phi_deg_flat, delta_deg_flat], axis=-1))
