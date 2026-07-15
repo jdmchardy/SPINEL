@@ -304,7 +304,7 @@ def get_elastic(symmetry, hkl, lattice_params, cij_params):
 
     return H, K, L, elastic
     
-def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_params, sigma_params, chi, phi_values, psi_values):
+def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_params, sigma_params, chi, phi_values, psi_values, alpha_values=None):
     """
     Evaluates strain_33 component for given hkl reflection.
     
@@ -436,23 +436,16 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         phi_values = np.asarray(phi_values)
     
     else:
-        #We used to check if the stress matrix was radially symmetric (in which case alpha has no effect for the strains computed)
-        #However, alpha does have an effect for the preferred orientation model so we include it by default
-        #to reduce branching complexity in the logic. This means a resampling of the points over psi, phi, and alpha as below
-
-        # psi  = OUTPUT axis   -> keep at the requested resolution (plot density).
-        # phi, alpha = INTEGRATION axes -> averaged away per psi; size for
-        # convergence, independent of psi. Periodic axes use endpoint=False so
-        # 0deg==360deg / -180deg==180deg are not double-counted in the average.
-
-        N_ALPHA_INT = 18      # rotation about z_S  (raise for accuracy, lower for speed)
-
-        n_psi_out = max(int(len(psi_values)), 2)          # unreduced plot resolution
-        n_phi_int = max(int(len(phi_values)/2), 24)         # ring azimuth (integration)
-
-        psi_values   = np.radians(np.linspace(0, 90, n_psi_out))
-        phi_values   = np.radians(np.linspace(0, 360, n_phi_int, endpoint=False))
-        alpha_values = np.radians(np.linspace(-180, 180, N_ALPHA_INT, endpoint=False))
+        # Funamori-style: caller supplies psi (output/plot axis) and phi, alpha
+        # (integration axes) directly, in radians. Use them as-is -- no re-derivation.
+        # phi and alpha are periodic and built endpoint=False by the caller so the
+        # 0deg==360deg / -180deg==180deg wrap point is not double-counted in the average.
+        psi_values = np.asarray(psi_values)
+        phi_values = np.asarray(phi_values)
+        if alpha_values is None:                       # fallback if a caller omits alpha sampling
+            alpha_values = np.radians(np.linspace(-180, 180, 18, endpoint=False))
+        else:
+            alpha_values = np.asarray(alpha_values)
         deltas = np.array([0])
             
     #modified GRID construction to preserve psi-delta relationship
@@ -1276,11 +1269,12 @@ def compute_bin_indices(x_exp_common, hkl_peak_centers, window_width=0.2):
 
 ### Figure Generation --------------------------------------------------
 
-def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
+def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps, alpha_steps):
 
     results_dict = {}
-    phi_values = np.linspace(0, 2 * np.pi, phi_steps)
-    psi_values = np.linspace(0, np.pi / 2, psi_steps)
+    psi_values   = np.linspace(0, np.pi / 2, int(psi_steps))                         # output/plot axis (endpoints kept)
+    phi_values   = np.linspace(0, 2 * np.pi, int(phi_steps),   endpoint=False)       # periodic integration axis
+    alpha_values = np.linspace(-np.pi, np.pi, int(alpha_steps), endpoint=False)      # periodic integration axis
 
     fig = make_subplots(
         rows=len(selected_hkls),
@@ -1293,7 +1287,7 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
     for i, (hkl, intensity) in enumerate(zip(selected_hkls, intensities), start=1):
         hkl_label, df, psi_list, strain_33_list = compute_strain(hkl, intensity, symmetry, lattice_params,
                                                                  wavelength, cijs, sigma_params,
-                                                                 chi, phi_values, psi_values
+                                                                 chi, phi_values, psi_values, alpha_values
         )
 
         results_dict[hkl_label] = df
@@ -1926,7 +1920,13 @@ if uploaded_file is not None:
             st.session_state.params["sigma_23"] = st.number_input("σ₂₃", value=st.session_state.params["sigma_23"], step=0.1, format="%.3f")
         with col8:
             Funamori_broadening = st.checkbox("Include broadening", value=True)
-            total_points = st.number_input("Total points (φ × ψ)", value=5000, min_value=10, step=5000)
+            # Independent ε–ψ sampling. psi = output (plot) axis; phi, alpha = integration axes.
+            psi_steps   = st.number_input("ψ steps (output/plot)",  value=45, min_value=2, step=1)
+            phi_steps   = st.number_input("φ steps (integration)",  value=36, min_value=1, step=1)
+            alpha_steps = st.number_input("α steps (integration)",  value=18, min_value=1, step=1)
+            st.caption("Total points: {:,}  ({}ψ × {}φ × {}α)".format(
+                int(psi_steps) * int(phi_steps) * int(alpha_steps),
+                int(psi_steps), int(phi_steps), int(alpha_steps)))
             Gaussian_FWHM = st.number_input("Gaussian FWHM", value=0.1, min_value=0.005, step=0.005, format="%.3f")
         with col9:
             st.session_state.params["PO_toggle"] = st.checkbox("Preferred Orientation", value=False)
@@ -1966,9 +1966,7 @@ if uploaded_file is not None:
         for key in sigma_keys:
             sigma_params[key] = st.session_state.params.get(key)
         
-        # Determine grid sizes
-        psi_steps = int(2 * np.sqrt(total_points))
-        phi_steps = int(np.sqrt(total_points) / 2)
+        # psi_steps / phi_steps / alpha_steps come directly from the sidebar widgets
         results_dict = {}  # Store results per HKL reflection
             
         col1, col2 = st.columns(2)
@@ -1979,7 +1977,7 @@ if uploaded_file is not None:
             #--------------------- 
             epsilon_psi_dict = None
             if st.button("ε-ψ Curves") and selected_hkls:
-                epsilon_psi_dict = generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps)
+                epsilon_psi_dict = generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps, alpha_steps)
 
             #Format the data and save to session_state
             if epsilon_psi_dict is not None:
