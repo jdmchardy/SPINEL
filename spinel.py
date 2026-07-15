@@ -1731,6 +1731,13 @@ if st.session_state.get("imported_cake") is not None:
                 help="Minimum width (in 2θ points) of a contiguous run of zeros to be "
                      "treated as a gap and bridged with pseudo points. Smaller catches "
                      "more/narrower gaps.")
+            bg_gap_pad = st.number_input(
+                "Gap edge pad (points)", value=10, min_value=0, step=1,
+                help="Extra points added on each side of a gap before interpolating the "
+                     "pseudo points. Pushes the interpolation anchors past the intensity "
+                     "taper at the gap edges so the pseudo points sit at the true "
+                     "baseline, not the (weaker) tapered values. Increase if pseudo "
+                     "points look too low around gaps.")
         bg_submitted = st.form_submit_button("Compute background")
 
     if bg_submitted:
@@ -1744,6 +1751,7 @@ if st.session_state.get("imported_cake") is not None:
             zero_removal_fraction=float(bg_zero_removal_fraction),
             gap_fill=bool(bg_gap_fill),
             gap_min_width=int(bg_gap_min_width),
+            gap_pad=int(bg_gap_pad),
         )
         with st.spinner("Fitting per-bin background..."):
             st.session_state.cake_background = cp.compute_cake_background(

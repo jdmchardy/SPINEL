@@ -165,6 +165,25 @@ def _find_gap_runs(profile, gap_fill, gap_min_width):
     return gap_runs
 
 
+def _pad_and_merge_runs(runs, pad, n):
+    """Widen each (start, end) run by ``pad`` points on each side and merge overlaps.
+
+    Padding pushes the interpolation anchors out past the intensity taper that
+    surrounds a zero gap, so the pseudo points reflect the true baseline rather than
+    the (weaker) tapered edge values.
+    """
+    if not runs:
+        return []
+    padded = sorted((max(int(s) - pad, 0), min(int(e) + pad, n)) for s, e in runs)
+    merged = [list(padded[0])]
+    for s, e in padded[1:]:
+        if s <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    return [(s, e) for s, e in merged]
+
+
 def _select_background_samples(twotheta, profile, base_valid, peak_indices,
                                exclusion_window, gap_runs):
     """Build background-sample points given the peaks to exclude.
@@ -220,6 +239,7 @@ def fit_bin_background(
     zero_removal_fraction: float = 0.8,
     gap_fill: bool = True,
     gap_min_width: int = 5,
+    gap_pad: int = 10,
     return_detail: bool = False,
 ):
     """Fit the polynomial background of one (binned) azimuth profile.
@@ -255,6 +275,9 @@ def fit_bin_background(
     zero_threshold = int(n * zero_removal_fraction)
     base_valid[:zero_threshold] &= profile[:zero_threshold] != 0
     gap_runs = _find_gap_runs(profile, gap_fill, gap_min_width)
+    # Pad each gap so the interpolation anchors sit beyond the intensity taper at the
+    # gap edges (otherwise the pseudo points are anchored to near-zero tapered values).
+    gap_runs = _pad_and_merge_runs(gap_runs, gap_pad, n)
     for s, e in gap_runs:
         base_valid[s:e] = False
 
@@ -292,10 +315,15 @@ def fit_bin_background(
         median = float(np.median(valid_residual))
         mad = float(np.median(np.abs(valid_residual - median)))
         sigma = 1.4826 * mad if mad > 0 else float(valid_residual.std())
-        if sigma <= 0:
+        residual_max = float(np.max(valid_residual))
+        if sigma <= 0 or residual_max <= 0:
             break
-        threshold = median + 5.0 * sigma
-        peaks, _ = find_peaks(residual_search, height=threshold, prominence=5.0 * sigma)
+        # A missed peak must clear BOTH a noise floor (>= 5 robust sigma, prevents
+        # noise runaway) AND `prominence_factor` of the largest remaining residual
+        # feature (so raising prominence_factor above 1 disables detection, matching
+        # the primary pass).
+        prominence_threshold = max(prominence_factor * residual_max, 5.0 * sigma)
+        peaks, _ = find_peaks(residual_search, prominence=prominence_threshold)
         new = [int(p) for p in peaks if valid[p] and int(p) not in detected]
         if not new:
             break
