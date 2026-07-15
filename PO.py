@@ -278,16 +278,6 @@ class PO_Model:
         vector = vector/np.linalg.norm(vector) #normlise vector
         return np.linalg.inv(X) @ vector
 
-    def transform_stress_2_xray_vectorised(self, X, vector_matrix):
-        """Transform a matrix of vectors (N,M,3) specified in stress coordinates to x-ray coordinates"""
-        vector_matrix = vector_matrix/ np.linalg.norm(vector_matrix, axis=-1, keepdims=True) #Ensure vectors are normalised
-        X_inv = np.linalg.inv(X) 
-        #Explaination 
-        #B[..., None] makes shape (N,M,3,1) from (N,M,3)
-        #Then do matrix multiplication since A_inv is shape (N,M,3,3) and drop last dimention of result
-        result = (X_inv @ vector_matrix[..., None])[..., 0]
-        return result
-
     def make_polar_vector(self, tilt, rot):
         """
         tilt = tilt from the frame z-axis (radians)
