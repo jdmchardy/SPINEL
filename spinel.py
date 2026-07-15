@@ -23,6 +23,7 @@ from pathlib import Path
 
 #Import personal modules
 import PO #Preferred Orientation Model
+import cake_processing as cp #Dioptas cake (.txt) import/processing
 
 #3d plotting
 from mpl_toolkits.mplot3d import Axes3D
@@ -1607,6 +1608,41 @@ col_img, col_title = st.columns([1, 3])
 
 with col_img:
     st.image(img, width='stretch')
+
+# --- Cake Import (independent of the elastic/hkl CSV workflow) ---
+# Loads a Dioptas 2D-integration .txt "cake" export and plots it as an
+# interactive heatmap. Available without uploading any other files; later
+# processing phases reuse st.session_state.imported_cake.
+st.subheader("Cake Import (Dioptas .txt)")
+cake_col1, cake_col2 = st.columns([1, 3])
+with cake_col1:
+    cake_file = st.file_uploader("Dioptas cake .txt", type=["txt"], key="cake_txt")
+    cake_intensity_scale = st.slider(
+        "Display intensity scale",
+        min_value=0.001, max_value=1.0, value=0.01, step=0.001, format="%.3f",
+        help="Upper display clip as a fraction of the maximum intensity. "
+             "Lower values brighten faint rings.",
+    )
+
+if cake_file is not None:
+    try:
+        cake = cp.load_cake_data(cake_file, filename=cake_file.name)
+    except ValueError as e:
+        st.error(f"Failed to load cake file: {e}")
+    else:
+        st.session_state.imported_cake = cake
+        with cake_col2:
+            st.plotly_chart(
+                cp.plot_cake_heatmap(cake, intensity_scale=cake_intensity_scale),
+                width='stretch',
+            )
+            st.caption(
+                "Grid {}×{} (azimuth×2θ) · 2θ {:.2f}–{:.2f}° · azimuth {:.1f}–{:.1f}°".format(
+                    cake.intensity.shape[0], cake.intensity.shape[1],
+                    float(cake.twotheta.min()), float(cake.twotheta.max()),
+                    float(cake.azimuth.min()), float(cake.azimuth.max()),
+                )
+            )
 
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 

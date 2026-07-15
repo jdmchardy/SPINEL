@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s https://gitlab.com/api/v4/projects/jdmchardy%2Fcheesecake/repository/files/Cheesecake%2Fdata_process.py/raw?ref=main)"
+    ]
+  }
+}

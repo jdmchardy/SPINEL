@@ -25,6 +25,7 @@ dependencies = [
 packages = [
     { include = "spinel.py", format = ["sdist", "wheel"] },
     { include = "PO.py", format = ["sdist", "wheel"] },
+    { include = "cake_processing.py", format = ["sdist", "wheel"] },
 ]
 
 [build-system]
