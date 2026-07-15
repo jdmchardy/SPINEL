@@ -1921,8 +1921,8 @@ if uploaded_file is not None:
         with col8:
             Funamori_broadening = st.checkbox("Include broadening", value=True)
             # Independent ε–ψ sampling. psi = output (plot) axis; phi, alpha = integration axes.
-            psi_steps   = st.number_input("ψ steps (output/plot)",  value=45, min_value=2, step=1)
-            phi_steps   = st.number_input("φ steps (integration)",  value=36, min_value=1, step=1)
+            psi_steps = st.number_input("ψ steps (output/plot)",  value=60, min_value=2, step=1)
+            phi_steps = st.number_input("φ steps (integration)",  value=18, min_value=1, step=1)
             alpha_steps = st.number_input("α steps (integration)",  value=18, min_value=1, step=1)
             st.caption("Total points: {:,}  ({}ψ × {}φ × {}α)".format(
                 int(psi_steps) * int(phi_steps) * int(alpha_steps),
@@ -1934,7 +1934,7 @@ if uploaded_file is not None:
                 po_model = st.selectbox("PO Model:",["March-Dollase"])
                 #po_model = st.text_input("PO Model", value="March-Dollase")
                 if po_model == "March-Dollase":
-                    POD_hkl_input = st.text_input("POD hkl", value="001")
+                    POD_hkl_input = st.text_input("POD hkl", value="110")
                     #Convert hkl_POD to tuple
                     if len(POD_hkl_input) != 3 or not POD_hkl_input.isdigit():
                         st.write("hkl of POD must be three digets.")
@@ -1942,7 +1942,7 @@ if uploaded_file is not None:
                     else:
                         st.session_state.params["hkl_POD"] = tuple(map(int, POD_hkl_input))
                     st.session_state.params["baseline"] = st.number_input("Baseline (between 0 and 1)", value=0.0, step=0.1, format="%.2f")
-                    st.session_state.params["R"] = st.number_input("R", value=0.5, step=0.1, format="%.3f")
+                    st.session_state.params["R"] = st.number_input("R", value=0.2, step=0.1, format="%.3f")
                     st.session_state.params["tau"] = st.number_input("tau (deg)", value=0.0, step=5.0, format="%.1f")
                     st.session_state.params["omega"] = st.number_input("omega (deg)", value=0.0, step=5.0, format="%.1f")
                     st.session_state.params["weight"] = st.number_input("weight", value=1.0, step=0.1, format="%.1f")
