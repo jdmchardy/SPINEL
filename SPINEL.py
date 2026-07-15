@@ -448,7 +448,7 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         N_ALPHA_INT = 18      # rotation about z_S  (raise for accuracy, lower for speed)
 
         n_psi_out = max(int(len(psi_values)), 2)          # unreduced plot resolution
-        n_phi_int = max(int(len(phi_values)), 24)         # ring azimuth (integration)
+        n_phi_int = max(int(len(phi_values)/2), 24)         # ring azimuth (integration)
 
         psi_values   = np.radians(np.linspace(0, 90, n_psi_out))
         phi_values   = np.radians(np.linspace(0, 360, n_phi_int, endpoint=False))
