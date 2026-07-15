@@ -630,8 +630,8 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
         I_list = np.concatenate(I_chunks)  # aligns with strain_33_list shape
     else:
         # Downsized coarse evaluation of PO model on (phi, delta) grid then interpolate
-        phi_PO   = np.linspace(0, 360, 32)
-        delta_PO = np.linspace(-180, 180, 32)
+        phi_PO   = np.linspace(0, 360, 72)
+        delta_PO = np.linspace(-180, 180, 72)
         I_grid, phi_grid_PO, delta_grid_PO = PO_MODEL.intensity_for_hkl(hkl, phi_PO, delta_PO)
         interp = RegularGridInterpolator(
             (phi_grid_PO[:, 0], delta_grid_PO[0, :]), I_grid,
