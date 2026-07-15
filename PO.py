@@ -366,7 +366,7 @@ class PO_Model:
         cos_phi, sin_phi = np.cos(phi_grid), np.sin(phi_grid)
         cos_psi, sin_psi = np.cos(psi_grid), np.sin(psi_grid)
         A = np.empty(phi_grid.shape + (3, 3))
-        A[..., 0, 0] = cos_phi;  A[..., 0, 1] = -sin_phi * cos_psi;  A[..., 0, 2] = sin_phi * spsi
+        A[..., 0, 0] = cos_phi;  A[..., 0, 1] = -sin_phi * cos_psi;  A[..., 0, 2] = sin_phi * sin_psi
         A[..., 1, 0] = sin_phi;  A[..., 1, 1] =  cos_phi * cos_psi;  A[..., 1, 2] = -cos_phi * sin_psi
         A[..., 2, 0] = 0.0;  A[..., 2, 1] =  sin_psi;  A[..., 2, 2] = cos_psi
 
@@ -424,7 +424,7 @@ class PO_Model:
         _, psi_grid   = np.meshgrid(phi, psi, indexing="ij")   # psi rides the delta axis
         alpha_grid = compute_alpha(theta0, self.chi, delta_grid)
 
-        I = self._po_intensity_engine(hkl, phi_grid, psi_grid, alpha_grid)
+        I = self.po_intensity_engine(hkl, phi_grid, psi_grid, alpha_grid)
         return I, np.degrees(phi_grid), np.degrees(delta_grid)
 
     def intensity_from_orientation(self, hkl, phi_grid, psi_grid, alpha_grid):
