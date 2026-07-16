@@ -43,7 +43,8 @@ azimuth binning you choose *drives* the fit:
    subtract it.
 
 Fewer bins → a cleaner profile to fit but coarser azimuthal detail; more (finer) bins
-usually track azimuthal variation better. The maximum is one bin per data row.
+usually track azimuthal variation better. The default is half the number of azimuth
+rows, and the maximum is one bin per data row.
 
 #### Fitting one binned profile
 
@@ -94,12 +95,24 @@ pseudo points sit at the true baseline instead of the weak tapered values.
 
 - The **Fitted background** and **Background-subtracted** images show the 2D result.
 - Use the **Azimuth for lineout** slider to pick a bin; it is highlighted as a
-  translucent band on both images.
+  translucent band on both images. The slider reads in **degrees** (the azimuthal
+  angle, so a full ring runs roughly −180° → +180°) and moves **one bin per step**, so
+  its step size is the bin width and follows your bin count.
 - The **Lineout inspector** plots that bin's averaged raw profile, fitted background,
   subtracted result, the background sample points, the gap pseudo-points, and the
   **detected peaks** (red ▼) — so you can see exactly which peaks were found and which
   zones were excluded, and tune the parameters accordingly. Toggle any trace via the
   plot legend.
+
+#### Exporting & reusing backgrounds
+
+- **Download** the fitted background or the background-subtracted cake as a
+  Dioptas-format **`.txt`** (re-loadable here) or a 32-bit float **`.tiff`**. Press
+  **Prepare download files** first — the files are built for the *current* result and
+  are invalidated whenever you recompute or reload, so you can never download an
+  outdated cake.
+- **Load a pre-made background** (a `.txt` or `.tiff` matching the cake's size) to
+  subtract it directly instead of fitting a new one.
 """
 
 
