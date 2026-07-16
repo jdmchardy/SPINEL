@@ -1,7 +1,3 @@
-"""SPINEL core functions extracted from spinel.py (Stage 1).
-
-Self-contained science/plot helpers. Kept behaviour-identical; only relocated.
-"""
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
@@ -33,7 +29,6 @@ import cake_processing as cp #Dioptas cake (.txt) import/processing
 from mpl_toolkits.mplot3d import Axes3D
 
 from scipy.interpolate import RegularGridInterpolator
-
 
 #### Functions -----------------------------------------------------
 
@@ -490,9 +485,6 @@ def store_download(key, datasource, buffer, filename, mime):
             "filename": filename,
             "mime": mime,
         }
-
-
-#### Cluster functions (stage 2) ------------------------------------
 
 def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_params, sigma_params, chi, phi_values, psi_values, alpha_values=None, po_model=None):
     """
@@ -1306,9 +1298,6 @@ def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps, alpha_steps
                     config={"scrollZoom": False}  # Disables wheel zoom
     )
     return results_dict
-
-
-#### UI-helper functions (stage 3) ---------------------------------
 
 def setup_refinement_toggles(lattice_params, symmetry=None, **additional_fields):
     """
