@@ -1597,18 +1597,6 @@ def store_download(key, datasource, buffer, filename, mime):
 #### Main App -----------------------------------------------------
 # -----------------------------------------------------------------------
     
-@st.cache_data(show_spinner=False)
-def _cake_txt_bytes(twotheta, azimuth, grid):
-    """Cached Dioptas .txt serialisation so downloads aren't rebuilt every rerun."""
-    return cp.cake_grid_to_txt_bytes(twotheta, azimuth, grid)
-
-
-@st.cache_data(show_spinner=False)
-def _cake_tiff_bytes(grid):
-    """Cached float-TIFF serialisation for cake-grid downloads."""
-    return cp.grid_to_tiff_bytes(grid)
-
-
 st.set_page_config(layout="wide")
 
 BASE_DIR = Path(__file__).parent
@@ -1785,6 +1773,9 @@ if st.session_state.get("imported_cake") is not None:
             )
         st.session_state.cake_background_params = _bg_fit_kwargs
         st.session_state.cake_background_nbins = int(n_az_bins)
+        # Bump the version so any prepared downloads are treated as outdated.
+        st.session_state.cake_background_version = \
+            st.session_state.get("cake_background_version", 0) + 1
 
     # Alternative to fitting: load a pre-made background and subtract it directly.
     with st.expander("Load a pre-made background instead of fitting"):
@@ -1808,6 +1799,8 @@ if st.session_state.get("imported_cake") is not None:
                         _cake, _grid, negative_clip=float(_loaded_neg_clip))
                     st.session_state.cake_background_params = {}
                     st.session_state.cake_background_nbins = int(n_az_bins)
+                    st.session_state.cake_background_version = \
+                        st.session_state.get("cake_background_version", 0) + 1
                     st.success("Loaded background applied.")
 
     _bg = st.session_state.get("cake_background")
@@ -1865,21 +1858,41 @@ if st.session_state.get("imported_cake") is not None:
             width='stretch',
         )
 
-        # Download / export the background and background-subtracted grids.
+        # Download / export. Files are generated for the CURRENT background only and
+        # invalidated whenever it is recomputed/reloaded, so an outdated result can
+        # never be downloaded. Generation is behind a button to avoid rebuilding the
+        # (large) files on every rerun while tuning.
         st.markdown("**Download** — Dioptas-format `.txt` (re-loadable) or 32-bit float `.tiff`")
-        _dl = st.columns(4)
-        _dl[0].download_button(
-            "Background (.txt)", _cake_txt_bytes(_cake.twotheta, _cake.azimuth, _bg.background),
-            file_name="cake_background.txt", mime="text/plain")
-        _dl[1].download_button(
-            "Background (.tiff)", _cake_tiff_bytes(_bg.background),
-            file_name="cake_background.tiff", mime="image/tiff")
-        _dl[2].download_button(
-            "Subtracted (.txt)", _cake_txt_bytes(_cake.twotheta, _cake.azimuth, _bg.subtracted),
-            file_name="cake_subtracted.txt", mime="text/plain")
-        _dl[3].download_button(
-            "Subtracted (.tiff)", _cake_tiff_bytes(_bg.subtracted),
-            file_name="cake_subtracted.tiff", mime="image/tiff")
+        _bg_version = st.session_state.get("cake_background_version", 0)
+        _dl_data = st.session_state.get("cake_download_data")
+        _dl_current = _dl_data is not None and _dl_data.get("version") == _bg_version
+        if not _dl_current:
+            if st.button("Prepare download files"):
+                with st.spinner("Preparing export files..."):
+                    st.session_state.cake_download_data = {
+                        "version": _bg_version,
+                        "bg_txt": cp.cake_grid_to_txt_bytes(
+                            _cake.twotheta, _cake.azimuth, _bg.background),
+                        "bg_tiff": cp.grid_to_tiff_bytes(_bg.background),
+                        "sub_txt": cp.cake_grid_to_txt_bytes(
+                            _cake.twotheta, _cake.azimuth, _bg.subtracted),
+                        "sub_tiff": cp.grid_to_tiff_bytes(_bg.subtracted),
+                    }
+                _dl_data = st.session_state.cake_download_data
+                _dl_current = True
+            else:
+                st.caption("Press **Prepare download files** to generate downloads for "
+                           "the current background subtraction.")
+        if _dl_current:
+            _dl = st.columns(4)
+            _dl[0].download_button("Background (.txt)", _dl_data["bg_txt"],
+                                   file_name="cake_background.txt", mime="text/plain")
+            _dl[1].download_button("Background (.tiff)", _dl_data["bg_tiff"],
+                                   file_name="cake_background.tiff", mime="image/tiff")
+            _dl[2].download_button("Subtracted (.txt)", _dl_data["sub_txt"],
+                                   file_name="cake_subtracted.txt", mime="text/plain")
+            _dl[3].download_button("Subtracted (.tiff)", _dl_data["sub_tiff"],
+                                   file_name="cake_subtracted.tiff", mime="image/tiff")
 
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 
