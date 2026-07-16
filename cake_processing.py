@@ -234,8 +234,8 @@ def fit_bin_background(
     poly_degree: int = 20,
     smoothing_sigma: float = 10.0,
     prominence_factor: float = 0.1,
-    peak_iterations: int = 3,
-    iterations: int = 3,
+    peak_iterations: int = 2,
+    iterations: int = 2,
     exclusion_window: int = 10,
     zero_removal_fraction: float = 0.8,
     gap_fill: bool = True,
@@ -346,7 +346,22 @@ def fit_bin_background(
         # the primary pass).
         prominence_threshold = max(prominence_factor * residual_max, 5.0 * sigma)
         peaks, _ = find_peaks(residual_search, prominence=prominence_threshold)
-        new = [int(p) for p in peaks if valid[p] and int(p) not in detected]
+        # Reject candidates sitting next to an already-excluded peak region: those are
+        # usually artifacts from subtracting a background that doesn't perfectly match
+        # the peak shape, not genuine missed peaks. A candidate is discarded if it lies
+        # within one exclusion window of the edge of an existing excluded peak (i.e.
+        # within 2*exclusion_window of a detected peak centre).
+        detected_arr = np.array(sorted(detected)) if detected else None
+        guard = 2 * exclusion_window
+        new = []
+        for p in peaks:
+            p = int(p)
+            if not valid[p] or p in detected:
+                continue
+            if detected_arr is not None and detected_arr.size and \
+                    np.min(np.abs(detected_arr - p)) < guard:
+                continue
+            new.append(p)
         if not new:
             break
         detected.update(new)

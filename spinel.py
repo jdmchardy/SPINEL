@@ -1695,13 +1695,13 @@ if st.session_state.get("imported_cake") is not None:
                      "flagged and excluded. Lower → more sensitive (excludes weaker "
                      "peaks); set > 1 to select no peaks at all.")
             bg_peak_iterations = st.number_input(
-                "Peak-search iterations", value=3, min_value=0, step=1,
+                "Peak-search iterations", value=2, min_value=0, step=1,
                 help="Stage 1 (before fitting). Passes of peak search on the smoothed "
                      "profile: each pass excludes the peaks found so far, lowering the "
                      "running maximum so progressively weaker peaks get caught, then "
                      "the initial background is fitted. 0 = no pre-fit masking.")
             bg_iterations = st.number_input(
-                "Refinement iterations", value=3, min_value=0, step=1,
+                "Refinement iterations", value=2, min_value=0, step=1,
                 help="Stage 2 (after fitting). Residual-refinement passes: the fitted "
                      "background is subtracted and the residual is searched for peaks "
                      "the pre-fit stage missed (shallow peaks on the background); those "
