@@ -307,7 +307,7 @@ def fit_bin_background(
     twotheta,
     profile,
     *,
-    poly_degree: int = 20,
+    poly_degree: int = 45,
     smoothing_sigma: float = 10.0,
     prominence_factor: float = 0.25,
     peak_iterations: int = 1,

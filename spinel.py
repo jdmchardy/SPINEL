@@ -1685,7 +1685,7 @@ if st.session_state.get("imported_cake") is not None:
                      "features are flagged as peaks; too large can merge or miss "
                      "sharp peaks. Affects peak finding only — not the fitted curve.")
             bg_poly_degree = st.number_input(
-                "Polynomial degree", value=20, min_value=1, step=1,
+                "Polynomial degree", value=45, min_value=1, step=1,
                 help="Order of the Chebyshev polynomial fitted to the background "
                      "points of each binned profile. Higher follows more curvature "
                      "(undulating background) but can start bending into peak tails; "
