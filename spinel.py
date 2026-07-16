@@ -1653,6 +1653,9 @@ if st.session_state.get("imported_cake") is not None:
     st.subheader("Background Subtraction")
     _cake = st.session_state.imported_cake
 
+    with st.expander("ℹ️ How the background subtraction works"):
+        st.markdown(cp.BACKGROUND_HELP_MD)
+
     # Azimuth binning drives the background: rows are averaged per bin, the fit is
     # done on the binned profile, then applied to all rows in the bin. Kept outside
     # the form so the effective bin width updates live.

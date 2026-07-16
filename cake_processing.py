@@ -26,6 +26,80 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 
 
+# User-facing documentation rendered in the app's "How the background subtraction
+# works" panel. Kept here so the behaviour and its description live together.
+BACKGROUND_HELP_MD = """\
+### How the background subtraction works
+
+The experimental cake is background-subtracted **one azimuth bin at a time**, and the
+azimuth binning you choose *drives* the fit:
+
+1. **Bin** the azimuth rows into *N* equal bins — control **Number of azimuth bins**.
+2. **Average** the raw rows in each bin into a single profile.
+3. **Fit** a smooth polynomial background to that binned profile (two-stage peak
+   search, below).
+4. **Apply** that bin's background to *every* (finer-resolution) row in the bin and
+   subtract it.
+
+Fewer bins → a cleaner profile to fit but coarser azimuthal detail; more (finer) bins
+usually track azimuthal variation better. The maximum is one bin per data row.
+
+#### Fitting one binned profile
+
+Background points are chosen by finding and excluding the diffraction peaks, then a
+**Chebyshev polynomial** (**Polynomial degree**) is fit to what remains. Peaks are
+found in **two stages**, both governed by **Prominence factor** — the fraction of the
+current signal maximum a feature must exceed to count as a peak. *Set it above 1 to
+select no peaks at all.*
+
+**Stage 1 — Pre-fit peak search** (**Peak-search iterations**)
+- Runs on the *smoothed* raw profile (**Smoothing σ** sets the smoothing width, used
+  for detection only — it does not smooth the fitted background).
+- Each pass detects peaks and masks ±**Peak exclusion window** points around each.
+- After the first pass the biggest peaks are excluded, so the running maximum drops and
+  each further pass catches progressively *weaker* peaks.
+- Peaks are **masked, not subtracted** — the data is unchanged; only the set of points
+  used for the fit shrinks. An initial background is then fit.
+
+**Stage 2 — Residual refinement** (**Refinement iterations**)
+- The fitted **background is subtracted**, and the *residual* is searched (only within
+  the current background regions) for peaks the pre-fit stage missed — shallow peaks
+  sitting on a sloped background.
+- A missed peak must clear both the prominence threshold **and** a noise floor
+  (5× the robust noise level), so noise is not mistaken for peaks.
+- Candidates sitting right next to an already-excluded peak are **discarded as
+  artifacts** — imperfect background subtraction leaves small lobes at peak edges.
+- Each accepted peak is excluded and the background refit; the loop stops once a pass
+  finds nothing new.
+
+Set either stage to **0** to switch it off.
+
+#### Data gaps (detector gaps / beamstop)
+
+Contiguous runs of zero intensity wider than **Gap min width** are treated as gaps.
+A polynomial can swing wildly across an empty gap, so **pseudo background points** are
+inserted across each gap by linear interpolation from the real background on either
+side (**Gap fill**). Because intensity tapers toward zero at the gap edges, the
+interpolation anchors are taken from **Gap edge pad** points *beyond* the gap, so the
+pseudo points sit at the true baseline instead of the weak tapered values.
+
+- **Zero-removal fraction** — additionally drops zero-intensity points in the leading
+  (low-angle) fraction of the 2θ axis (beamstop region).
+- **Negative clip** — after subtraction, values below this are set to 0, removing large
+  negative dips where the fit overshoots a gap.
+
+#### Inspecting the result
+
+- The **Fitted background** and **Background-subtracted** images show the 2D result.
+- **Drag a box** on the subtracted image to pick an azimuth bin.
+- The **Lineout inspector** plots that bin's averaged raw profile, fitted background,
+  subtracted result, the background sample points, the gap pseudo-points, and the
+  **detected peaks** (red ▼) — so you can see exactly which peaks were found and which
+  zones were excluded, and tune the parameters accordingly. Toggle any trace via the
+  plot legend.
+"""
+
+
 @dataclass
 class CakeData:
     """Container for an imported 2D cake pattern.
