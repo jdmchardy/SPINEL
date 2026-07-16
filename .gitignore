@@ -27,3 +27,6 @@ env/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Claude Code
+.claude/

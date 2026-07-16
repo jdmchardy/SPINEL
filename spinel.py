@@ -1659,12 +1659,14 @@ if st.session_state.get("imported_cake") is not None:
     _n_az = int(_cake.azimuth.size)
     n_az_bins = st.number_input(
         "Number of azimuth bins", min_value=1, max_value=_n_az,
-        value=min(72, _n_az), step=1,
+        value=max(1, _n_az // 2), step=1,
         help="Azimuth rows are grouped into this many equal bins. Within a bin the "
              "rows are averaged, ONE background is fitted to that averaged profile, "
              "and it is subtracted from every (finer-resolution) row in the bin. "
-             "Fewer bins → cleaner profile to fit but coarser azimuthal variation; "
-             "more bins → finer variation but noisier per-bin profiles.")
+             "Cannot exceed the number of azimuth rows in the data ({}); default is "
+             "half of that. Fewer bins → cleaner profile to fit but coarser azimuthal "
+             "variation; more (finer) bins usually track azimuthal variation "
+             "better.".format(_n_az))
     _bin_width = cp.assign_azimuth_bins(_cake.azimuth, int(n_az_bins))[2]
     st.caption(
         f"Effective azimuth binning: {_bin_width:.2f}° per bin "
@@ -1688,18 +1690,23 @@ if st.session_state.get("imported_cake") is not None:
         with bg_cols[1]:
             bg_prominence_factor = st.number_input(
                 "Prominence factor", value=0.1, min_value=0.0, step=0.01, format="%.3f",
-                help="Peak-detection sensitivity. A feature must rise at least this "
-                     "fraction of the current maximum of the smoothed, peak-excluded "
-                     "signal to be flagged and cut out before fitting. Lower → more "
-                     "sensitive (excludes weaker peaks); higher → only strong peaks.")
+                help="Peak-detection sensitivity, used by BOTH stages below. A feature "
+                     "must rise at least this fraction of the current maximum to be "
+                     "flagged and excluded. Lower → more sensitive (excludes weaker "
+                     "peaks); set > 1 to select no peaks at all.")
+            bg_peak_iterations = st.number_input(
+                "Peak-search iterations", value=3, min_value=0, step=1,
+                help="Stage 1 (before fitting). Passes of peak search on the smoothed "
+                     "profile: each pass excludes the peaks found so far, lowering the "
+                     "running maximum so progressively weaker peaks get caught, then "
+                     "the initial background is fitted. 0 = no pre-fit masking.")
             bg_iterations = st.number_input(
                 "Refinement iterations", value=3, min_value=0, step=1,
-                help="Residual-refinement passes. After the primary fit the background "
-                     "is subtracted and the residual is searched for peaks the first "
-                     "pass missed (shallow peaks sitting on the background); those are "
-                     "added to the exclusion set and the background is refitted. More "
-                     "passes recover more missed peaks (stops early once none are "
-                     "found). 0 = primary fit only.")
+                help="Stage 2 (after fitting). Residual-refinement passes: the fitted "
+                     "background is subtracted and the residual is searched for peaks "
+                     "the pre-fit stage missed (shallow peaks on the background); those "
+                     "are excluded and the background is refitted. Stops early once "
+                     "none are found. 0 = no residual refinement.")
         with bg_cols[2]:
             bg_exclusion_window = st.number_input(
                 "Peak exclusion window", value=10, min_value=0, step=1,
@@ -1746,6 +1753,7 @@ if st.session_state.get("imported_cake") is not None:
             poly_degree=int(bg_poly_degree),
             smoothing_sigma=float(bg_smoothing_sigma),
             prominence_factor=float(bg_prominence_factor),
+            peak_iterations=int(bg_peak_iterations),
             iterations=int(bg_iterations),
             exclusion_window=int(bg_exclusion_window),
             zero_removal_fraction=float(bg_zero_removal_fraction),

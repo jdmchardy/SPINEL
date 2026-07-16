@@ -234,6 +234,7 @@ def fit_bin_background(
     poly_degree: int = 20,
     smoothing_sigma: float = 10.0,
     prominence_factor: float = 0.1,
+    peak_iterations: int = 3,
     iterations: int = 3,
     exclusion_window: int = 10,
     zero_removal_fraction: float = 0.8,
@@ -247,13 +248,18 @@ def fit_bin_background(
     Procedure:
       1. Smooth the profile (for peak detection only) and mark leading zeros and
          large detector gaps as non-background.
-      2. **Primary peak pass**: detect prominent peaks on the smoothed profile,
-         exclude a window around each, and fit an initial Chebyshev background.
-      3. **Residual refinement loop** (run ``iterations`` times): subtract the current
-         background and search the residual *within the current background regions*
-         for peaks the primary pass missed (shallow peaks sitting on the background);
-         add them to the exclusion set and refit. Stops early once a pass finds no
-         new peaks.
+      2. **Pre-fit peak-search loop** (run ``peak_iterations`` times): detect peaks on
+         the smoothed profile and exclude a window around each. Each pass excludes the
+         peaks found so far, lowering the running maximum so progressively weaker peaks
+         are caught. Then fit an initial Chebyshev background.
+      3. **Residual refinement loop** (run ``iterations`` times, after the fit):
+         subtract the current background and search the residual *within the current
+         background regions* for peaks the pre-fit passes missed (shallow peaks sitting
+         on the background); add them to the exclusion set and refit. Stops early once
+         a pass finds no new peaks.
+
+    Both loops are gated by ``prominence_factor``, so a large value (> 1) selects no
+    peaks in either stage.
 
     Large gaps are bridged with linearly-interpolated pseudo points so the polynomial
     stays anchored across them. Peaks are always searched on the full 2th array (not a
@@ -292,8 +298,24 @@ def fit_bin_background(
         peaks, _ = find_peaks(signal, prominence=prominence_factor * vmax)
         return [int(p) for p in peaks if valid[p]]
 
-    # Primary peak pass + initial fit.
-    detected = set(detect(smoothed, base_valid))
+    def valid_for(peaks):
+        v = base_valid.copy()
+        for p in peaks:
+            v[max(int(p) - exclusion_window, 0):min(int(p) + exclusion_window + 1, n)] = False
+        return v
+
+    # --- Pre-fit peak-search iterations (on the smoothed profile) ---
+    # Each pass excludes the peaks found so far, which lowers the running maximum so
+    # progressively weaker peaks get caught. Gated by prominence_factor.
+    detected = set()
+    for _ in range(int(peak_iterations)):
+        valid = valid_for(detected)
+        new = [p for p in detect(smoothed, valid) if p not in detected]
+        if not new:
+            break
+        detected.update(new)
+
+    # Initial fit with the pre-detected peaks excluded.
     (valid, real_tth, real_I, pseudo_tth, pseudo_I,
      sample_tth, sample_I) = _select_background_samples(
         twotheta, profile, base_valid, detected, exclusion_window, gap_runs)
