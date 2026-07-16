@@ -1692,7 +1692,7 @@ if st.session_state.get("imported_cake") is not None:
                      "lower is stiffer and smoother.")
         with bg_cols[1]:
             bg_prominence_factor = st.number_input(
-                "Prominence factor", value=0.1, min_value=0.0, step=0.01, format="%.3f",
+                "Prominence factor", value=0.25, min_value=0.0, step=0.01, format="%.3f",
                 help="Peak-detection sensitivity, used by BOTH stages below. A feature "
                      "must rise at least this fraction of the current maximum to be "
                      "flagged and excluded. Lower → more sensitive (excludes weaker "
@@ -1718,12 +1718,6 @@ if st.session_state.get("imported_cake") is not None:
                      "peak before fitting, so peak flanks don't pull the background "
                      "up. Increase if peak wings drag the fit upward; decrease if too "
                      "much genuine background is being discarded.")
-            bg_zero_removal_fraction = st.slider(
-                "Zero-removal fraction", min_value=0.0, max_value=1.0, value=0.8, step=0.05,
-                help="Zero-intensity points within this leading fraction of the 2θ "
-                     "axis are treated as beamstop/gap and dropped from the fit. "
-                     "0.8 = ignore zeros in the first 80% of 2θ (keeps a genuine zero "
-                     "baseline at high angle).")
         with bg_cols[3]:
             bg_negative_clip = st.number_input(
                 "Negative clip", value=-10.0, step=1.0,
@@ -1760,7 +1754,6 @@ if st.session_state.get("imported_cake") is not None:
             peak_iterations=int(bg_peak_iterations),
             iterations=int(bg_iterations),
             exclusion_window=int(bg_exclusion_window),
-            zero_removal_fraction=float(bg_zero_removal_fraction),
             gap_fill=bool(bg_gap_fill),
             gap_min_width=int(bg_gap_min_width),
             gap_pad=int(bg_gap_pad),

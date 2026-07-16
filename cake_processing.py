@@ -87,8 +87,6 @@ side (**Gap fill**). Because intensity tapers toward zero at the gap edges, the
 interpolation anchors are taken from **Gap edge pad** points *beyond* the gap, so the
 pseudo points sit at the true baseline instead of the weak tapered values.
 
-- **Zero-removal fraction** — additionally drops zero-intensity points in the leading
-  (low-angle) fraction of the 2θ axis (beamstop region).
 - **Negative clip** — after subtraction, values below this are set to 0, removing large
   negative dips where the fit overshoots a gap.
 
@@ -311,11 +309,10 @@ def fit_bin_background(
     *,
     poly_degree: int = 20,
     smoothing_sigma: float = 10.0,
-    prominence_factor: float = 0.1,
+    prominence_factor: float = 0.25,
     peak_iterations: int = 1,
     iterations: int = 1,
     exclusion_window: int = 25,
-    zero_removal_fraction: float = 0.8,
     gap_fill: bool = True,
     gap_min_width: int = 5,
     gap_pad: int = 10,
@@ -355,10 +352,8 @@ def fit_bin_background(
     smoothed = (gaussian_filter1d(profile, sigma=smoothing_sigma)
                 if smoothing_sigma > 0 else profile)
 
-    # Base validity: drop leading zeros and large gaps (gaps also get pseudo points).
+    # Base validity: large zero gaps are removed (and later bridged with pseudo points).
     base_valid = np.ones(n, dtype=bool)
-    zero_threshold = int(n * zero_removal_fraction)
-    base_valid[:zero_threshold] &= profile[:zero_threshold] != 0
     gap_runs = _find_gap_runs(profile, gap_fill, gap_min_width)
     # Pad each gap so the interpolation anchors sit beyond the intensity taper at the
     # gap edges (otherwise the pseudo points are anchored to near-zero tapered values).
@@ -495,8 +490,8 @@ def compute_cake_background(
         excursions from data gaps).
     **fit_kwargs
         Forwarded to :func:`fit_bin_background` (poly_degree, smoothing_sigma,
-        prominence_factor, iterations, exclusion_window, zero_removal_fraction,
-        gap_fill, gap_min_width).
+        prominence_factor, peak_iterations, iterations, exclusion_window, gap_fill,
+        gap_min_width, gap_pad).
 
     Returns
     -------
