@@ -24,6 +24,7 @@ import plotly.graph_objects as go
 from PIL import Image
 from numpy.polynomial.chebyshev import Chebyshev
 from scipy.ndimage import gaussian_filter1d
+from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 
 
@@ -767,3 +768,183 @@ def plot_cake_heatmap(cake: CakeData, percentile: float = 99.5) -> go.Figure:
         cake.filename or "Imported cake",
         percentile,
     )
+
+
+# ===================================================================================
+# 2D Refinement Tools — experimental peak extraction from a (background-subtracted) cake
+# ===================================================================================
+
+def _gaussian(x, amp, center, sigma):
+    return amp * np.exp(-0.5 * ((x - center) / sigma) ** 2)
+
+
+def _pseudo_voigt(x, amp, center, sigma, eta):
+    """Pseudo-Voigt: eta-weighted sum of a Gaussian and a Lorentzian of the same width."""
+    z = (x - center) / sigma
+    gauss = np.exp(-0.5 * z * z)
+    lorentz = 1.0 / (1.0 + z * z)
+    return amp * ((1.0 - eta) * gauss + eta * lorentz)
+
+
+def _fit_peak(x, y, peak_idx, peak_shape, fit_window):
+    """Fit a single peak with the chosen shape in a window; return (center, amp, fwhm).
+
+    Falls back to the raw find_peaks position/height if the fit fails or the fitted
+    centre leaves the window.
+    """
+    n = x.size
+    lo = max(0, peak_idx - fit_window)
+    hi = min(n, peak_idx + fit_window + 1)
+    xw, yw = x[lo:hi], y[lo:hi]
+    x0 = float(x[peak_idx])
+    amp0 = float(max(y[peak_idx], 1e-9))
+    sigma0 = max((float(x[hi - 1]) - float(x[lo])) / 6.0, 1e-3)
+    try:
+        if peak_shape == "Gaussian":
+            popt, _ = curve_fit(_gaussian, xw, yw, p0=[amp0, x0, sigma0], maxfev=2000)
+            amp, center, sigma = popt
+        else:
+            popt, _ = curve_fit(
+                _pseudo_voigt, xw, yw, p0=[amp0, x0, sigma0, 0.5],
+                bounds=([0.0, float(x[lo]), 1e-4, 0.0],
+                        [np.inf, float(x[hi - 1]), np.inf, 1.0]), maxfev=3000)
+            amp, center, sigma, _eta = popt
+        if not (x[lo] <= center <= x[hi - 1]):
+            raise ValueError("fitted centre outside window")
+        return float(center), float(amp), float(2.35482 * abs(sigma))
+    except Exception:
+        return x0, amp0, float("nan")
+
+
+def seed_group_centres(cake: CakeData, grid, *, tth_min, tth_max, n_groups,
+                       prominence=0.05):
+    """Seed group (hkl) ring centres from the azimuth max-projection lineout.
+
+    Taking the max over azimuth at each 2th means even azimuthally-narrow (arc/spotty)
+    rings still produce a peak, so every expected reflection can seed a group. Returns
+    ``(seeds, strengths)``: up to ``n_groups`` seed 2th positions (strongest by
+    prominence) and their projection heights, both sorted ascending in 2th.
+    """
+    twotheta = np.asarray(cake.twotheta, dtype=float)
+    grid = np.asarray(grid, dtype=float)
+    mask = (twotheta >= tth_min) & (twotheta <= tth_max)
+    tth_win = twotheta[mask]
+    empty = (np.array([], dtype=float), np.array([], dtype=float))
+    if tth_win.size == 0:
+        return empty
+    proj = np.nanmax(grid[:, mask], axis=0)
+    if proj.size == 0 or np.nanmax(proj) <= 0:
+        return empty
+    peaks, props = find_peaks(proj, prominence=prominence * float(np.nanmax(proj)))
+    if peaks.size == 0:
+        return empty
+    keep = peaks[np.argsort(props["prominences"])[::-1][:int(n_groups)]]
+    order = np.argsort(tth_win[keep])
+    return tth_win[keep][order], proj[keep][order]
+
+
+def default_max_shift(seeds) -> float:
+    """Auto ring-track tolerance: ~0.4 x the minimum seed spacing (fallback 0.2 deg)."""
+    seeds = np.asarray(seeds, dtype=float)
+    if seeds.size < 2:
+        return 0.2
+    return float(0.4 * np.min(np.diff(np.sort(seeds))))
+
+
+def extract_and_group_peaks(
+    cake: CakeData,
+    grid,
+    *,
+    tth_min: float,
+    tth_max: float,
+    n_bins: int,
+    max_peaks: int,
+    peak_shape: str = "PseudoVoigt",
+    seed_prominence: float = 0.03,
+    detect_sigma: float = 5.0,
+    fit_window: int = 15,
+    max_shift=None,
+):
+    """Seed-guided per-ring peak extraction with azimuth tracking.
+
+    1. Seed up to ``max_peaks`` ring centres from the azimuth max-projection (so weak/arc
+       rings are still found regardless of a much stronger neighbour).
+    2. Walk azimuth bins in order, keeping a running centre per ring. In each bin, for each
+       ring, search a +/- ``max_shift`` window around its running centre for the local max;
+       if it clears a noise floor (``detect_sigma`` x the robust sigma of the window) it is
+       fitted (Gaussian/Pseudo-Voigt), assigned to that ring's group, and the running
+       centre updated -- coupling later bins to earlier assignments. Rings with no
+       qualifying peak in a bin keep their centre (gap) and can resume later.
+
+    A noise-floor threshold (not one relative to a ring's own max) means a ring is detected
+    wherever it rises clearly above background noise, so a strong hot-spot on one ring does
+    not suppress detection of that ring elsewhere or of weaker rings. Yields one approximate
+    2th per (bin, ring). Returns ``(peaks_df, seeds)`` with peaks_df columns
+    ``bin, azimuth, 2th, intensity, fwhm, group``.
+    """
+    twotheta = np.asarray(cake.twotheta, dtype=float)
+    grid = np.asarray(grid, dtype=float)
+    seeds, strengths = seed_group_centres(
+        cake, grid, tth_min=tth_min, tth_max=tth_max, n_groups=max_peaks,
+        prominence=seed_prominence)
+    cols = ["bin", "azimuth", "2th", "intensity", "fwhm", "group"]
+    if seeds.size == 0:
+        return pd.DataFrame(columns=cols), seeds
+    if max_shift is None:
+        max_shift = default_max_shift(seeds)
+
+    _edges, bin_index, _bw = assign_azimuth_bins(cake.azimuth, int(n_bins))
+    mask = (twotheta >= tth_min) & (twotheta <= tth_max)
+    tth_win = twotheta[mask]
+    az = np.asarray(cake.azimuth, dtype=float)
+    centres = seeds.astype(float).copy()
+    # Absolute detection floor from the robust noise level of the (background-subtracted)
+    # window: a ring is recorded in a bin only where its peak clears detect_sigma x sigma.
+    win_vals = grid[:, mask]
+    _med = float(np.median(win_vals))
+    _mad = float(np.median(np.abs(win_vals - _med)))
+    _sigma = 1.4826 * _mad if _mad > 0 else float(np.std(win_vals))
+    threshold = _med + detect_sigma * _sigma
+
+    rows = []
+    for b in range(int(n_bins)):
+        bin_rows = np.where(bin_index == b)[0]
+        if bin_rows.size == 0:
+            continue
+        az_center = float(az[bin_rows].mean())
+        lineout = grid[bin_rows][:, mask].mean(axis=0)
+        if lineout.size == 0:
+            continue
+        for g in range(seeds.size):
+            win = np.where(np.abs(tth_win - centres[g]) <= max_shift)[0]
+            if win.size == 0:
+                continue
+            k = int(win[int(np.argmax(lineout[win]))])
+            if lineout[k] <= 0 or lineout[k] < threshold:
+                continue
+            center, amp, fwhm = _fit_peak(tth_win, lineout, k, peak_shape, fit_window)
+            if abs(center - centres[g]) > max_shift:   # fit escaped the window
+                center = float(tth_win[k])
+            rows.append({"bin": int(b), "azimuth": az_center, "2th": center,
+                         "intensity": amp, "fwhm": fwhm, "group": int(g)})
+            centres[g] = center
+    return pd.DataFrame(rows, columns=cols), seeds
+
+
+# Distinct colours for group overlays (repeat if more groups than colours).
+_GROUP_COLORS = ["#e6194B", "#3cb44b", "#4363d8", "#f58231", "#911eb4", "#42d4f4",
+                 "#f032e6", "#bfef45", "#fabed4", "#469990", "#9A6324", "#800000"]
+
+
+def plot_extracted_peaks(cake: CakeData, grid, peaks_df, percentile: float = 99.5) -> go.Figure:
+    """Subtracted-cake heatmap with extracted peaks scattered on top, coloured by group."""
+    fig = _build_heatmap(cake.twotheta, cake.azimuth, grid, "Extracted peaks", percentile)
+    if peaks_df is not None and not peaks_df.empty and "group" in peaks_df.columns:
+        for i, g in enumerate(sorted(peaks_df["group"].unique())):
+            sub = peaks_df[peaks_df["group"] == g]
+            color = "#9e9e9e" if g == -1 else _GROUP_COLORS[i % len(_GROUP_COLORS)]
+            name = "unassigned" if g == -1 else f"group {int(g)}"
+            fig.add_trace(go.Scatter(
+                x=sub["2th"], y=sub["azimuth"], mode="markers", name=name,
+                marker=dict(color=color, size=5, line=dict(width=0.5, color="black"))))
+    return fig
