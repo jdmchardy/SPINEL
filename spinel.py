@@ -33,7 +33,8 @@ from spinel_core import (Gaussian, stress_tensor_to_voigt, voigt_to_strain_tenso
                          get_d0, get_elastic, cake_dict_to_2Dcake, compute_bin_indices,
                          generate_1D_XRD_plot, generate_1D_XRD_overlay, store_download,
                          compute_strain, Generate_XRD, batch_XRD, cake_data,
-                         run_refinement, cost_function, generate_epsilon_psi_curves)
+                         run_refinement, cost_function, generate_epsilon_psi_curves,
+                         setup_refinement_toggles, generate_cake_figures)
 
 st.markdown("""
 <style>
@@ -91,99 +92,6 @@ div[data-testid="stVerticalBlock"] {
 
 
 
-def setup_refinement_toggles(lattice_params, **additional_fields):
-    """
-    Returns editable parameter fields and refinement toggles dynamically.
-    
-    Returns:
-        params (dict): Updated parameter values.
-        refine_flags (dict): Booleans for whether each parameter is set to refine.
-    """
-    combined_params = {}
-
-    # Start with lattice parameters
-    combined_params.update(lattice_params)
-
-    # Merge any additional dictionaries passed as keyword arguments
-    for name, subdict in additional_fields.items():
-        if not isinstance(subdict, dict):
-            raise TypeError(f"Expected dict for '{name}', got {type(subdict).__name__}")
-        combined_params.update(subdict)
-        
-    #Build appropriate parameter dictionary
-    p_dict = {}
-    p_dict["a_val"] = combined_params["a_val"]
-    p_dict["c11"] = combined_params["c11"]
-    p_dict["c12"] = combined_params["c12"]
-    p_dict["c44"] = combined_params["c44"]
-    p_dict["t"] = combined_params["sigma_33"] - combined_params["sigma_11"]
-    #Off diagonal stress terms
-    p_dict["sigma_12"] = combined_params["sigma_12"]
-    p_dict["sigma_13"] = combined_params["sigma_13"]
-    p_dict["sigma_23"] = combined_params["sigma_23"]
-    p_dict["chi"] = combined_params["chi"]
-
-    #Symmetry specific refineable parameters
-    if symmetry == "cubic":
-        pass #Already all included
-    elif symmetry == "hexagonal":
-        p_dict["c_val"] = combined_params["c_val"]
-        p_dict["c33"] = combined_params["c33"]
-        p_dict["c13"] = combined_params["c13"]
-    elif symmetry == "tetragonal_A":
-        p_dict["c_val"] = combined_params["c_val"]
-        p_dict["c33"] = combined_params["c33"]
-        p_dict["c13"] = combined_params["c13"]
-        p_dict["c66"] = combined_params["c66"]
-    elif symmetry == "tetragonal_B":
-        p_dict["c_val"] = combined_params["c_val"]
-        p_dict["c33"] = combined_params["c33"]
-        p_dict["c13"] = combined_params["c13"]
-        p_dict["c16"] = combined_params["c16"]
-        p_dict["c66"] = combined_params["c66"]
-    elif symmetry == "orthorhombic":
-        p_dict["b_val"] = combined_params["b_val"]
-        p_dict["c_val"] = combined_params["c_val"]
-        p_dict["c22"] = combined_params["c22"]
-        p_dict["c33"] = combined_params["c33"]
-        p_dict["c13"] = combined_params["c13"]
-        p_dict["c23"] = combined_params["c23"]
-        p_dict["c55"] = combined_params["c55"]
-        p_dict["c66"] = combined_params["c66"]
-    elif symmetry == "trigonal_A":
-        p_dict["c_val"] = combined_params["c_val"]
-        p_dict["c33"] = combined_params["c33"]
-        p_dict["c13"] = combined_params["c13"]
-        p_dict["c13"] = combined_params["c14"]
-    else:
-        st.error("{} symmetry is not yet supported".format(symmetry))
-        
-    if "refinement_params" not in st.session_state:
-        st.session_state.ref_params = p_dict.copy()
-
-    if "refine_flags" not in st.session_state:
-        # If no refine defaults given, all False
-        st.session_state.refine_flags = {k: False for k in p_dict}
-        st.session_state.refine_flags["peak_intensity"] = False  # default for peak intensities
-
-    st.subheader("Refinement Parameters (Select to refine)")
-
-    for key, default_val in p_dict.items():
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            st.session_state.refine_flags[key] = st.checkbox(
-                f"{key}",
-                value=st.session_state.refine_flags.get(key, False),
-                key=f"chk_{key}"
-            )
-    with col1:
-        # --- Add peak intensity refinement checkbox separately ---
-        st.session_state.refine_flags["peak_intensity"] = st.checkbox(
-        "Refine peak intensities",
-        value=st.session_state.refine_flags.get("peak_intensity", False),
-        key="chk_peak_intensity"
-        )
-    return st.session_state.ref_params, st.session_state.refine_flags
     
 
 
@@ -230,97 +138,6 @@ def setup_refinement_toggles(lattice_params, **additional_fields):
 #    st.pyplot(fig)
 #    return results_dict
 
-def generate_cake_figures(results_dict, selected_hkls, broadening):
-
-    fig, axs = plt.subplots(1, 1, figsize=(8, 5))
-    fig2, axs2 = plt.subplots(len(selected_hkls), 1, figsize=(8, 5 * len(selected_hkls)))
-    
-    # Cake plot
-    if broadening == True:
-        for df in results_dict.values():
-            #Normalise the intensities to get the opacity
-            combined_I = df["intensity"]*df["PO_intensity"]
-            norm = Normalize(vmin=0, vmax=np.max(combined_I))
-            normed_I = norm(combined_I)
-            #Plot all the data
-            axs.scatter(df["2th"], df["delta (degrees)"], 
-                        color="black",
-                        marker = '.', 
-                        s=2, 
-                        alpha = normed_I
-                       )
-    else:
-        if chi == 0: #unique option for axial geometry
-            for df in results_dict.values():
-                #Plot only the mean value for each delta
-                deltas = np.unique(df["delta (degrees)"].values)
-                mean_2ths = np.full(len(np.unique(df["delta (degrees)"].values)),df["Mean two_th @ delta"].iloc[0])
-                #Need to average the intensities across phi for each delta
-                # Average PO_intensity across phi for each delta
-                mean_PO_intensity = (
-                    df.groupby("delta (degrees)")["PO_intensity"]
-                      .mean()
-                      .reindex(deltas)  # ensure same order as deltas
-                      .values
-                )
-                norm = Normalize(vmin=0, vmax=np.max(mean_PO_intensity))
-                normed_I = norm(mean_PO_intensity)
-                axs.scatter(mean_2ths, deltas, 
-                            color="black",
-                            marker = '.', 
-                            s=2,
-                            alpha=normed_I
-                           )
-        else: #Transverse geometry with broadening off
-            for df in results_dict.values():
-                unique = df.drop_duplicates(subset="delta (degrees)") #Pick out the entries for unique delta values
-                mean_2th = unique["Mean two_th @ delta"].values
-                deltas = unique["delta (degrees)"].values
-                # Average PO_intensity across phi for each delta
-                mean_PO_intensity = (
-                    df.groupby("delta (degrees)")["PO_intensity"]
-                      .mean()
-                      .reindex(deltas)  # ensure same order as deltas
-                      .values
-                )
-                norm = Normalize(vmin=0, vmax=np.max(mean_PO_intensity))
-                normed_I = norm(mean_PO_intensity)
-                axs.scatter(mean_2th, deltas, 
-                            color="black",
-                            marker = '.', 
-                            s=2,
-                            alpha=normed_I
-                           )
-    axs.set_xlabel("2th (degrees)")
-    axs.set_ylabel("azimuth (degrees)")
-    axs.set_title("Cake")
-    axs.set_ylim(-180, 180)
-    plt.tight_layout()
-    st.pyplot(fig)
-    
-    if len(selected_hkls) == 1:
-        axs2 = [axs2]
-    for ax, hkl_label in zip(axs2, results_dict.keys()):
-        df = results_dict[hkl_label]
-        delta_list = df["delta (degrees)"]
-        strain_33_list = df["strain_33"]
-        scatter = ax.scatter(delta_list, strain_33_list, color="black", s=0.2, alpha=0.1)
-        ax.hlines(0,-180,180, color="black", lw=0.8)
-
-        #Plot the mean strain curve
-        unique_delta = np.unique(delta_list)
-        mean_strain_list = [df[df["delta (degrees)"]==d]["Mean strain @ delta"].iloc[0] for d in unique_delta]
-        ax.plot(unique_delta, mean_strain_list, color="red", lw=0.8, label="mean strain (δ)")
-        #Add average over all crystallites
-        complete_mean = np.mean(mean_strain_list)
-        ax.hlines(complete_mean,-180,180, color="black", ls="dashed", lw=0.8, label="Average:{}".format(np.round(complete_mean,6)))
-        
-        ax.set_xlabel("azimuth (degrees)")
-        ax.set_ylabel("ε′₃₃")
-        ax.set_title(f"Strain ε′₃₃ for hkl = ({hkl_label})")
-        plt.tight_layout()
-        ax.legend()
-    st.pyplot(fig2)
     
 
 # Old matplotlib implementation
@@ -1082,7 +899,7 @@ if uploaded_file is not None:
             if st.button("Cake Plot") and selected_hkls:
                 cake_dict = cake_data(selected_hkls, intensities, symmetry, lattice_params, 
                                                     wavelength, cijs, sigma_params, chi, po_model=po_model)
-                generate_cake_figures(cake_dict, selected_hkls, Funamori_broadening)
+                generate_cake_figures(cake_dict, selected_hkls, Funamori_broadening, chi=chi)
                 
                 if cake_dict != {}:
                     #Format the data and save to session_state
@@ -1395,7 +1212,7 @@ if uploaded_file is not None:
             #Construct the default parameter dictionary for refinement
             other = {"chi" : chi}
         
-            setup_refinement_toggles(lattice_params, cijs=cijs, stress=sigma_params, other=other)
+            setup_refinement_toggles(lattice_params, symmetry=symmetry, cijs=cijs, stress=sigma_params, other=other)
             
             if st.button("Refine XRD"):
                 phi_values = np.radians(np.arange(0, 360, 10))
