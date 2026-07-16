@@ -21,6 +21,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from PIL import Image
 from numpy.polynomial.chebyshev import Chebyshev
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
@@ -518,6 +519,59 @@ def compute_cake_background(
     subtracted = intensity - background
     subtracted[subtracted < negative_clip] = 0.0
     return CakeBackground(background=background, subtracted=subtracted)
+
+
+def background_from_grid(cake: CakeData, background_grid, *,
+                         negative_clip: float = -10.0) -> CakeBackground:
+    """Build a :class:`CakeBackground` from an externally-supplied background grid.
+
+    Used when the user loads a pre-made background instead of fitting one. The grid
+    must match the cake's intensity shape.
+    """
+    intensity = np.asarray(cake.intensity, dtype=float)
+    background = np.asarray(background_grid, dtype=float)
+    subtracted = intensity - background
+    subtracted[subtracted < negative_clip] = 0.0
+    return CakeBackground(background=background, subtracted=subtracted)
+
+
+def cake_grid_to_txt_bytes(twotheta, azimuth, grid) -> bytes:
+    """Serialise a 2D grid back to the Dioptas cake .txt matrix layout.
+
+    Round-trips with :func:`load_cake_data`: row 0 is ``[corner, 2th...]`` (the corner
+    is a placeholder that load drops); each subsequent row is ``[azimuth, intensity...]``.
+    """
+    twotheta = np.asarray(twotheta, dtype=float)
+    azimuth = np.asarray(azimuth, dtype=float)
+    grid = np.asarray(grid, dtype=float)
+    n_az, n_tth = grid.shape
+    matrix = np.zeros((n_az + 1, n_tth + 1), dtype=float)
+    matrix[0, 1:] = twotheta          # matrix[0, 0] stays 0 (corner placeholder)
+    matrix[1:, 0] = azimuth
+    matrix[1:, 1:] = grid
+    buffer = io.StringIO()
+    np.savetxt(buffer, matrix, fmt="%.6g", delimiter=" ")
+    return buffer.getvalue().encode("utf-8")
+
+
+def grid_to_tiff_bytes(grid) -> bytes:
+    """Serialise a 2D grid to a 32-bit float TIFF (preserves intensity values)."""
+    arr = np.asarray(grid, dtype=np.float32)
+    buffer = io.BytesIO()
+    Image.fromarray(arr, mode="F").save(buffer, format="TIFF")
+    return buffer.getvalue()
+
+
+def load_grid_file(file, filename: str = "") -> np.ndarray:
+    """Load a 2D grid from a cake ``.txt`` (Dioptas layout) or a ``.tiff`` image.
+
+    For ``.txt`` the intensity grid is parsed via :func:`load_cake_data`; for a TIFF the
+    pixel array is read directly (no embedded axes).
+    """
+    name = (filename or getattr(file, "name", "") or "").lower()
+    if name.endswith((".tif", ".tiff")):
+        return np.asarray(Image.open(file), dtype=float)
+    return load_cake_data(file, filename).intensity
 
 
 def assign_azimuth_bins(azimuth, n_bins: int):

@@ -1597,6 +1597,18 @@ def store_download(key, datasource, buffer, filename, mime):
 #### Main App -----------------------------------------------------
 # -----------------------------------------------------------------------
     
+@st.cache_data(show_spinner=False)
+def _cake_txt_bytes(twotheta, azimuth, grid):
+    """Cached Dioptas .txt serialisation so downloads aren't rebuilt every rerun."""
+    return cp.cake_grid_to_txt_bytes(twotheta, azimuth, grid)
+
+
+@st.cache_data(show_spinner=False)
+def _cake_tiff_bytes(grid):
+    """Cached float-TIFF serialisation for cake-grid downloads."""
+    return cp.grid_to_tiff_bytes(grid)
+
+
 st.set_page_config(layout="wide")
 
 BASE_DIR = Path(__file__).parent
@@ -1774,6 +1786,30 @@ if st.session_state.get("imported_cake") is not None:
         st.session_state.cake_background_params = _bg_fit_kwargs
         st.session_state.cake_background_nbins = int(n_az_bins)
 
+    # Alternative to fitting: load a pre-made background and subtract it directly.
+    with st.expander("Load a pre-made background instead of fitting"):
+        _loaded_bg_file = st.file_uploader(
+            "Background file (.txt or .tiff, matching this cake's size)",
+            type=["txt", "tif", "tiff"], key="cake_bg_upload")
+        _loaded_neg_clip = st.number_input(
+            "Negative clip (for loaded background)", value=-10.0, step=1.0,
+            key="cake_loaded_negclip")
+        if _loaded_bg_file is not None and st.button("Load & subtract this background"):
+            try:
+                _grid = cp.load_grid_file(_loaded_bg_file, _loaded_bg_file.name)
+            except Exception as e:
+                st.error(f"Could not read background file: {e}")
+            else:
+                if _grid.shape != _cake.intensity.shape:
+                    st.error(f"Background shape {_grid.shape} does not match the cake "
+                             f"{_cake.intensity.shape}.")
+                else:
+                    st.session_state.cake_background = cp.background_from_grid(
+                        _cake, _grid, negative_clip=float(_loaded_neg_clip))
+                    st.session_state.cake_background_params = {}
+                    st.session_state.cake_background_nbins = int(n_az_bins)
+                    st.success("Loaded background applied.")
+
     _bg = st.session_state.get("cake_background")
     # Guard against a stale result from a previously-loaded cake of a different size.
     if _bg is not None and _bg.background.shape == _cake.intensity.shape:
@@ -1828,6 +1864,22 @@ if st.session_state.get("imported_cake") is not None:
             ),
             width='stretch',
         )
+
+        # Download / export the background and background-subtracted grids.
+        st.markdown("**Download** — Dioptas-format `.txt` (re-loadable) or 32-bit float `.tiff`")
+        _dl = st.columns(4)
+        _dl[0].download_button(
+            "Background (.txt)", _cake_txt_bytes(_cake.twotheta, _cake.azimuth, _bg.background),
+            file_name="cake_background.txt", mime="text/plain")
+        _dl[1].download_button(
+            "Background (.tiff)", _cake_tiff_bytes(_bg.background),
+            file_name="cake_background.tiff", mime="image/tiff")
+        _dl[2].download_button(
+            "Subtracted (.txt)", _cake_txt_bytes(_cake.twotheta, _cake.azimuth, _bg.subtracted),
+            file_name="cake_subtracted.txt", mime="text/plain")
+        _dl[3].download_button(
+            "Subtracted (.tiff)", _cake_tiff_bytes(_bg.subtracted),
+            file_name="cake_subtracted.tiff", mime="image/tiff")
 
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 
