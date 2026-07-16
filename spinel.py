@@ -31,7 +31,9 @@ from mpl_toolkits.mplot3d import Axes3D
 from scipy.interpolate import RegularGridInterpolator
 from spinel_core import (Gaussian, stress_tensor_to_voigt, voigt_to_strain_tensor,
                          get_d0, get_elastic, cake_dict_to_2Dcake, compute_bin_indices,
-                         generate_1D_XRD_plot, generate_1D_XRD_overlay, store_download)
+                         generate_1D_XRD_plot, generate_1D_XRD_overlay, store_download,
+                         compute_strain, Generate_XRD, batch_XRD, cake_data,
+                         run_refinement, cost_function, generate_epsilon_psi_curves)
 
 st.markdown("""
 <style>
@@ -84,587 +86,9 @@ div[data-testid="stVerticalBlock"] {
 
 
     
-def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_params, sigma_params, chi, phi_values, psi_values, alpha_values=None):
-    """
-    Evaluates strain_33 component for given hkl reflection.
-    
-    Parameters
-    ----------
-    hkl : tuple
-        Miller indices (h, k, l)
-    intensity : float
-        ideal peak intensity assuming no preferred orientation
-    symmetry : str
-        Crystal symmetry
-    lattice_params : dict
-        Lattice parameter dictionary
-        "a_val" : float (Ang)
-        "b_val" : float (Ang)
-        "c_val" : float (Ang)
-        "alpha" : float (deg)
-        "beta" : float (deg)
-        "gamma" : float (deg)
-    wavelength : float
-        X-ray wavelength
-    cij_params : dict
-        Elastic constants
-        Can be extended to arbitrary length as required
-        c11 : float (GPa)
-        c12 : float (GPa)
-        c44 : float (GPa) 
-    sigma_params : dict
-        Stress matirx components
-        sigma_11 : float (GPa)
-        sigma_22 : float (GPa)
-        sigma_33 : float (GPa)
-        sigma_12 : float (GPa)
-        sigma_13 : float (GPa)
-        sigma_23 : float (GPa)
-    chi : float
-        The angle (degrees) between incident x-rays and the principle stress axis
-    phi_values : np.array
-        Array of phi values in radians
-    psi_values : np.array or scalar
-        Array of psi values in radians (or 0 to auto-calculate)
 
-    Returns
-    -------
-    hkl_label : str
-        String label of hkl
-    df : pd.DataFrame
-        DataFrame with columns:
-            - strain_33
-            - psi (deg)
-            - phi (deg)
-            - delta (deg) (the detector azimuth angle)
-            - chi (deg) (the X-ray to laboratory strain axis (X3 in Funamori) angle)
-            - d strain
-            - 2theta (deg)
-            - intensity
-    psi_list : list
-    strain_33_list : list
-    """
 
-    #Unpack the lattice parameters
-    a = lattice_params.get("a_val")
-    b = lattice_params.get("b_val")
-    c = lattice_params.get("c_val")
-    alpha = lattice_params.get("alpha")
-    beta = lattice_params.get("beta")
-    gamma = lattice_params.get("gamma")
 
-    h, k, l = hkl
-
-    H, K, L , elastic = get_elastic(symmetry, hkl, lattice_params, cij_params)
-    elastic_compliance = np.linalg.inv(elastic)
-
-    # N and M from normalised hkls
-    N = np.sqrt(K**2 + L**2)
-    M = np.sqrt(H**2 + K**2 + L**2)
-
-    #Unpack the stress components
-    sigma_11 = sigma_params['sigma_11']
-    sigma_22 = sigma_params['sigma_22']
-    sigma_33 = sigma_params['sigma_33']
-    sigma_12 = sigma_params['sigma_12']
-    sigma_13 = sigma_params['sigma_13']
-    sigma_23 = sigma_params['sigma_23']
-
-    #The stress matrix is symmetrical about the diagonal
-    sigma = np.array([
-        [sigma_11, sigma_12, sigma_13],
-        [sigma_12, sigma_22, sigma_23],
-        [sigma_13, sigma_23, sigma_33]
-    ])
-
-    # theta0 is needed both for psi-from-delta and for the lab-azimuth correction below
-    d0 = get_d0(symmetry,h,k,l,a,b,c)
-    sin_theta0 = wavelength / (2 * d0)
-    theta0 = np.arcsin(sin_theta0)
-
-    #Check if psi_values are given or if it must be calculated for XRD generation
-    if isinstance(psi_values, int):
-        if psi_values==0: #Standard setting for fine-resolution XRD generation
-            deltas = np.arange(-180,180,2)
-            #Set alphas to zero to trigger computation later
-            alpha_values = None
-            #Check if chi value is zero (axial case) or non-zero (radial)
-            if chi == 0: 
-                # return only one psi_value assuming compression axis aligned with X-rays
-                psi_values = np.asarray([np.pi/2 - theta0])
-            else:
-                #Assume chi is non-zero (radial) and compute a psi for each azimuth bin (delta)
-                deltas_rad = np.radians(deltas)
-                chi_rad = np.radians(chi)
-                psi_values = np.arccos(np.sin(chi_rad)*np.cos(deltas_rad)*np.cos(theta0)+np.cos(chi_rad)*np.sin(theta0))
-            #phi_values are always passed to the function
-            phi_values = np.asarray(phi_values)
-        else: #A coarser resolution option for XRD refinement (less expensive due to fewer refinement iterations required)
-            deltas = np.arange(-180,180,12)
-            #Set alphas to None
-            alpha_values = None
-            #Check if chi value is zero (axial case) or non-zero (radial)
-            if chi == 0: 
-                # return only one psi_value assuming compression axis aligned with X-rays
-                psi_values = np.asarray([np.pi/2 - theta0])
-            else:
-                #Assume chi is non-zero (radial) and compute a psi for each azimuth bin (delta)
-                deltas_rad = np.radians(deltas)
-                chi_rad = np.radians(chi)
-                psi_values = np.arccos(np.sin(chi_rad)*np.cos(deltas_rad)*np.cos(theta0)+np.cos(chi_rad)*np.sin(theta0))
-        #phi_values are always passed to the function
-        phi_values = np.asarray(phi_values)
-    
-    else:
-        # Funamori-style: caller supplies psi (output/plot axis) and phi, alpha
-        # (integration axes) directly, in radians. Use them as-is -- no re-derivation.
-        # phi and alpha are periodic and built endpoint=False by the caller so the
-        # 0deg==360deg / -180deg==180deg wrap point is not double-counted in the average.
-        psi_values = np.asarray(psi_values)
-        phi_values = np.asarray(phi_values)
-        if alpha_values is None:                       # fallback if a caller omits alpha sampling
-            alpha_values = np.radians(np.linspace(-180, 180, 18, endpoint=False))
-        else:
-            alpha_values = np.asarray(alpha_values)
-        deltas = np.array([0])
-            
-    #modified GRID construction to preserve psi-delta relationship
-    n_phi = len(phi_values)
-    n_psi = len(psi_values)
-    n_delta = len(deltas)
-
-    # --- Case 1: Axial (chi == 0 → single psi, many deltas) ---
-    if n_psi == 1 and n_delta > 1:
-        phi_grid, delta_grid = np.meshgrid(phi_values, deltas, indexing='ij')  # (n_phi, n_delta)
-        psi_grid = np.full((n_phi, n_delta), psi_values[0])  # constant psi
-    
-    # --- Case 2: Radial (psi derived from delta) ---
-    elif n_psi == n_delta and n_delta > 1:
-        phi_grid, delta_grid = np.meshgrid(phi_values, deltas, indexing='ij')  # (n_phi, n_delta)
-        psi_grid = np.tile(psi_values, (n_phi, 1))
-    
-    # --- Case 3: Independent psi (Funamori-style input) ---
-    else:
-        phi_grid, psi_grid = np.meshgrid(phi_values, psi_values, indexing='ij')  # (n_phi, n_psi)
-        delta_grid = np.zeros_like(psi_grid)
-
-    #Angle grids then constructed from these values
-    cos_phi = np.cos(phi_grid)
-    sin_phi = np.sin(phi_grid)
-    cos_psi = np.cos(psi_grid)
-    sin_psi = np.sin(psi_grid)
-
-    #This is the Singh rotation matrix setup - rotate around x2 by psi and then x3' by phi
-    # Rotation matrix A (shape: [n_phi, n_psi, 3, 3])
-    #A = np.empty((cos_phi.shape[0], cos_phi.shape[1], 3, 3))
-    #A[..., 0, 0] = cos_phi * cos_psi
-    #A[..., 0, 1] = -sin_phi
-    #A[..., 1, 0] = sin_phi * cos_psi
-    #A[..., 0, 2] = cos_phi * sin_psi
-    #A[..., 1, 1] = cos_phi
-    #A[..., 1, 2] = sin_phi * sin_psi
-    #A[..., 2, 0] = -sin_psi
-    #A[..., 2, 1] = 0
-    #A[..., 2, 2] = cos_psi
-
-    #This is the Uchida rotation definition - rotate around x1 by psi and then x3' by phi
-    A = np.empty((cos_phi.shape[0], cos_phi.shape[1], 3, 3))
-    A[..., 0, 0] = cos_phi
-    A[..., 0, 1] = -sin_phi*cos_psi
-    A[..., 0, 2] = sin_phi * sin_psi
-    A[..., 1, 0] = sin_phi
-    A[..., 1, 1] = cos_phi * cos_psi
-    A[..., 1, 2] = -cos_phi * sin_psi
-    A[..., 2, 0] = 0
-    A[..., 2, 1] = sin_psi
-    A[..., 2, 2] = cos_psi
-
-    # --- Lab-azimuth correction (Merkel 2006, alpha rotation about Z_S) -----
-    # Uchida's a_ij (Eq. 11) places x'_3 in the x_2-x_3 plane regardless of delta. 
-    # This is correct only for axially symmetric stress about Z_S.
-    # For general stress, x'_3 must track the diffracting-plane normal Q in the sample frame K_S as delta varies.
-    # We derive the alpha values from the delta, theta and chi values using a function above
-    # based on the constraint that the dot-product of k and the x axis of the stress coordinates must be zero
-    #
-    # A_full = A_Uchida @ R_z(-alpha): mixes columns 0 and 1, leaves col 2.
-    # For axial sigma (sigma_11 = sigma_22, off-diagonals zero) this collapses
-    # back to the original Uchida result; for non-axial sigma it reproduces
-    # the lab-azimuth dependence (Merkel 2006 Fig. 3 c-f).
-
-    # --- Build list of alpha_grids to iterate over -----------------------------
-    # Case A: alpha_values is None  -> single delta-derived alpha_grid (Merkel correction)
-    # Case B: alpha_values is an array -> loop (Funamori-style non-axial sigma)
-    if alpha_values is None:
-        delta_grid_rad = np.radians(delta_grid)
-        chi_rad = np.radians(chi)
-        alpha_grid_list = [PO.compute_alpha(theta0, chi_rad, delta_grid_rad)]
-    else:
-        alpha_grid_list = [
-            np.full_like(phi_grid, a) for a in alpha_values
-        ]
-
-    PO_on = st.session_state.params.get("PO_toggle")
-    direct_PO = PO_on and (alpha_values is not None)   # Funamori: per-orientation eval
-    if PO_on:
-        po_components = [
-            {"tau": st.session_state.params.get("tau"),
-             "omega": st.session_state.params.get("omega"),
-             "R": st.session_state.params.get("R"),
-             "weight": st.session_state.params.get("weight")}
-        ]
-        PO_MODEL = PO.PO_Model(
-            po_model=po_model, 
-            components=po_components,
-            baseline=st.session_state.params.get("baseline"),
-            symmetry=symmetry, 
-            wavelength=wavelength,
-            lattice_params=lattice_params, 
-            chi_deg=chi,
-            POD_xtal=st.session_state.params.get("hkl_POD"),
-        )
-
-    # --- Accumulators for per-alpha flattened outputs --------------------------
-    strain_33_chunks = []
-    phi_chunks = []
-    psi_chunks = []
-    delta_chunks = []
-    alpha_chunks = []
-    I_chunks = []
-    
-    for alpha_grid in alpha_grid_list:
-        cos_alpha = np.cos(alpha_grid)[..., None]
-        sin_alpha = np.sin(alpha_grid)[..., None]
-    
-        # A_full = A_Uchida @ R_z(-alpha)
-        #A rotation by -alpha is the same as the inverse rotation of alpha R_z^(-1)(alpha) which is how we implement below, i.e cos_alpha remains unchanged and sin(-alpha) = -1*sin_alpha
-        A_full = np.empty_like(A)
-        #original
-        #To be clear, the implementation below is equivalent to an alpha rotation matrix 
-        #M = (cos(alpha), sin(alpha), 0)
-        #    (-sin(alpha), cos(alpha), 0)
-        #    (    0            0       1)
-        #We have been careful to get this correct. The python convention can mess it up. 
-        A_full[..., 0] = A[..., 0] * cos_alpha + A[..., 1] * -1*sin_alpha
-        A_full[..., 1] = A[..., 0] * sin_alpha + A[..., 1] * cos_alpha
-        A_full[..., 2] = A[..., 2]
-
-        # Matrix B is constant
-        B = np.array([
-            [N/M, 0, H/M],
-            [-H*K/(N*M), L/N, K/M],
-            [-H*L/(N*M), -K/N, L/M]
-        ])
-        
-        # sigma' = A_full @ sigma @ A_full.T  (batched transpose of last two axes)
-        sigma_prime = A_full @ sigma @ np.transpose(A_full, (0, 1, 3, 2))
-    
-        # sigma'' = B @ sigma' @ B.T
-        sigma_double_prime = B @ sigma_prime @ B.T  # [n_phi, n_psi, 3, 3]
-    
-        # Voigt round-trip for compliance contraction
-        sigma_double_prime_voigt = stress_tensor_to_voigt(sigma_double_prime)
-        epsilon_double_prime_voigt = np.einsum(
-            'ij,xyj->xyi', elastic_compliance, sigma_double_prime_voigt
-        )
-        epsilon_double_prime = voigt_to_strain_tensor(epsilon_double_prime_voigt)
-    
-        # Invert B-transform without assuming orthonormality:  eps' = B.T @ eps'' @ B
-        epsilon_prime = np.einsum(
-            'ab,...bc,cd->...ad', B.T, epsilon_double_prime, B
-        )
-        strain_33_prime = epsilon_prime[..., 2, 2]
-    
-        # Collect this iteration's flattened outputs
-        strain_33_chunks.append(strain_33_prime.ravel(order='F'))
-        phi_chunks.append(np.degrees(phi_grid).ravel(order='F'))
-        psi_chunks.append(np.degrees(psi_grid).ravel(order='F'))
-        delta_chunks.append(delta_grid.ravel(order='F'))  # already in degrees
-        alpha_chunks.append(np.degrees(alpha_grid).ravel(order='F'))
-
-        if direct_PO:
-            I_PO = PO_MODEL.intensity_from_orientation(hkl, phi_grid, psi_grid, alpha_grid)
-            I_chunks.append(I_PO.ravel(order='F'))
-    
-    # --- Concatenate across all alpha iterations -------------------------------
-    strain_33_list = np.concatenate(strain_33_chunks)
-    phi_list       = np.concatenate(phi_chunks)
-    psi_list       = np.concatenate(psi_chunks)
-    delta_list     = np.concatenate(delta_chunks)
-    alpha_list     = np.concatenate(alpha_chunks)
-
-    if not PO_on:
-        I_list = np.ones(strain_33_list.size)
-    elif direct_PO:
-        I_list = np.concatenate(I_chunks)  # aligns with strain_33_list shape
-    else:
-        # Downsized coarse evaluation of PO model on (phi, delta) grid then interpolate
-        phi_PO   = np.linspace(0, 360, 72)
-        delta_PO = np.linspace(-180, 180, 180)
-        I_grid, phi_grid_PO, delta_grid_PO = PO_MODEL.intensity_for_hkl(hkl, phi_PO, delta_PO)
-        interp = RegularGridInterpolator(
-            (phi_grid_PO[:, 0], delta_grid_PO[0, :]), I_grid,
-            method='linear', bounds_error=False, fill_value=None)
-        phi_deg_flat   = np.degrees(phi_grid).ravel(order='F')
-        delta_deg_flat = delta_grid.ravel(order='F') # already degrees
-        I_list = interp(np.stack([phi_deg_flat, delta_deg_flat], axis=-1))
-
-    # d0 and 2th
-    d0 = get_d0(symmetry,h,k,l,a,b,c)
-    if d0 == 0:
-        d_strain = 0
-        two_th = 0
-    else:
-        # strains
-        d_strain = d0*(1-strain_33_list) #Positive t yields negative strains yields expanded d values
-        # 2ths
-        sin_th = wavelength / (2 * d_strain)
-        two_th = 2 * np.degrees(np.arcsin(sin_th))
-
-    hkl_label = f"{int(h)}{int(k)}{int(l)}"
-    df = pd.DataFrame({
-        "hkl" : hkl_label,
-        "h": int(h),
-        "k": int(k),
-        "l": int(l),
-        "strain_33": strain_33_list,
-        "psi (degrees)": psi_list,
-        "phi (degrees)": phi_list,
-        "chi (degrees)": float(chi),
-        "delta (degrees)": delta_list,
-        "alpha (degrees)": alpha_list,
-        "d strain": d_strain,
-        "2th" : two_th,
-        "intensity": intensity,
-        "PO_intensity": I_list
-    })
-
-    #Insert a placeholder column for the average strain, 2th, intensity at each psi
-    df["Mean strain @ psi"] = np.nan
-    df["Mean two_th @ psi"] = np.nan
-    df["Mean I @ psi"] = np.nan
-    #Compute the average strains and append to df
-    for psi in np.unique(psi_list):
-        #Obtain all the strains at this particular psi
-        #mask = psi_list == psi
-        mask = np.isclose(psi_list, psi, atol=1e-4) #safer implementation
-        strains = strain_33_list[mask]
-        PO_intensity = I_list[mask]
-        mean_strain = np.average(strains, weights = PO_intensity) #Average of the strains weighted by the PO
-        mean_dstrain = d0*(1-mean_strain)
-        mean_sin_th = wavelength / (2 * mean_dstrain)
-        mean_two_th = 2 * np.degrees(np.arcsin(mean_sin_th))
-        #Compute the average peak intensity at this psi
-        av_I = intensity*np.mean(PO_intensity)
-        #Update the mean_strain, mean_two_th column at the correct psi values
-        df.loc[df["psi (degrees)"] == psi, ["Mean strain @ psi", "Mean two_th @ psi", "Mean I @ psi"]] = [mean_strain, mean_two_th, av_I]
-
-    #Repeat but instead compute averages over deltas
-    df["Mean strain @ delta"] = np.nan
-    df["Mean two_th @ delta"] = np.nan
-    df["Mean I @ delta"] = np.nan
-    #Only compute if deltas are meaningful (skip Funamori-style placeholder case)
-    if n_delta > 1:
-        #Compute the average strains and append to df
-        for delta in np.unique(delta_list):
-            #Obtain all the strains at this particular delta
-            mask = np.isclose(delta_list, delta, atol=1e-4) #safer implementation
-            strains = strain_33_list[mask]
-            PO_intensity = I_list[mask]
-            mean_strain = np.average(strains, weights = PO_intensity) #Average of the strains weighted by the PO
-            mean_dstrain = d0*(1-mean_strain)
-            mean_sin_th = wavelength / (2 * mean_dstrain)
-            mean_two_th = 2 * np.degrees(np.arcsin(mean_sin_th))
-            #Compute the average peak intensity at this delta
-            av_I = intensity*np.mean(PO_intensity)
-            #Update the mean_strain, mean_two_th column at the correct psi values
-            df.loc[df["delta (degrees)"] == delta, ["Mean strain @ delta", "Mean two_th @ delta", "Mean I @ delta"]] = [mean_strain, mean_two_th, av_I]
-
-    # Group by hkl label and sort by azimuth
-    df = df.sort_values(by=["hkl", "delta (degrees)"], ignore_index=True)
-
-    return hkl_label, df, psi_list, strain_33_list
-
-#Uses convolution of delta and Gaussian kernal for fast evaluation
-def Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, broadening=True):
-    # --- Compute strain results ---
-    all_dfs = [compute_strain(hkl, inten, *strain_sim_params)[1]
-               for hkl, inten in zip(selected_hkls, intensities)]
-    
-    combined_df = pd.concat(all_dfs, ignore_index=True)
-
-    # --- Define grid ---
-    sigma_gauss = Gaussian_FWHM / (2 * np.sqrt(2 * np.log(2)))
-    twotheta_min = combined_df["2th"].min() - 1
-    twotheta_max = combined_df["2th"].max() + 1
-    step = 0.0005 # In degrees
-    twotheta_grid = np.arange(twotheta_min, twotheta_max, step)
-
-    # --- Build normalized Gaussian kernel ---
-    kernel_extent = 5 * sigma_gauss  # ±3σ window
-    theta_kernel = np.arange(-kernel_extent, kernel_extent + step, step)
-    gaussian_kernel = Gaussian(theta_kernel, 0, sigma_gauss)
-
-    #Extract chi value from strain_sim_params (8th value in list)
-    chi = strain_sim_params[7]
-
-    # --- Build single global histogram with scaled contributions ---
-    if broadening: 
-        # Count number of contributions per (h,k,l)
-        counts = combined_df.groupby(["h","k","l"])['intensity'].transform('size')
-        
-        # Vectorized weights: intensity / count
-        weights = combined_df['intensity']*combined_df['PO_intensity'] / counts
-        
-        # Build histogram
-        hist, _ = np.histogram(
-            combined_df['2th'],
-            bins=len(twotheta_grid),
-            range=(twotheta_min, twotheta_max),
-            weights=weights
-        )
-    else:
-        if chi == 0: #Unique axial pattern with precomputed means
-            # Singh pattern: one average peak per reflection
-            mean_df = combined_df.drop_duplicates(subset=["h", "k", "l"])
-            #Compute the mean intensity over 
-            hist, _ = np.histogram(
-                mean_df['Mean two_th @ delta'],
-                bins=len(twotheta_grid),
-                range=(twotheta_min, twotheta_max),
-                weights=mean_df['Mean I @ delta']
-            )
-        else: 
-            #Compute the mean across all the computed values
-            mean_df = combined_df.groupby(["h","k","l"]).agg(
-                {"2th": "mean",  # mean of the actual 2θ values per reflection
-                "intensity": "mean", 
-                "PO_intensity": "mean"
-                })
-            hist, _ = np.histogram(
-                mean_df["2th"],  # the averaged 2θ
-                bins=len(twotheta_grid),
-                range=(twotheta_min, twotheta_max),
-                weights=mean_df["intensity"]*mean_df["PO_intensity"]
-            )
-    # Convolve using FFT
-    total_pattern = fftconvolve(hist, gaussian_kernel, mode="same")
-    # Output as DataFrame
-    total_df = pd.DataFrame({
-        "2th": twotheta_grid[::5],
-        "Total Intensity": total_pattern[::5]
-    })
-    return total_df
-
-def batch_XRD(batch_upload):
-    batch_upload.seek(0)  # reset pointer
-    # Read everything into a DataFrame
-    df = pd.read_csv(batch_upload)
-
-    # Convert numerical columns where possible
-    for col in df.columns:
-        try:
-            df[col] = pd.to_numeric(df[col])
-        except:
-            pass
-
-    # Store parameters in one DataFrame
-    parameters_df = df.copy()
-    # Store results side-by-side
-    results_blocks = []
-
-    phi_values = np.arange(0,360,2)
-    phi_values = np.radians(phi_values)
-    psi_values = 0
-
-    for idx, row in df.iterrows():
-        #Check the required columns are given for the respective symmetry
-        symmetry = row["symmetry"]
-        if symmetry == "cubic":
-            required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C12','C44','sig11','sig22','sig33','chi'}
-        elif symmetry == "hexagonal":
-            required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13','C44','sig11','sig22','sig33','chi'}
-        elif symmetry == "tetragonal_A":
-            required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13','C44','C66','sig11','sig22','sig33','chi'}
-        elif symmetry == "tetragonal_B":
-            required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13','C16','C44','C66','sig11','sig22','sig33','chi'}
-        elif symmetry == "orthorhombic":
-            required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C22','C33','C12','C13','C23','C44','C55','C66','sig11','sig22','sig33','chi'}
-        elif symmetry == "trigonal_A":
-            required_keys = {'a','b','c','alpha','beta','gamma','wavelength','C11','C33','C12','C13','C14','C44','sig11','sig22','sig33','chi'}
-        else:
-            st.error("{} symmetry is not yet supported".format(symmetry))
-            required_keys = {}
-        if not required_keys.issubset(df.columns):
-            st.error(f"CSV must contain: {', '.join(required_keys)}")
-            st.stop()
-        # Extract row parameters for strain_sim_params
-        #Get the lattice parameters
-        # Extract lattice parameters
-        lat_params = {
-            "a_val": row["a"],
-            "b_val": row["b"],
-            "c_val": row["c"],
-            "alpha": row["alpha"],
-            "beta": row["beta"],
-            "gamma": row["gamma"],
-        }
-        #Get the cij_params
-        cij_params = {
-            col.lower(): row[col]
-            for col in df.columns
-            if col.upper().startswith("C") and col[1:].isdigit()
-        }
-        #Get the stress params
-        sig_params = {
-            key: row[key]
-            for key in ['sigma_11','sigma_22','sigma_33','sigma_12','sigma_13','sigma_23']
-        }
-        # Combine into strain_sim_params
-        strain_sim_params = (
-            row["symmetry"],
-            lat_params,
-            row["wavelength"],
-            cij_params,
-            sig_params,
-            row["chi"],
-            phi_values,
-            psi_values,
-        )
-        # Run Generate_XRD for this row
-        xrd_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, Funamori_broadening)
-        # Rename columns so each block is unique
-        xrd_df = xrd_df.rename(columns={
-            "2th": f"2th_iter{idx+1}",
-            "Total Intensity": f"Intensity_iter{idx+1}"
-        }).reset_index(drop=True)
-
-        results_blocks.append(xrd_df)
-
-    # Align all result blocks by index and combine
-    results_df = pd.concat(results_blocks, axis=1)
-
-    return parameters_df, results_df, results_blocks
-
-def cake_data(selected_hkls, intensities, symmetry, lattice_params, wavelength, cijs, sigma_params, chi):
-    """
-    Computes the azimuth vs 2th strain data for each hkl and combines into a dictionary with entries for each hkl
-
-    Returns:
-    cake_dict
-    keys (hkl_labels) : values (df of information for this hkl)
-    """
-    cake_dict = {}
-    
-    for hkl, intensity in zip(selected_hkls, intensities):
-        phi_values = np.radians(np.arange(0, 360, 5))
-        psi_values = 0  # let compute_strain calculate psi for each HKL
-        hkl_label, df, psi_list, strain_33_list = compute_strain(
-            hkl, intensity, symmetry, lattice_params, wavelength, cijs,
-            sigma_params, chi, phi_values, psi_values
-        )
-        cake_dict[hkl_label] = df
-    
-    return cake_dict
 
 
 def setup_refinement_toggles(lattice_params, **additional_fields):
@@ -761,239 +185,11 @@ def setup_refinement_toggles(lattice_params, **additional_fields):
         )
     return st.session_state.ref_params, st.session_state.refine_flags
     
-def run_refinement(params, refine_flags, selected_hkls, selected_indices, intensities, Gaussian_FWHM, phi_values, psi_values, wavelength, symmetry, x_exp, y_exp, lattice_params, cijs,
-                   sigma_params, chi, Funamori_broadening):
-    """
-    Parameters:
-        params (dict): Current parameter values
-        refine_flags (dict): Dict of booleans indicating which params to refine
-        selected_hkls, selected_indices, intensities, Gaussian_FWHM, phi_values, psi_values, wavelength, symmetry:
-            Experimental/simulation data and settings.
-        x_exp, y_exp: Experimental x (2θ) and intensity data.
-    
-    Returns:
-        result (lmfit.MinimizerResult): Refinement result object.
-    """
-    # Build lmfit.Parameters
-    lm_params = Parameters()
-    for name, val in params.items():
-        if name in ["t",'sigma_12','sigma_13', 'sigma_23']:
-            min_val, max_val = -25, 25
-        elif "c" in name.lower():  # elastic constants
-            min_val, max_val = 0.5 * val, 1.5 * val
-        elif name == "a_val" or name == "b_val" or name == "c_val":
-            min_val, max_val = 0.75 * val, 1.25 * val
-        elif name == "chi":
-            min_val, max_val = -90, 90
-        else:
-            min_val, max_val = None, None
 
-        if refine_flags.get(name, False):
-            lm_params.add(name, value=val, min=min_val, max=max_val)
-        else:
-            lm_params.add(name, value=val, vary=False)
-        
-    # Handle peak intensities separately 
-    if refine_flags.get("peak_intensity", False):
-        for i, inten in zip(selected_indices, intensities):
-            lm_params.add(f"intensity_{i}", value=inten, min=0, max=1000)
-    else:
-        for i, inten in zip(selected_indices, intensities):
-            lm_params.add(f"intensity_{i}", value=inten, vary=False)
-
-    st.write(lm_params)
-
-    # Run first iteration of refinement to determine common 2th domain
-    intensities_opt = [lm_params[f"intensity_{i}"].value for i in selected_indices]
-    strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_params, chi, phi_values, psi_values)
-    
-    # Generate simulated pattern
-    XRD_df = Generate_XRD(selected_hkls, intensities_opt, Gaussian_FWHM, strain_sim_params, Funamori_broadening)
-    twoth_sim = XRD_df["2th"].values
-
-    # Use overlap between simulation and experiment to set interpolation range. Fixed for subsequent iterations
-    #The range is slightly less than that returned by the simulation to eliminate NaN values in evaluating the interpolated data
-    x_min_sim = np.min(twoth_sim) + 0.5
-    x_max_sim = np.max(twoth_sim) - 0.5
-    mask = (x_exp >= x_min_sim) & (x_exp <= x_max_sim)
-    x_exp_common = x_exp[mask]
-    y_exp_common = y_exp[mask]
-
-    #Here we also determine the x_indices definining the binning around each peak for residual weighting
-    #First we need the 2th center positions of each hkl reflection d (use the mean "Singh" position)
-    hkl_peak_centers = []
-    a = lattice_params.get("a_val")
-    b = lattice_params.get("b_val")
-    c = lattice_params.get("c_val")
-    for hkl, inten in zip(selected_hkls, intensities_opt):
-        df = compute_strain(hkl, inten, *strain_sim_params)[1]
-        #Compute the average of the mean_2th values (For axial, this averages over many identical values, for radial, we average across a range of psi at fixed delta)
-        mean_2th = np.mean(df["Mean two_th @ delta"])
-        h, k, l = hkl
-        #Compute d0 and 2th
-        d0 = get_d0(symmetry,h,k,l,a,b,c)
-        #Compute 2ths
-        sin_th = wavelength / (2 * d0)
-        two_th = 2 * np.degrees(np.arcsin(sin_th))
-        hkl_peak_centers = np.append(hkl_peak_centers, mean_2th)
-
-    #Get the residual bin indices using these centers
-    bin_indices = compute_bin_indices(x_exp_common, hkl_peak_centers, Gaussian_FWHM)
-
-    # --- Wrapped cost function that implements this fixed domain ---
-    def wrapped_cost_function(lm_params):
-        return cost_function(lm_params, refine_flags, selected_hkls, selected_indices, Gaussian_FWHM,
-            phi_values, psi_values, wavelength, symmetry,
-            x_exp_common, y_exp_common, bin_indices, Funamori_broadening, global_lattice_params=lattice_params, global_cijs=cijs, global_sigmas=sigma_params
-        )
-
-    # Run optimization
-    result = minimize(wrapped_cost_function, lm_params, method="leastsq", gtol=1e-8,)
-    #-------------------------------------------------
-
-    return result
-
-def cost_function(lm_params, refine_flags, selected_hkls, selected_indices,
-                  Gaussian_FWHM, phi_values, psi_values, wavelength, symmetry,
-                  x_exp_common, y_exp_common, bin_indices,
-                  Funamori_broadening, global_lattice_params, global_cijs, global_sigmas):
-    """
-    lm_params: current parameters from lmfit
-    global_lattice: dictionary containing full lattice info (a_val, b_val, c_val, alpha, beta, gamma)
-    global_cijs: dictionary containing the full set of elastic constants
-    global_sigma: dictionary containing the full set of stress coefficients
-    """
-
-    # --- Lattice parameters: use lm_params if refining, else global values ---
-    lattice_params = {}
-    for key in ["a_val", "b_val", "c_val", "alpha", "beta", "gamma"]:
-        if key in lm_params:
-            lattice_params[key] = lm_params[key].value
-        else:
-            lattice_params[key] = global_lattice_params[key]
-
-    cijs = {}
-    for k in global_cijs:
-        cijs[k] = lm_params[k].value if k in lm_params else global_cijs[k]
-        
-    # Stress parameters
-    t = lm_params["t"].value
-    sigma_params = {
-        'sigma_11' : -t / 3,
-        'sigma_22' : -t / 3,
-        'sigma_33' : 2 * t / 3
-    }
-    for key in ['sigma_12','sigma_13','sigma_23']:
-        sigma_params[key] = lm_params[key].value
-
-    chi = lm_params["chi"].value
-
-    intensities_opt = [lm_params[f"intensity_{i}"].value for i in selected_indices]
-
-    strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_params, chi, phi_values, psi_values)
-    XRD_df = Generate_XRD(selected_hkls, intensities_opt, Gaussian_FWHM, strain_sim_params, Funamori_broadening)
-    twoth_sim = XRD_df["2th"]
-    intensity_sim = XRD_df["Total Intensity"]
-
-    interp_sim = interp1d(twoth_sim, intensity_sim, bounds_error=False, fill_value=0)
-    y_sim_common = interp_sim(x_exp_common)
-
-    residuals = np.asarray(y_exp_common - y_sim_common)
-
-    # Peak position binned normalization of residuals
-    norm_residuals = []
-    for idx_range in bin_indices:
-        if len(idx_range) == 0:
-            continue  # skip empty bins
-        res_bin = residuals[idx_range]
-        y_bin = y_exp_common[idx_range]
-
-        norm = np.max(np.abs(y_bin)) if np.max(np.abs(y_bin)) != 0 else 1
-        norm_residuals.append(res_bin / norm)
-
-    #Combine bins into a single array of weighted residuals
-    weighted_residuals = np.concatenate(norm_residuals)
-    return weighted_residuals
 
 
 ### Figure Generation --------------------------------------------------
 
-def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps, alpha_steps):
-
-    results_dict = {}
-    psi_values   = np.linspace(0, np.pi / 2, int(psi_steps))                         # output/plot axis (endpoints kept)
-    phi_values   = np.linspace(0, 2 * np.pi, int(phi_steps),   endpoint=False)       # periodic integration axis
-    alpha_values = np.linspace(-np.pi, np.pi, int(alpha_steps), endpoint=False)      # periodic integration axis
-
-    fig = make_subplots(
-        rows=len(selected_hkls),
-        cols=1,
-        shared_xaxes=False,
-        vertical_spacing=0.06,
-        subplot_titles=[f"ε′₃₃ [hkl = ({hkl})]" for hkl in selected_hkls]
-    )
-
-    for i, (hkl, intensity) in enumerate(zip(selected_hkls, intensities), start=1):
-        hkl_label, df, psi_list, strain_33_list = compute_strain(hkl, intensity, symmetry, lattice_params,
-                                                                 wavelength, cijs, sigma_params,
-                                                                 chi, phi_values, psi_values, alpha_values
-        )
-
-        results_dict[hkl_label] = df
-        psi_array = np.asarray(psi_list)
-        strain_array = np.asarray(strain_33_list)
-
-        #Get the combined intensity from PO model and ideal intensity
-        combined_I = df["intensity"]*df["PO_intensity"]
-        norm = Normalize(vmin=0, vmax=np.max(combined_I))
-        normed_I = norm(combined_I)
-        #Set the opacity if PO model is in use
-        if st.session_state.params.get("PO_toggle"):
-            OPACITY = normed_I
-        else: #isotropic case
-            OPACITY = 0.15
-
-        fig.add_trace(
-            go.Scattergl(
-                x=psi_array,
-                y=strain_array,
-                mode="markers",
-                marker=dict(
-                    size=2,
-                    color="black",
-                    opacity = OPACITY
-                ),
-                showlegend=False
-            ),
-            row=i, col=1
-        )
-
-        # Plot the mean strain curve (vectorised)
-        mean_df = (df.groupby("psi (degrees)", sort=True)["Mean strain @ psi"].first().reset_index())
-
-        fig.add_trace(go.Scatter(x=mean_df["psi (degrees)"],
-                                 y=mean_df["Mean strain @ psi"],
-                                 mode="lines",
-                                 line=dict(width=2, color="red"),
-                                 name="Mean strain" if i == 1 else None,
-                                 showlegend=(i == 1)),
-                      row=i, col=1
-        )
-        # Reference lines
-        fig.add_hline(y=0, line_width=1, row=i, col=1)
-        fig.add_vline(x=54.7, line_dash="dash", line_width=1, row=i, col=1) #Magic angle
-        
-        fig.update_yaxes(autorange=True, row=i, col=1)
-
-    fig.update_xaxes(title="ψ (degrees)", title_font=dict(size=18), tickfont=dict(size=14), range=[0, 90])
-    fig.update_yaxes(title="ε′₃₃", title_font=dict(size=18), tickfont=dict(size=14))
-    fig.update_layout(height=450 * len(selected_hkls),hovermode="closest")
-
-    st.plotly_chart(fig,
-                    width="stretch",
-                    config={"scrollZoom": False}  # Disables wheel zoom
-    )
-    return results_dict
 
 #Old matplotlib iplementation
 #def generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps):
@@ -1815,7 +1011,7 @@ if uploaded_file is not None:
             #--------------------- 
             epsilon_psi_dict = None
             if st.button("ε-ψ Curves") and selected_hkls:
-                epsilon_psi_dict = generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps, alpha_steps)
+                epsilon_psi_dict = generate_epsilon_psi_curves(selected_hkls, psi_steps, phi_steps, alpha_steps, intensities=intensities, symmetry=symmetry, lattice_params=lattice_params, wavelength=wavelength, cijs=cijs, sigma_params=sigma_params, chi=chi, po_model=po_model)
 
             #Format the data and save to session_state
             if epsilon_psi_dict is not None:
@@ -1885,7 +1081,7 @@ if uploaded_file is not None:
             #---------------------  
             if st.button("Cake Plot") and selected_hkls:
                 cake_dict = cake_data(selected_hkls, intensities, symmetry, lattice_params, 
-                                                    wavelength, cijs, sigma_params, chi)
+                                                    wavelength, cijs, sigma_params, chi, po_model=po_model)
                 generate_cake_figures(cake_dict, selected_hkls, Funamori_broadening)
                 
                 if cake_dict != {}:
@@ -2003,7 +1199,7 @@ if uploaded_file is not None:
                 psi_values = 0
                 strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_params, chi, phi_values, psi_values)
 
-                XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, broadening=Funamori_broadening)
+                XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, broadening=Funamori_broadening, po_model=po_model)
 
                 generate_1D_XRD_plot(XRD_df)
 
@@ -2040,7 +1236,7 @@ if uploaded_file is not None:
                     #Compute the cake data
                     cake_dict = {}
                     cake_dict = cake_data(selected_hkls, intensities, symmetry, lattice_params, 
-                                            wavelength, cijs, sigma_params, chi)
+                                            wavelength, cijs, sigma_params, chi, po_model=po_model)
                     cake_two_thetas, cake_deltas, cake_intensity = cake_dict_to_2Dcake(cake_dict, broadening=Funamori_broadening)
 
                     fig, ax = plt.subplots()
@@ -2115,7 +1311,7 @@ if uploaded_file is not None:
                 
             #Make batch processing section
             if batch_upload:
-                parameters_df, results_df, results_blocks = batch_XRD(batch_upload)
+                parameters_df, results_df, results_blocks = batch_XRD(batch_upload, selected_hkls=selected_hkls, intensities=intensities, Gaussian_FWHM=Gaussian_FWHM, Funamori_broadening=Funamori_broadening, po_model=po_model)
 
                 #Plot up the data
                 fig, ax = plt.subplots(figsize=(10, 6))
@@ -2193,7 +1389,7 @@ if uploaded_file is not None:
                 psi_values = 0
                 #t = st.session_state.params.get("sigma_33") - st.session_state.params.get("sigma_11")
                 strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_params, chi, phi_values, psi_values)
-                XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, Funamori_broadening)
+                XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, Funamori_broadening, po_model=po_model)
                 generate_1D_XRD_overlay(XRD_df, x_exp, y_exp)
         
             #Construct the default parameter dictionary for refinement
@@ -2207,7 +1403,7 @@ if uploaded_file is not None:
                 
                 result = run_refinement(st.session_state.ref_params, st.session_state.refine_flags, selected_hkls, selected_indices, intensities, Gaussian_FWHM, 
                                         phi_values, psi_values, wavelength, symmetry, x_exp, y_exp, lattice_params, cijs,
-                                        sigma_params, chi, Funamori_broadening)
+                                        sigma_params, chi, Funamori_broadening, po_model=po_model)
             
                 if result.success:
                     st.success("Refinement successful!")
@@ -2277,7 +1473,7 @@ if uploaded_file is not None:
                         psi_values
                     )
                     
-                    XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, Funamori_broadening)
+                    XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, Funamori_broadening, po_model=po_model)
                     #twoth_sim = XRD_df["2th"]
                     #intensity_sim = XRD_df["Total Intensity"]
                     #x_min_sim = np.min(twoth_sim)
