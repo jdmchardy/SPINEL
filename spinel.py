@@ -1805,38 +1805,37 @@ if st.session_state.get("imported_cake") is not None:
         _nbins_used = int(st.session_state.get("cake_background_nbins", n_az_bins))
         _edges, _bin_index, _bin_width = cp.assign_azimuth_bins(_cake.azimuth, _nbins_used)
 
-        bg_result_cols = st.columns(2)
-        with bg_result_cols[0]:
-            st.plotly_chart(
-                cp.plot_grid_heatmap(_cake, _bg.background, "Fitted background",
-                                     percentile=cake_percentile),
-                width='stretch',
-            )
-        with bg_result_cols[1]:
-            st.caption("Drag a box over the cake to pick the azimuth bin for the lineout below.")
-            _sel_fig = cp.plot_grid_heatmap(
-                _cake, _bg.subtracted, "Background-subtracted (drag to select bin)",
-                percentile=cake_percentile)
-            _sel_fig.update_layout(dragmode="select")
-            _sel = st.plotly_chart(
-                _sel_fig, width='stretch', key="cake_bin_select",
-                on_select="rerun", selection_mode="box",
-            )
-            # Capture the selected azimuth from the box y-range midpoint.
-            try:
-                _boxes = _sel["selection"]["box"]
-            except Exception:
-                _boxes = []
-            if _boxes and _boxes[0].get("y"):
-                st.session_state.cake_lineout_azimuth = float(np.mean(_boxes[0]["y"]))
-
-        # Resolve the selected azimuth bin (default: middle bin).
-        _sel_az = st.session_state.get("cake_lineout_azimuth",
-                                       float(_cake.azimuth[_n_az // 2]))
+        # Azimuth selector: slide to pick a bin; the choice is shown as a translucent
+        # band on both heatmaps below and drives the lineout inspector.
+        _az_min, _az_max = float(_cake.azimuth.min()), float(_cake.azimuth.max())
+        _default_az = float(min(max(
+            st.session_state.get("cake_lineout_azimuth", float(_cake.azimuth[_n_az // 2])),
+            _az_min), _az_max))
+        _sel_az = st.slider(
+            "Azimuth for lineout (°)", min_value=_az_min, max_value=_az_max,
+            value=_default_az, step=float(_bin_width),
+            help="Selects the azimuth bin shown highlighted on the cakes and in the "
+                 "lineout below.")
+        st.session_state.cake_lineout_azimuth = float(_sel_az)
         _sel_bin = int(_bin_index[int(np.argmin(np.abs(_cake.azimuth - _sel_az)))])
         _rows_in_bin = np.where(_bin_index == _sel_bin)[0]
         _bin_lo = float(_cake.azimuth[_rows_in_bin].min())
         _bin_hi = float(_cake.azimuth[_rows_in_bin].max())
+        _band = (float(_edges[_sel_bin]), float(_edges[_sel_bin + 1]))
+
+        bg_result_cols = st.columns(2)
+        with bg_result_cols[0]:
+            st.plotly_chart(
+                cp.plot_grid_heatmap(_cake, _bg.background, "Fitted background",
+                                     percentile=cake_percentile, highlight_band=_band),
+                width='stretch',
+            )
+        with bg_result_cols[1]:
+            st.plotly_chart(
+                cp.plot_grid_heatmap(_cake, _bg.subtracted, "Background-subtracted",
+                                     percentile=cake_percentile, highlight_band=_band),
+                width='stretch',
+            )
 
         # Lineout inspector: raw / fitted background / pseudo points / subtracted,
         # averaged over the selected azimuth bin. Traces toggle via the legend.

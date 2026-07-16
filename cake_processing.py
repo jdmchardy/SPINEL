@@ -93,7 +93,8 @@ pseudo points sit at the true baseline instead of the weak tapered values.
 #### Inspecting the result
 
 - The **Fitted background** and **Background-subtracted** images show the 2D result.
-- **Drag a box** on the subtracted image to pick an azimuth bin.
+- Use the **Azimuth for lineout** slider to pick a bin; it is highlighted as a
+  translucent band on both images.
 - The **Lineout inspector** plots that bin's averaged raw profile, fitted background,
   subtracted result, the background sample points, the gap pseudo-points, and the
   **detected peaks** (red ▼) — so you can see exactly which peaks were found and which
@@ -634,10 +635,19 @@ def _build_heatmap(x, y, z, title: str, percentile: float) -> go.Figure:
 
 
 def plot_grid_heatmap(
-    cake: CakeData, grid, title: str, percentile: float = 99.5
+    cake: CakeData, grid, title: str, percentile: float = 99.5, highlight_band=None
 ) -> go.Figure:
-    """Plot an arbitrary 2D grid (e.g. background or subtracted) on the cake axes."""
-    return _build_heatmap(cake.twotheta, cake.azimuth, grid, title, percentile)
+    """Plot an arbitrary 2D grid (e.g. background or subtracted) on the cake axes.
+
+    ``highlight_band`` (lo, hi) draws a translucent horizontal band across the plot at
+    that azimuth range — used to show the currently-selected azimuth bin.
+    """
+    fig = _build_heatmap(cake.twotheta, cake.azimuth, grid, title, percentile)
+    if highlight_band is not None:
+        lo, hi = float(highlight_band[0]), float(highlight_band[1])
+        fig.add_hrect(y0=lo, y1=hi, line_width=1, line_color="#00e5ff",
+                      fillcolor="#00e5ff", opacity=0.3, layer="above")
+    return fig
 
 
 def plot_azimuth_lineout(
