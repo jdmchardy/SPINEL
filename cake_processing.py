@@ -56,6 +56,7 @@ select no peaks at all.*
 **Stage 1 — Pre-fit peak search** (**Peak-search iterations**)
 - Runs on the *smoothed* raw profile (**Smoothing σ** sets the smoothing width, used
   for detection only — it does not smooth the fitted background).
+- **One pass is always done**; the control is the number of *additional* passes.
 - Each pass detects peaks and masks ±**Peak exclusion window** points around each.
 - After the first pass the biggest peaks are excluded, so the running maximum drops and
   each further pass catches progressively *weaker* peaks.
@@ -73,7 +74,9 @@ select no peaks at all.*
 - Each accepted peak is excluded and the background refit; the loop stops once a pass
   finds nothing new.
 
-Set either stage to **0** to switch it off.
+Both counts are *additional* passes: **Refinement iterations = 0** does the initial fit
+only; **Peak-search iterations = 0** still runs its single baseline pass (raise
+**Prominence factor** above 1 to exclude no peaks at all).
 
 #### Data gaps (detector gaps / beamstop)
 
@@ -323,10 +326,11 @@ def fit_bin_background(
     Procedure:
       1. Smooth the profile (for peak detection only) and mark leading zeros and
          large detector gaps as non-background.
-      2. **Pre-fit peak-search loop** (run ``peak_iterations`` times): detect peaks on
-         the smoothed profile and exclude a window around each. Each pass excludes the
-         peaks found so far, lowering the running maximum so progressively weaker peaks
-         are caught. Then fit an initial Chebyshev background.
+      2. **Pre-fit peak-search loop** (one pass always, plus ``peak_iterations``
+         additional passes): detect peaks on the smoothed profile and exclude a window
+         around each. Each pass excludes the peaks found so far, lowering the running
+         maximum so progressively weaker peaks are caught. Then fit an initial Chebyshev
+         background.
       3. **Residual refinement loop** (run ``iterations`` times, after the fit):
          subtract the current background and search the residual *within the current
          background regions* for peaks the pre-fit passes missed (shallow peaks sitting
@@ -380,10 +384,12 @@ def fit_bin_background(
         return v
 
     # --- Pre-fit peak-search iterations (on the smoothed profile) ---
+    # One pass is always performed; `peak_iterations` is the number of ADDITIONAL
+    # passes (mirrors how `iterations` counts additional refits after the initial fit).
     # Each pass excludes the peaks found so far, which lowers the running maximum so
     # progressively weaker peaks get caught. Gated by prominence_factor.
     detected = set()
-    for _ in range(int(peak_iterations)):
+    for _ in range(int(peak_iterations) + 1):
         valid = valid_for(detected)
         new = [p for p in detect(smoothed, valid) if p not in detected]
         if not new:

@@ -1699,10 +1699,11 @@ if st.session_state.get("imported_cake") is not None:
                      "peaks); set > 1 to select no peaks at all.")
             bg_peak_iterations = st.number_input(
                 "Peak-search iterations", value=1, min_value=0, step=1,
-                help="Stage 1 (before fitting). Passes of peak search on the smoothed "
-                     "profile: each pass excludes the peaks found so far, lowering the "
-                     "running maximum so progressively weaker peaks get caught, then "
-                     "the initial background is fitted. 0 = no pre-fit masking.")
+                help="Stage 1 (before fitting). One peak-search pass on the smoothed "
+                     "profile is always done; this is the number of ADDITIONAL passes. "
+                     "Each extra pass excludes the peaks found so far, lowering the "
+                     "running maximum so progressively weaker peaks get caught, before "
+                     "the initial background is fitted. 0 = the single baseline pass.")
             bg_iterations = st.number_input(
                 "Refinement iterations", value=1, min_value=0, step=1,
                 help="Stage 2 (after fitting). Residual-refinement passes: the fitted "
