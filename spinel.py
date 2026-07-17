@@ -781,6 +781,9 @@ if uploaded_file is not None:
             Gaussian_FWHM = st.number_input("Gaussian FWHM", value=0.1, min_value=0.005, step=0.005, format="%.3f")
         with col9:
             st.session_state.params["PO_toggle"] = st.checkbox("Preferred Orientation", value=False)
+            # Always define po_model so the simulation calls (which now pass it explicitly)
+            # never hit a NameError when PO is off; it is only used when PO is toggled on.
+            po_model = None
             if st.session_state.params.get("PO_toggle"):
                 po_model = st.selectbox("PO Model:",["March-Dollase"])
                 #po_model = st.text_input("PO Model", value="March-Dollase")
