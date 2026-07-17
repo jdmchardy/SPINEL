@@ -375,89 +375,120 @@ if st.session_state.get("imported_cake") is not None:
                                    file_name="cake_subtracted.tiff", mime="image/tiff")
 
 # --- 2D Refinement Tools: experimental peak extraction from the subtracted cake ---
-if (st.session_state.get("cake_background") is not None
-        and st.session_state.get("imported_cake") is not None):
+# --- 2D Refinement Tools: experimental peak extraction ---
+# Works on ANY background-subtracted cake: the result of the Background Subtraction
+# above, or a pre-subtracted Dioptas .txt uploaded here directly (so the background step
+# can be skipped entirely). Always visible so the peak search is directly accessible.
+st.subheader("2D Refinement Tools")
+st.markdown("**Peak Extraction** — extract (azimuth, 2θ) points per hkl ring from a "
+            "background-subtracted cake, grouped by reflection.")
+
+_have_bg = (
+    st.session_state.get("cake_background") is not None
+    and st.session_state.get("imported_cake") is not None
+    and st.session_state.cake_background.subtracted.shape
+        == st.session_state.imported_cake.intensity.shape)
+_src_opts = (["Background-subtraction result", "Upload subtracted cake (.txt)"]
+             if _have_bg else ["Upload subtracted cake (.txt)"])
+_src = st.radio("Subtracted image source", _src_opts, horizontal=True,
+                key="cake_extract_source")
+
+_xc = _grid = None
+if _src == "Background-subtraction result" and _have_bg:
     _xc = st.session_state.imported_cake
-    _xbg = st.session_state.cake_background
-    if _xbg.subtracted.shape == _xc.intensity.shape:
-        st.subheader("2D Refinement Tools")
-        st.markdown("**Peak Extraction** — extract (azimuth, 2θ) points per hkl ring "
-                    "from the background-subtracted cake, grouped by reflection.")
-        _tth_lo, _tth_hi = float(_xc.twotheta.min()), float(_xc.twotheta.max())
-        _def_bins = int(st.session_state.get("cake_background_nbins",
-                                             max(1, _xc.azimuth.size // 2)))
-        with st.form("cake_extract_form"):
-            ex = st.columns(4)
-            with ex[0]:
-                ex_tmin = st.number_input("2θ min (°)", min_value=_tth_lo,
-                    max_value=_tth_hi, value=_tth_lo, step=0.5)
-                ex_tmax = st.number_input("2θ max (°)", min_value=_tth_lo,
-                    max_value=_tth_hi, value=_tth_hi, step=0.5)
-            with ex[1]:
-                ex_maxpk = st.number_input("Max hkl peaks (groups)", min_value=1,
-                    value=6, step=1,
-                    help="Number of ring/hkl groups to seed from the azimuth "
-                         "max-projection (the strongest N rings).")
-                ex_shape = st.selectbox("Peak shape", ["PseudoVoigt", "Gaussian"])
-            with ex[2]:
-                ex_bins = st.number_input("Azimuth bins", min_value=1,
-                    max_value=int(_xc.azimuth.size), value=_def_bins, step=1,
-                    help="Binning of the lineouts searched (as for the background).")
-                ex_seedp = st.number_input("Seed sensitivity", min_value=0.001,
-                    max_value=1.0, value=0.03, step=0.005, format="%.3f",
-                    help="Fraction of the max-projection maximum a ring must exceed to "
-                         "seed a group. Lower seeds weaker rings.")
-            with ex[3]:
-                ex_dets = st.number_input("Detection σ", min_value=0.0, value=5.0,
-                    step=0.5,
-                    help="A ring is recorded in a bin only where its peak rises this "
-                         "many σ above the noise floor. Lower catches fainter arcs.")
-                ex_mshift = st.number_input("Ring-track tol (°, 0=auto)", min_value=0.0,
-                    value=0.0, step=0.1,
-                    help="Max 2θ a peak may sit from a ring's running centre to join it. "
-                         "0 = auto (~0.4× the seed spacing).")
-            ex_submit = st.form_submit_button("Extract peaks")
+    _grid = st.session_state.cake_background.subtracted
+else:
+    _sub_file = st.file_uploader(
+        "Background-subtracted cake (Dioptas .txt)", type=["txt"],
+        key="cake_subtracted_upload",
+        help="A cake that is already background-subtracted (exported here, or from "
+             "another tool in Dioptas .txt format). The .txt carries the 2θ/azimuth "
+             "axes the peak search needs.")
+    if _sub_file is not None:
+        try:
+            _xc = cp.load_cake_data(_sub_file, filename=_sub_file.name)
+            _grid = _xc.intensity
+        except ValueError as e:
+            st.error(f"Failed to load subtracted cake: {e}")
 
-        if ex_submit:
-            _ms = None if ex_mshift <= 0 else float(ex_mshift)
-            with st.spinner("Extracting peaks..."):
-                _pk, _seeds = cp.extract_and_group_peaks(
-                    _xc, _xbg.subtracted, tth_min=float(ex_tmin), tth_max=float(ex_tmax),
-                    n_bins=int(ex_bins), max_peaks=int(ex_maxpk), peak_shape=ex_shape,
-                    seed_prominence=float(ex_seedp), detect_sigma=float(ex_dets),
-                    max_shift=_ms)
-            st.session_state.extracted_peaks = _pk
-            st.session_state.extracted_peaks_ver = \
-                st.session_state.get("extracted_peaks_ver", 0) + 1
-            if _pk.empty:
-                st.warning("No peaks found — widen the 2θ range, lower Detection σ, or "
-                           "lower Seed sensitivity.")
-            else:
-                st.success(f"Extracted {len(_pk)} points in "
-                           f"{int(_pk['group'].nunique())} groups "
-                           f"(seeds at 2θ = {', '.join(f'{s:.2f}' for s in _seeds)}°).")
+if _xc is None or _grid is None:
+    st.info("Provide a subtracted image to search: compute or load a background above, "
+            "or upload a pre-subtracted Dioptas .txt here.")
+else:
+    _tth_lo, _tth_hi = float(_xc.twotheta.min()), float(_xc.twotheta.max())
+    _def_bins = int(st.session_state.get("cake_background_nbins",
+                                         max(1, _xc.azimuth.size // 2)))
+    _def_bins = min(_def_bins, int(_xc.azimuth.size))
+    with st.form("cake_extract_form"):
+        ex = st.columns(4)
+        with ex[0]:
+            ex_tmin = st.number_input("2θ min (°)", min_value=_tth_lo,
+                max_value=_tth_hi, value=_tth_lo, step=0.5)
+            ex_tmax = st.number_input("2θ max (°)", min_value=_tth_lo,
+                max_value=_tth_hi, value=_tth_hi, step=0.5)
+        with ex[1]:
+            ex_maxpk = st.number_input("Max hkl peaks (groups)", min_value=1,
+                value=6, step=1,
+                help="Number of ring/hkl groups to seed from the azimuth "
+                     "max-projection (the strongest N rings).")
+            ex_shape = st.selectbox("Peak shape", ["PseudoVoigt", "Gaussian"])
+        with ex[2]:
+            ex_bins = st.number_input("Azimuth bins", min_value=1,
+                max_value=int(_xc.azimuth.size), value=_def_bins, step=1,
+                help="Binning of the lineouts searched (as for the background).")
+            ex_seedp = st.number_input("Seed sensitivity", min_value=0.001,
+                max_value=1.0, value=0.03, step=0.005, format="%.3f",
+                help="Fraction of the max-projection maximum a ring must exceed to "
+                     "seed a group. Lower seeds weaker rings.")
+        with ex[3]:
+            ex_dets = st.number_input("Detection σ", min_value=0.0, value=5.0,
+                step=0.5,
+                help="A ring is recorded in a bin only where its peak rises this "
+                     "many σ above the noise floor. Lower catches fainter arcs.")
+            ex_mshift = st.number_input("Ring-track tol (°, 0=auto)", min_value=0.0,
+                value=0.0, step=0.1,
+                help="Max 2θ a peak may sit from a ring's running centre to join it. "
+                     "0 = auto (~0.4x the seed spacing).")
+        ex_submit = st.form_submit_button("Extract peaks")
 
-        _pk = st.session_state.get("extracted_peaks")
-        if _pk is not None and not _pk.empty:
-            st.caption("Correct assignments below: edit the **group** column (hkl index) "
-                       "or delete outlier rows — the plot updates live.")
-            _edited = st.data_editor(
-                _pk, key=f"cake_peaks_editor_{st.session_state.get('extracted_peaks_ver', 0)}",
-                num_rows="dynamic", use_container_width=True,
-                column_config={
-                    "bin": st.column_config.NumberColumn("bin", disabled=True),
-                    "azimuth": st.column_config.NumberColumn("azimuth (°)", disabled=True, format="%.1f"),
-                    "2th": st.column_config.NumberColumn("2θ (°)", disabled=True, format="%.3f"),
-                    "intensity": st.column_config.NumberColumn("intensity", disabled=True, format="%.0f"),
-                    "fwhm": st.column_config.NumberColumn("fwhm (°)", disabled=True, format="%.3f"),
-                    "group": st.column_config.NumberColumn("group (hkl)", min_value=-1, step=1),
-                })
-            # Keep the corrected set available for the next tool (refinement).
-            st.session_state.extracted_peaks_final = _edited
-            st.plotly_chart(
-                cp.plot_extracted_peaks(_xc, _xbg.subtracted, _edited,
-                                        percentile=cake_percentile),
-                width='stretch')
+    if ex_submit:
+        _ms = None if ex_mshift <= 0 else float(ex_mshift)
+        with st.spinner("Extracting peaks..."):
+            _pk, _seeds = cp.extract_and_group_peaks(
+                _xc, _grid, tth_min=float(ex_tmin), tth_max=float(ex_tmax),
+                n_bins=int(ex_bins), max_peaks=int(ex_maxpk), peak_shape=ex_shape,
+                seed_prominence=float(ex_seedp), detect_sigma=float(ex_dets),
+                max_shift=_ms)
+        st.session_state.extracted_peaks = _pk
+        st.session_state.extracted_peaks_ver = \
+            st.session_state.get("extracted_peaks_ver", 0) + 1
+        if _pk.empty:
+            st.warning("No peaks found — widen the 2θ range, lower Detection "
+                       "σ, or lower Seed sensitivity.")
+        else:
+            st.success(f"Extracted {len(_pk)} points in "
+                       f"{int(_pk['group'].nunique())} groups "
+                       f"(seeds at 2θ = {', '.join(f'{s:.2f}' for s in _seeds)}°).")
+
+    _pk = st.session_state.get("extracted_peaks")
+    if _pk is not None and not _pk.empty:
+        st.caption("Correct assignments below: edit the **group** column (hkl index) "
+                   "or delete outlier rows — the plot updates live.")
+        _edited = st.data_editor(
+            _pk, key=f"cake_peaks_editor_{st.session_state.get('extracted_peaks_ver', 0)}",
+            num_rows="dynamic", use_container_width=True,
+            column_config={
+                "bin": st.column_config.NumberColumn("bin", disabled=True),
+                "azimuth": st.column_config.NumberColumn("azimuth (°)", disabled=True, format="%.1f"),
+                "2th": st.column_config.NumberColumn("2θ (°)", disabled=True, format="%.3f"),
+                "intensity": st.column_config.NumberColumn("intensity", disabled=True, format="%.0f"),
+                "fwhm": st.column_config.NumberColumn("fwhm (°)", disabled=True, format="%.3f"),
+                "group": st.column_config.NumberColumn("group (hkl)", min_value=-1, step=1),
+            })
+        st.session_state.extracted_peaks_final = _edited
+        st.plotly_chart(
+            cp.plot_extracted_peaks(_xc, _grid, _edited, percentile=cake_percentile),
+            width='stretch')
 
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 
