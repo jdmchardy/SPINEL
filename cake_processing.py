@@ -117,6 +117,57 @@ pseudo points sit at the true baseline instead of the weak tapered values.
 """
 
 
+# User-facing documentation for the Peak Extraction tool.
+PEAK_EXTRACTION_HELP_MD = """\
+### How the peak search works
+
+Peak extraction turns a background-subtracted cake into **(azimuth, 2θ) points grouped by
+hkl reflection** — the experimental input for 2D strain refinement. Everything happens
+inside your chosen 2θ window, in three stages.
+
+#### 1 · Seed the rings (once, globally)
+The **azimuth max-projection** is formed — the maximum intensity at each 2θ across *all*
+azimuths — so a ring that appears at only a few azimuths (a texture arc) still shows up.
+Its peaks are found, and the strongest **Max hkl peaks (N)** become the initial ring
+centres.
+- **Seed sensitivity** — a feature must exceed this fraction of the projection's maximum
+  to be seeded. *Lower seeds fainter rings.* Typical **0.01–0.1** (default 0.03); raise it
+  if noise/spurious rings get seeded, lower it if a real weak ring is missed.
+- **Min seed spacing** — the smallest 2θ gap allowed between two seeds, so one broad ring
+  isn't seeded twice. Set it a bit below your closest real ring spacing. Typical
+  **0.3–1.0°**.
+
+#### 2 · Track the rings across azimuth
+Walking the azimuth bins in order, a *running centre* is kept per ring. In each bin (the
+averaged lineout of its rows) a window around the ring's running centre is searched for
+the local maximum; if it clears a noise floor the ring is recorded there and its running
+centre moves to the new position — so it follows strain-induced 2θ shifts and couples each
+bin to the ones before it. A ring with no qualifying peak in a bin keeps its centre and
+can resume later, which is how **azimuth gaps from preferred orientation** are handled.
+- **Detection σ** — a peak counts only if it rises this many robust standard deviations
+  above the window's noise. Typical **3–8** (default 5); lower catches fainter arcs but
+  more noise, higher keeps only strong ring segments. A *noise* floor (not a fraction of
+  each ring's own height) is used so a strong ring never hides a weak one.
+- **Ring-track tolerance** — how far (in 2θ) a peak may sit from a ring's running centre
+  to still be attached to it. Typical **0.2–1.0°**; `0` = auto (~0.4× the seed spacing).
+  Larger tolerates bigger strain shifts but risks jumping to a neighbouring ring.
+
+#### 3 · Fit each detected peak
+Each peak is refined with the chosen **Peak shape** (Gaussian or Pseudo-Voigt) over a small
+window, giving a sub-bin 2θ centre, amplitude and FWHM. If the fit fails or its centre
+leaves the window, the raw located position is kept.
+- **Azimuth bins** — how many bins the cake is averaged into for the search. More bins =
+  finer azimuthal detail but noisier lineouts; usually match the background binning.
+- **Peak shape** — Pseudo-Voigt suits most powder peaks; Gaussian for clean, symmetric ones.
+
+#### Result & correction
+One approximate 2θ per (azimuth bin, ring) is produced, shown overlaid on the cake coloured
+by group and listed in the editable table (ordered by group → azimuth → 2θ). Fix mistakes
+by editing a point's **group** or deleting outlier rows — overlapping/crossing rings are
+the usual thing to correct by hand.
+"""
+
+
 @dataclass
 class CakeData:
     """Container for an imported 2D cake pattern.
@@ -817,13 +868,15 @@ def _fit_peak(x, y, peak_idx, peak_shape, fit_window):
 
 
 def seed_group_centres(cake: CakeData, grid, *, tth_min, tth_max, n_groups,
-                       prominence=0.05):
+                       prominence=0.05, min_distance=1):
     """Seed group (hkl) ring centres from the azimuth max-projection lineout.
 
     Taking the max over azimuth at each 2th means even azimuthally-narrow (arc/spotty)
     rings still produce a peak, so every expected reflection can seed a group. Returns
     ``(seeds, strengths)``: up to ``n_groups`` seed 2th positions (strongest by
     prominence) and their projection heights, both sorted ascending in 2th.
+    ``min_distance`` is the minimum separation (in 2th samples) between seeds, so two
+    peaks of one ring are not seeded as separate groups.
     """
     twotheta = np.asarray(cake.twotheta, dtype=float)
     grid = np.asarray(grid, dtype=float)
@@ -835,7 +888,8 @@ def seed_group_centres(cake: CakeData, grid, *, tth_min, tth_max, n_groups,
     proj = np.nanmax(grid[:, mask], axis=0)
     if proj.size == 0 or np.nanmax(proj) <= 0:
         return empty
-    peaks, props = find_peaks(proj, prominence=prominence * float(np.nanmax(proj)))
+    peaks, props = find_peaks(proj, prominence=prominence * float(np.nanmax(proj)),
+                              distance=max(1, int(min_distance)))
     if peaks.size == 0:
         return empty
     keep = peaks[np.argsort(props["prominences"])[::-1][:int(n_groups)]]
@@ -861,6 +915,7 @@ def extract_and_group_peaks(
     max_peaks: int,
     peak_shape: str = "PseudoVoigt",
     seed_prominence: float = 0.03,
+    min_seed_distance: int = 1,
     detect_sigma: float = 5.0,
     fit_window: int = 15,
     max_shift=None,
@@ -886,7 +941,7 @@ def extract_and_group_peaks(
     grid = np.asarray(grid, dtype=float)
     seeds, strengths = seed_group_centres(
         cake, grid, tth_min=tth_min, tth_max=tth_max, n_groups=max_peaks,
-        prominence=seed_prominence)
+        prominence=seed_prominence, min_distance=min_seed_distance)
     cols = ["bin", "azimuth", "2th", "intensity", "fwhm", "group"]
     if seeds.size == 0:
         return pd.DataFrame(columns=cols), seeds
@@ -928,7 +983,11 @@ def extract_and_group_peaks(
             rows.append({"bin": int(b), "azimuth": az_center, "2th": center,
                          "intensity": amp, "fwhm": fwhm, "group": int(g)})
             centres[g] = center
-    return pd.DataFrame(rows, columns=cols), seeds
+    df = pd.DataFrame(rows, columns=cols)
+    if not df.empty:
+        # Order the table by hkl group, then azimuth, then 2th.
+        df = df.sort_values(["group", "azimuth", "2th"]).reset_index(drop=True)
+    return df, seeds
 
 
 # Distinct colours for group overlays (repeat if more groups than colours).
