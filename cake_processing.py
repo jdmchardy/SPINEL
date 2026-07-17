@@ -1067,3 +1067,91 @@ def plot_extracted_peaks(cake: CakeData, grid, peaks_df, percentile: float = 99.
                 x=sub["2th"], y=sub["azimuth"], mode="markers", name=name,
                 marker=dict(color=color, size=5, line=dict(width=0.5, color="black"))))
     return fig
+
+
+def _group_color_map(peaks_df) -> dict:
+    """Map each group to a stable colour (matching :func:`plot_extracted_peaks`)."""
+    cmap = {}
+    if peaks_df is not None and not peaks_df.empty and "group" in peaks_df.columns:
+        for i, g in enumerate(sorted(peaks_df["group"].unique())):
+            cmap[int(g)] = "#9e9e9e" if g == -1 else _GROUP_COLORS[i % len(_GROUP_COLORS)]
+    return cmap
+
+
+def plot_bin_peak_fits(cake: CakeData, grid, peaks_df, *, bin_index, n_bins,
+                       tth_min, tth_max, group_labels=None) -> go.Figure:
+    """1D lineout of one azimuth bin with the extracted peak fits overlaid.
+
+    The bin's averaged (background-subtracted) 2θ profile is drawn, and each peak found
+    in that bin is reconstructed from its stored ``(2th, intensity, fwhm, gl)`` — a FITYK
+    Pseudo-Voigt when a ``gl`` column is present (FWHM = 2·sigma), otherwise a Gaussian
+    (FWHM = 2.35482·sigma) — so the curves mirror the results table. The bin lineout, each
+    fitted peak (coloured by group, matching the overlay plot), their sum (composite), and
+    any fallback (unfitted) peak centres are separate legend-toggleable traces.
+    """
+    group_labels = group_labels or {}
+    twotheta = np.asarray(cake.twotheta, dtype=float)
+    grid = np.asarray(grid, dtype=float)
+    az = np.asarray(cake.azimuth, dtype=float)
+    mask = (twotheta >= tth_min) & (twotheta <= tth_max)
+    tth_win = twotheta[mask]
+
+    _edges, bidx, _bw = assign_azimuth_bins(az, int(n_bins))
+    rows_in_bin = np.where(bidx == int(bin_index))[0]
+    if rows_in_bin.size and tth_win.size:
+        lineout = grid[rows_in_bin][:, mask].mean(axis=0)
+        az_lo, az_hi = float(az[rows_in_bin].min()), float(az[rows_in_bin].max())
+        title = (f"Bin {int(bin_index)} peak fits — azimuth {az_lo:.1f}° to {az_hi:.1f}° "
+                 f"(mean of {rows_in_bin.size} rows)")
+    else:
+        lineout = np.zeros(tth_win.size)
+        title = f"Bin {int(bin_index)} — no data"
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=tth_win, y=lineout, name="Bin lineout", mode="lines",
+                             line=dict(color="#444444", width=1.5)))
+
+    color_map = _group_color_map(peaks_df)
+    sub = (peaks_df[peaks_df["bin"] == int(bin_index)]
+           if peaks_df is not None and not peaks_df.empty and "bin" in peaks_df.columns
+           else None)
+    is_pv = sub is not None and "gl" in sub.columns
+    composite = np.zeros(tth_win.size)
+    n_fits = 0
+    if sub is not None and tth_win.size:
+        for _, r in sub.sort_values("2th").iterrows():
+            g = int(r["group"])
+            center, amp, fwhm = float(r["2th"]), float(r["intensity"]), float(r["fwhm"])
+            color = color_map.get(g, _GROUP_COLORS[0])
+            label = str(group_labels.get(g, "")).strip()
+            gname = "unassigned" if g == -1 else f"group {g}"
+            if label:
+                gname = f"{gname} · {label}"
+            gl = float(r["gl"]) if (is_pv and "gl" in r) else float("nan")
+            if np.isfinite(fwhm) and fwhm > 0 and np.isfinite(amp):
+                if is_pv and np.isfinite(gl):
+                    curve = _pseudo_voigt(tth_win, amp, center, fwhm / 2.0, gl)
+                else:
+                    curve = _gaussian(tth_win, amp, center, fwhm / 2.35482)
+                composite = composite + curve
+                n_fits += 1
+                fig.add_trace(go.Scatter(
+                    x=tth_win, y=curve, name=f"{gname} @ {center:.3f}°", mode="lines",
+                    line=dict(color=color, width=1.5, dash="dot")))
+            else:
+                # Fit failed / fell back to the raw position: mark the centre instead.
+                fig.add_trace(go.Scatter(
+                    x=[center], y=[amp if np.isfinite(amp) else 0.0],
+                    name=f"{gname} @ {center:.3f}° (raw)", mode="markers",
+                    marker=dict(color=color, size=9, symbol="triangle-down",
+                                line=dict(width=1, color="black"))))
+    if n_fits > 1:
+        fig.add_trace(go.Scatter(x=tth_win, y=composite, name="Composite fit",
+                                 mode="lines", line=dict(color="black", width=1, dash="dash"),
+                                 visible="legendonly"))
+
+    fig.update_layout(
+        title=title, xaxis_title="2th (degrees)", yaxis_title="Intensity",
+        margin=dict(l=60, r=20, t=40, b=50),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0))
+    return fig

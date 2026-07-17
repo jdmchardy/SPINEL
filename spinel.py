@@ -499,6 +499,10 @@ with tab_peaks:
                     seed_prominence=float(ex_seedp), min_seed_distance=_seed_pts,
                     detect_sigma=float(ex_dets), fit_window=int(ex_fitwin), max_shift=_ms)
             st.session_state.extracted_peaks = _pk
+            # Store the params the peak-fit lineout viewer needs to reproduce the binning.
+            st.session_state.extracted_peaks_params = {
+                "tth_min": float(ex_tmin), "tth_max": float(ex_tmax),
+                "n_bins": int(ex_bins), "peak_shape": ex_shape}
             st.session_state.extracted_peaks_ver = \
                 st.session_state.get("extracted_peaks_ver", 0) + 1
             if _pk.empty:
@@ -577,6 +581,36 @@ with tab_peaks:
             st.plotly_chart(
                 cp.plot_extracted_peaks(_xc, _grid, _labeled, percentile=cake_percentile,
                                         group_labels=_glabels),
+                width='stretch')
+
+            # --- Lineout peak-fit viewer (per azimuth bin) ---
+            _pf = st.session_state.get("extracted_peaks_params", {})
+            _vb_nbins = max(1, min(int(_pf.get("n_bins", max(1, _xc.azimuth.size // 2))),
+                                   int(_xc.azimuth.size)))
+            _vb_tmin = float(_pf.get("tth_min", float(_xc.twotheta.min())))
+            _vb_tmax = float(_pf.get("tth_max", float(_xc.twotheta.max())))
+            _edges_v, _bidx_v, _bw_v = cp.assign_azimuth_bins(_xc.azimuth, _vb_nbins)
+            _azmin_v, _azmax_v = float(_xc.azimuth.min()), float(_xc.azimuth.max())
+            _def_v = float(min(max(
+                st.session_state.get("peakfit_azimuth", float(_xc.azimuth[_xc.azimuth.size // 2])),
+                _azmin_v), _azmax_v))
+            st.markdown("**Lineout peak-fit viewer** — the binned 1D profile with every "
+                        "fitted peak overlaid, for the azimuth bin you pick. Toggle traces "
+                        "via the legend.")
+            _sel_v = st.slider(
+                "Azimuth for peak-fit lineout (°)", min_value=_azmin_v, max_value=_azmax_v,
+                value=_def_v, step=float(_bw_v),
+                help="Selects the azimuth bin whose 1D lineout and peak fits are shown below "
+                     "(same binning as the extraction).")
+            st.session_state.peakfit_azimuth = float(_sel_v)
+            _sel_bin_v = int(_bidx_v[int(np.argmin(np.abs(_xc.azimuth - _sel_v)))])
+            _n_in_bin = int((_labeled["bin"] == _sel_bin_v).sum()) \
+                if "bin" in _labeled.columns else 0
+            st.caption(f"Bin {_sel_bin_v}: {_n_in_bin} extracted peak(s) in this azimuth bin.")
+            st.plotly_chart(
+                cp.plot_bin_peak_fits(_xc, _grid, _labeled, bin_index=_sel_bin_v,
+                                      n_bins=_vb_nbins, tth_min=_vb_tmin, tth_max=_vb_tmax,
+                                      group_labels=_glabels),
                 width='stretch')
 
 with tab_sim:
