@@ -153,12 +153,20 @@ can resume later, which is how **azimuth gaps from preferred orientation** are h
   Larger tolerates bigger strain shifts but risks jumping to a neighbouring ring.
 
 #### 3 · Fit each detected peak
-Each peak is refined with the chosen **Peak shape** (Gaussian or Pseudo-Voigt) over a small
-window, giving a sub-bin 2θ centre, amplitude and FWHM. If the fit fails or its centre
-leaves the window, the raw located position is kept.
+Each detected peak is refined with the chosen **Peak shape** over a small local window of
+2θ samples centred on the located point, giving a sub-bin 2θ centre, amplitude and FWHM (and,
+for Pseudo-Voigt, the fitted Gaussian↔Lorentzian fraction *gl*). If the fit fails or its
+centre leaves the window, the raw located position is kept.
+- **Fit window** — the half-width, in 2θ *samples*, of the local slice fitted around each
+  peak: the fit spans ±this many points (2·N+1 samples total). It should comfortably cover a
+  peak's full width without reaching into its neighbours — too small and the shape/FWHM are
+  poorly constrained, too large and an adjacent ring or curved residual biases the fit.
+  Typical **8–25 samples**; the control shows the matching ±° for your data's 2θ step.
+- **Peak shape** — Pseudo-Voigt (a *gl*-weighted blend of a Gaussian and a Lorentzian of the
+  same width, FWHM = 2·σ; *gl* is fitted per peak from a 0.5 start and reported in the table)
+  suits most powder peaks. Gaussian is for clean, symmetric peaks and reports no *gl*.
 - **Azimuth bins** — how many bins the cake is averaged into for the search. More bins =
   finer azimuthal detail but noisier lineouts; usually match the background binning.
-- **Peak shape** — Pseudo-Voigt suits most powder peaks; Gaussian for clean, symmetric ones.
 
 #### Result & correction
 One approximate 2θ per (azimuth bin, ring) is produced, shown overlaid on the cake coloured
@@ -825,23 +833,34 @@ def plot_cake_heatmap(cake: CakeData, percentile: float = 99.5) -> go.Figure:
 # 2D Refinement Tools — experimental peak extraction from a (background-subtracted) cake
 # ===================================================================================
 
+# Initial guess for the Pseudo-Voigt Gaussian<->Lorentzian fraction (gl), also the
+# starting value the fit refines from. 0 = pure Gaussian, 1 = pure Lorentzian.
+PSEUDOVOIGT_DEFAULT_GL = 0.5
+
+
 def _gaussian(x, amp, center, sigma):
     return amp * np.exp(-0.5 * ((x - center) / sigma) ** 2)
 
 
-def _pseudo_voigt(x, amp, center, sigma, eta):
-    """Pseudo-Voigt: eta-weighted sum of a Gaussian and a Lorentzian of the same width."""
+def _pseudo_voigt(x, amp, center, sigma, gl):
+    """FITYK-style Pseudo-Voigt: a ``gl``-weighted sum of a Gaussian and a Lorentzian.
+
+    ``gl`` is the Gaussian->Lorentzian fraction (0 = pure Gaussian, 1 = pure Lorentzian).
+    In this parametrisation the FWHM is ``2*sigma`` for any ``gl`` (both components share
+    half-max at ``|x - center| = sigma``).
+    """
     z = (x - center) / sigma
-    gauss = np.exp(-0.5 * z * z)
+    gauss = np.exp(-np.log(2.0) * z * z)
     lorentz = 1.0 / (1.0 + z * z)
-    return amp * ((1.0 - eta) * gauss + eta * lorentz)
+    return amp * ((1.0 - gl) * gauss + gl * lorentz)
 
 
 def _fit_peak(x, y, peak_idx, peak_shape, fit_window):
-    """Fit a single peak with the chosen shape in a window; return (center, amp, fwhm).
+    """Fit a single peak with the chosen shape in a window.
 
-    Falls back to the raw find_peaks position/height if the fit fails or the fitted
-    centre leaves the window.
+    Returns ``(center, amp, fwhm, gl)``. ``gl`` is the fitted Gaussian->Lorentzian
+    fraction for a Pseudo-Voigt, or ``nan`` for a pure Gaussian. Falls back to the raw
+    find_peaks position/height if the fit fails or the fitted centre leaves the window.
     """
     n = x.size
     lo = max(0, peak_idx - fit_window)
@@ -854,17 +873,21 @@ def _fit_peak(x, y, peak_idx, peak_shape, fit_window):
         if peak_shape == "Gaussian":
             popt, _ = curve_fit(_gaussian, xw, yw, p0=[amp0, x0, sigma0], maxfev=2000)
             amp, center, sigma = popt
+            fwhm = 2.35482 * abs(sigma)     # Gaussian std -> FWHM
+            gl = float("nan")
         else:
             popt, _ = curve_fit(
-                _pseudo_voigt, xw, yw, p0=[amp0, x0, sigma0, 0.5],
+                _pseudo_voigt, xw, yw, p0=[amp0, x0, sigma0, PSEUDOVOIGT_DEFAULT_GL],
                 bounds=([0.0, float(x[lo]), 1e-4, 0.0],
                         [np.inf, float(x[hi - 1]), np.inf, 1.0]), maxfev=3000)
-            amp, center, sigma, _eta = popt
+            amp, center, sigma, gl = popt
+            fwhm = 2.0 * abs(sigma)         # FITYK Pseudo-Voigt: FWHM = 2*sigma for any gl
+            gl = float(gl)
         if not (x[lo] <= center <= x[hi - 1]):
             raise ValueError("fitted centre outside window")
-        return float(center), float(amp), float(2.35482 * abs(sigma))
+        return float(center), float(amp), float(fwhm), gl
     except Exception:
-        return x0, amp0, float("nan")
+        return x0, amp0, float("nan"), float("nan")
 
 
 def seed_group_centres(cake: CakeData, grid, *, tth_min, tth_max, n_groups,
@@ -942,7 +965,12 @@ def extract_and_group_peaks(
     seeds, strengths = seed_group_centres(
         cake, grid, tth_min=tth_min, tth_max=tth_max, n_groups=max_peaks,
         prominence=seed_prominence, min_distance=min_seed_distance)
-    cols = ["bin", "azimuth", "2th", "intensity", "fwhm", "group"]
+    # Report the fitted Gaussian<->Lorentzian fraction only for the Pseudo-Voigt shape.
+    want_gl = (peak_shape != "Gaussian")
+    cols = ["bin", "azimuth", "2th", "intensity", "fwhm"]
+    if want_gl:
+        cols.append("gl")
+    cols.append("group")
     if seeds.size == 0:
         return pd.DataFrame(columns=cols), seeds
     if max_shift is None:
@@ -977,11 +1005,14 @@ def extract_and_group_peaks(
             k = int(win[int(np.argmax(lineout[win]))])
             if lineout[k] <= 0 or lineout[k] < threshold:
                 continue
-            center, amp, fwhm = _fit_peak(tth_win, lineout, k, peak_shape, fit_window)
+            center, amp, fwhm, gl = _fit_peak(tth_win, lineout, k, peak_shape, fit_window)
             if abs(center - centres[g]) > max_shift:   # fit escaped the window
                 center = float(tth_win[k])
-            rows.append({"bin": int(b), "azimuth": az_center, "2th": center,
-                         "intensity": amp, "fwhm": fwhm, "group": int(g)})
+            row = {"bin": int(b), "azimuth": az_center, "2th": center,
+                   "intensity": amp, "fwhm": fwhm, "group": int(g)}
+            if want_gl:
+                row["gl"] = gl
+            rows.append(row)
             centres[g] = center
     df = pd.DataFrame(rows, columns=cols)
     if not df.empty:

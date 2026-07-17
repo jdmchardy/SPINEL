@@ -478,6 +478,15 @@ with tab_peaks:
                          "still join it. Larger tolerates bigger strain shifts but risks "
                          "jumping to a neighbour. Typical 0.2–1.0°; 0 = auto (~0.4x seed "
                          "spacing).")
+                ex_fitwin = st.number_input("Fit window (samples)", min_value=3,
+                    value=15, step=1,
+                    help="Half-width, in 2θ samples, of the local slice fitted around each "
+                         "detected peak (the fit spans ±this many points, 2N+1 total). "
+                         "Cover the full peak width without reaching neighbouring rings. "
+                         "Typical 8–25. Data 2θ step ≈ {:.4f}°/sample.".format(_tth_step))
+                st.caption("Fit window ≈ ±{:.3f}° around each peak "
+                           "(±{} samples).".format(int(ex_fitwin) * _tth_step,
+                                                   int(ex_fitwin)))
             ex_submit = st.form_submit_button("Extract peaks")
 
         if ex_submit:
@@ -488,7 +497,7 @@ with tab_peaks:
                     _xc, _grid, tth_min=float(ex_tmin), tth_max=float(ex_tmax),
                     n_bins=int(ex_bins), max_peaks=int(ex_maxpk), peak_shape=ex_shape,
                     seed_prominence=float(ex_seedp), min_seed_distance=_seed_pts,
-                    detect_sigma=float(ex_dets), max_shift=_ms)
+                    detect_sigma=float(ex_dets), fit_window=int(ex_fitwin), max_shift=_ms)
             st.session_state.extracted_peaks = _pk
             st.session_state.extracted_peaks_ver = \
                 st.session_state.get("extracted_peaks_ver", 0) + 1
@@ -513,6 +522,9 @@ with tab_peaks:
                     "2th": st.column_config.NumberColumn("2θ (°)", disabled=True, format="%.3f"),
                     "intensity": st.column_config.NumberColumn("intensity", disabled=True, format="%.0f"),
                     "fwhm": st.column_config.NumberColumn("fwhm (°)", disabled=True, format="%.3f"),
+                    "gl": st.column_config.NumberColumn("gl (G↔L)", disabled=True, format="%.2f",
+                        help="Fitted Gaussian↔Lorentzian fraction (0 = Gaussian, 1 = "
+                             "Lorentzian); Pseudo-Voigt only."),
                     "group": st.column_config.NumberColumn("group (hkl)", min_value=-1, step=1),
                 })
             # Dynamic-row edits can introduce NaN group cells (added/blanked rows);
