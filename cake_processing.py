@@ -21,10 +21,11 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from PIL import Image
 from numpy.polynomial.chebyshev import Chebyshev
 from scipy.ndimage import gaussian_filter1d
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, least_squares
 from scipy.signal import find_peaks
 
 
@@ -1154,4 +1155,334 @@ def plot_bin_peak_fits(cake: CakeData, grid, peaks_df, *, bin_index, n_bins,
         title=title, xaxis_title="2th (degrees)", yaxis_title="Intensity",
         margin=dict(l=60, r=20, t=40, b=50),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0))
+    return fig
+
+
+# =========================================================================
+# Stage 1 refinement: match simulated Mean two_th @ delta to experimental
+# peak positions (2th vs azimuth), per hkl reflection.
+#
+# The forward model is spinel_core.compute_strain, INJECTED as ``strain_fn`` so
+# this module never imports spinel_core (which pulls in pyFAI/lmfit and imports
+# cake_processing itself -> would be circular). The optimiser is
+# scipy.optimize.least_squares, so refinement runs anywhere scipy is available.
+# =========================================================================
+
+REFINEMENT_HELP_MD = """\
+### Stage 1 refinement — peak positions
+
+For every hkl this compares the **experimental** mean 2θ at each azimuth bin (loaded from
+a peak-fit CSV) with the **simulated** `Mean two_th @ delta` from `compute_strain`, using
+the model set up on the **Simulation** tab (symmetry, elastic constants, PO, wavelength, χ).
+
+- The simulated curve is evaluated on its own azimuth (δ) grid and **interpolated**
+  (periodically, 360°) onto the experimental azimuths, then residuals `data − sim` are
+  minimised by least squares over the parameters you enable.
+- **Parameters** (each toggleable): lattice lengths `a` (and `b`, `c` where the symmetry
+  needs them), the six stress components `σ11…σ23`, and `χ`. A good first pass is
+  `a`, `σ11`, `σ33` only, with the other stresses fixed at 0. The differential stress
+  **t = σ33 − σ11** is reported from the refined values.
+- Only hkls present in **both** the CSV (with an assigned label) and the Simulation-tab
+  hkl list can be refined; untick any to exclude them.
+"""
+
+SIGMA_NAMES = ["sigma_11", "sigma_22", "sigma_33", "sigma_12", "sigma_13", "sigma_23"]
+
+
+def lattice_param_names(symmetry) -> list:
+    """Independent (refineable) lattice-length parameters for a symmetry.
+
+    The dependent lengths are coupled to these by :func:`apply_symmetry_constraints`
+    (e.g. cubic b, c inherit a). Angles are fixed in Stage 1.
+    """
+    s = (symmetry or "").lower()
+    if s.startswith("cubic"):
+        return ["a_val"]
+    if s.startswith(("hex", "tetra", "trig")):
+        return ["a_val", "c_val"]
+    return ["a_val", "b_val", "c_val"]
+
+
+def apply_symmetry_constraints(symmetry, lattice_params) -> dict:
+    """Couple the dependent lattice lengths to ``a`` for the given crystal symmetry.
+
+    - cubic: ``b = c = a``
+    - hexagonal / tetragonal / trigonal: ``b = a`` (c independent)
+    - orthorhombic (and anything else): ``a``, ``b``, ``c`` left independent
+
+    Angles are untouched. Applied after overlaying refined values so a refined ``a``
+    always propagates to its symmetry-locked partners.
+    """
+    lp = dict(lattice_params)
+    s = (symmetry or "").lower()
+    a = lp.get("a_val")
+    if s.startswith("cubic"):
+        lp["b_val"] = a
+        lp["c_val"] = a
+    elif s.startswith(("hex", "tetra", "trig")):
+        lp["b_val"] = a
+    return lp
+
+
+def hkl_label(hkl) -> str:
+    """Canonical string label for an (h, k, l) tuple, matching compute_strain."""
+    h, k, l = hkl
+    return f"{int(h)}{int(k)}{int(l)}"
+
+
+def normalize_hkl_label(value) -> str:
+    """Normalise an assigned hkl label so it matches the simulated ``f'{h}{k}{l}'`` form.
+
+    Handles CSV round-trips where a numeric hkl column is parsed as a float (``111`` ->
+    ``111.0``) and strips surrounding whitespace; blanks/NaN become ``""``.
+    """
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return ""
+    s = str(value).strip()
+    if s.lower() in ("", "nan"):
+        return ""
+    if s.endswith(".0") and s[:-2].lstrip("-").isdigit():
+        s = s[:-2]
+    return s
+
+
+def load_labelled_peaks_csv(file, filename=None) -> pd.DataFrame:
+    """Load a peak-fit CSV (as exported by the Peak Extraction tab).
+
+    Requires ``azimuth``, ``2th`` and ``hkl`` columns; rows with a blank/NaN hkl are
+    dropped (they cannot be matched to a simulated reflection).
+    """
+    df = pd.read_csv(file)
+    needed = {"azimuth", "2th", "hkl"}
+    missing = needed - set(df.columns)
+    if missing:
+        raise ValueError(
+            "CSV missing column(s): " + ", ".join(sorted(missing)) +
+            ". Expected the peak-fit export (azimuth, 2th, hkl, ...).")
+    df = df.copy()
+    df["hkl"] = df["hkl"].map(normalize_hkl_label)
+    df = df[df["hkl"] != ""]
+    return df.reset_index(drop=True)
+
+
+def experimental_hkl_curves(peaks_df, azimuth_col="azimuth", tth_col="2th",
+                            hkl_col="hkl") -> dict:
+    """Group labelled peaks by hkl and average 2θ per azimuth bin.
+
+    Returns ``{hkl_label: DataFrame[azimuth, mean_2th, n]}`` sorted by azimuth. Points
+    sharing an (hkl, azimuth) bin are averaged.
+    """
+    out = {}
+    if peaks_df is None or peaks_df.empty or hkl_col not in peaks_df.columns:
+        return out
+    for hkl, sub in peaks_df.groupby(hkl_col):
+        g = (sub.groupby(azimuth_col)[tth_col].agg(["mean", "size"]).reset_index()
+             .rename(columns={azimuth_col: "azimuth", "mean": "mean_2th", "size": "n"})
+             .sort_values("azimuth").reset_index(drop=True))
+        out[str(hkl)] = g
+    return out
+
+
+def interp_periodic(x_known, y_known, x_query, period=360.0):
+    """Linear interpolation of a periodic curve (azimuth in degrees, period 360).
+
+    ``x_known`` need not be sorted; the data is tiled one period each side so queries
+    between the last and first sample interpolate across the wrap point.
+    """
+    x_known = np.asarray(x_known, dtype=float)
+    y_known = np.asarray(y_known, dtype=float)
+    order = np.argsort(x_known)
+    xs, ys = x_known[order], y_known[order]
+    xe = np.concatenate([xs - period, xs, xs + period])
+    ye = np.concatenate([ys, ys, ys])
+    return np.interp(np.asarray(x_query, dtype=float), xe, ye)
+
+
+def _sim_curve_for_hkl(strain_fn, hkl, intensity, symmetry, lattice_params, wavelength,
+                       cijs, sigma_params, chi, po_model=None, coarse=False):
+    """Simulated (delta, mean_2th) curve for one hkl via the injected compute_strain."""
+    phi_values = np.radians(np.arange(0, 360, 5))
+    psi_values = 1 if coarse else 0    # compute_strain: 0 -> 2 deg deltas, nonzero -> 12 deg
+    label, df, _psi, _s = strain_fn(
+        hkl, intensity, symmetry, lattice_params, wavelength, cijs, sigma_params,
+        chi, phi_values, psi_values, po_model=po_model)
+    d = (df[["delta (degrees)", "Mean two_th @ delta"]].dropna()
+         .drop_duplicates("delta (degrees)").sort_values("delta (degrees)"))
+    return d["delta (degrees)"].to_numpy(), d["Mean two_th @ delta"].to_numpy(), label
+
+
+def simulate_all_curves(strain_fn, sim_context, lattice_params, sigma_params, chi,
+                        hkl_labels=None, coarse=False) -> dict:
+    """Compute ``{hkl_label: (delta, mean_2th)}`` for the requested hkls."""
+    out = {}
+    for hkl, inten in zip(sim_context["selected_hkls"], sim_context["intensities"]):
+        label = hkl_label(hkl)
+        if hkl_labels is not None and label not in hkl_labels:
+            continue
+        delta, sim2th, _ = _sim_curve_for_hkl(
+            strain_fn, hkl, inten, sim_context["symmetry"], lattice_params,
+            sim_context["wavelength"], sim_context["cijs"], sigma_params, chi,
+            po_model=sim_context.get("po_model"), coarse=coarse)
+        out[label] = (delta, sim2th)
+    return out
+
+
+def _assemble_params(sim_context, values):
+    """Overlay refineable ``values`` onto the sim_context base lattice/sigma/chi."""
+    lattice_params = dict(sim_context["lattice_params"])
+    for key in ("a_val", "b_val", "c_val", "alpha", "beta", "gamma"):
+        if key in values:
+            lattice_params[key] = float(values[key])
+    # Enforce symmetry coupling so a refined `a` propagates to b/c as required.
+    lattice_params = apply_symmetry_constraints(sim_context.get("symmetry"), lattice_params)
+    sigma_params = {n: float(values.get(n, sim_context["sigma_params"].get(n, 0.0)))
+                    for n in SIGMA_NAMES}
+    chi = float(values.get("chi", sim_context["chi"]))
+    return lattice_params, sigma_params, chi
+
+
+def _param_bounds(name, value):
+    """Least-squares bounds per parameter (mirrors run_refinement's ranges)."""
+    if name in ("a_val", "b_val", "c_val"):
+        return (0.75 * value, 1.25 * value) if value else (0.0, np.inf)
+    if name.startswith("sigma_"):
+        return (-25.0, 25.0)
+    if name == "chi":
+        return (-90.0, 90.0)
+    return (-np.inf, np.inf)
+
+
+def evaluate_curves_and_residuals(strain_fn, sim_context, exp_curves, values,
+                                  coarse=False) -> dict:
+    """Simulate every included hkl at ``values`` and score it against the experiment.
+
+    Returns ``sim_curves`` (for plotting), per-hkl RMSE, overall RMSE and the derived
+    differential stress ``t = sigma_33 - sigma_11``.
+    """
+    lattice_params, sigma_params, chi = _assemble_params(sim_context, values)
+    labels = set(exp_curves.keys())
+    sims = simulate_all_curves(strain_fn, sim_context, lattice_params, sigma_params, chi,
+                               hkl_labels=labels, coarse=coarse)
+    per_hkl, all_res = {}, []
+    for label, g in exp_curves.items():
+        if label not in sims:
+            per_hkl[label] = float("nan")
+            continue
+        delta, sim2th = sims[label]
+        resid = g["mean_2th"].to_numpy() - interp_periodic(delta, sim2th,
+                                                           g["azimuth"].to_numpy())
+        per_hkl[label] = float(np.sqrt(np.mean(resid ** 2))) if resid.size else float("nan")
+        all_res.append(resid)
+    rmse = float(np.sqrt(np.mean(np.concatenate(all_res) ** 2))) if all_res else float("nan")
+    return {"sim_curves": sims, "per_hkl": per_hkl, "rmse": rmse,
+            "t": float(sigma_params["sigma_33"] - sigma_params["sigma_11"]),
+            "lattice_params": lattice_params, "sigma_params": sigma_params, "chi": chi}
+
+
+def _stderr_from_result(result, names):
+    """1-sigma parameter errors from the least_squares Jacobian (best effort)."""
+    try:
+        J = result.jac
+        dof = max(1, J.shape[0] - J.shape[1])
+        cov = np.linalg.inv(J.T @ J) * (2.0 * result.cost / dof)
+        se = np.sqrt(np.abs(np.diag(cov)))
+        return {n: float(s) for n, s in zip(names, se)}
+    except Exception:
+        return {n: float("nan") for n in names}
+
+
+def run_stage1_refinement(strain_fn, sim_context, exp_curves, init_values, refine_flags,
+                          coarse=True, max_nfev=200) -> dict:
+    """Least-squares refine peak positions across the included hkls.
+
+    ``init_values`` holds a starting value for every refineable parameter (lattice
+    a/b/c, the six sigma components, chi); ``refine_flags`` selects which vary. The
+    forward model is evaluated on the coarse (12 deg) delta grid while iterating.
+
+    Returns a dict: ``values`` (refined, full set), ``errors`` (per free param),
+    ``success``, ``message``, ``rmse``, ``n_points``, ``n_free``, ``t``.
+    """
+    free = [n for n, on in refine_flags.items() if on and n in init_values]
+    labels = list(exp_curves.keys())
+    az = {L: exp_curves[L]["azimuth"].to_numpy() for L in labels}
+    y = {L: exp_curves[L]["mean_2th"].to_numpy() for L in labels}
+    n_points = int(sum(v.size for v in y.values()))
+
+    def residuals(vec):
+        values = dict(init_values)
+        for n, v in zip(free, vec):
+            values[n] = v
+        lattice_params, sigma_params, chi = _assemble_params(sim_context, values)
+        sims = simulate_all_curves(strain_fn, sim_context, lattice_params, sigma_params,
+                                   chi, hkl_labels=set(labels), coarse=coarse)
+        res = []
+        for L in labels:
+            if L not in sims:
+                continue
+            delta, sim2th = sims[L]
+            res.append(y[L] - interp_periodic(delta, sim2th, az[L]))
+        return np.concatenate(res) if res else np.zeros(1)
+
+    if not free:
+        r = residuals(np.array([]))
+        return {"values": dict(init_values), "errors": {}, "success": True,
+                "message": "No parameters selected to refine.",
+                "rmse": float(np.sqrt(np.mean(r ** 2))), "n_points": n_points,
+                "n_free": 0, "t": float(init_values.get("sigma_33", 0.0)
+                                        - init_values.get("sigma_11", 0.0))}
+
+    x0 = np.array([init_values[n] for n in free], dtype=float)
+    lo = np.array([_param_bounds(n, init_values[n])[0] for n in free], dtype=float)
+    hi = np.array([_param_bounds(n, init_values[n])[1] for n in free], dtype=float)
+    x0 = np.clip(x0, lo, hi)
+    result = least_squares(residuals, x0, bounds=(lo, hi), max_nfev=max_nfev)
+
+    refined = dict(init_values)
+    for n, v in zip(free, result.x):
+        refined[n] = float(v)
+    r = result.fun
+    return {"values": refined, "errors": _stderr_from_result(result, free),
+            "success": bool(result.success), "message": str(result.message),
+            "rmse": float(np.sqrt(np.mean(r ** 2))), "n_points": n_points,
+            "n_free": len(free),
+            "t": float(refined.get("sigma_33", 0.0) - refined.get("sigma_11", 0.0))}
+
+
+def plot_refinement_grid(exp_curves, sim_curves, ncols=4, included=None,
+                         row_height=260) -> go.Figure:
+    """Grid (``ncols`` wide) of 2θ-vs-azimuth panels: data points + simulated line.
+
+    Excluded hkls (not in ``included``) are greyed. One panel per hkl in ``exp_curves``.
+    """
+    labels = list(exp_curves.keys())
+    n = len(labels)
+    if n == 0:
+        return go.Figure()
+    ncols = int(max(1, ncols))
+    nrows = int(np.ceil(n / ncols))
+    included = set(labels) if included is None else set(included)
+    fig = make_subplots(rows=nrows, cols=ncols,
+                        subplot_titles=[f"hkl {L}" for L in labels],
+                        horizontal_spacing=0.06,
+                        vertical_spacing=min(0.12, 0.6 / nrows))
+    for i, L in enumerate(labels):
+        r, c = i // ncols + 1, i % ncols + 1
+        on = L in included
+        g = exp_curves[L]
+        fig.add_trace(go.Scatter(
+            x=g["azimuth"], y=g["mean_2th"], mode="markers", name=f"{L} data",
+            marker=dict(color="#e6194B" if on else "#c9c9c9", size=5),
+            showlegend=False), row=r, col=c)
+        if L in sim_curves:
+            delta, sim2th = sim_curves[L]
+            o = np.argsort(np.asarray(delta, dtype=float))
+            fig.add_trace(go.Scatter(
+                x=np.asarray(delta)[o], y=np.asarray(sim2th)[o], mode="lines",
+                name=f"{L} sim",
+                line=dict(color="#4363d8" if on else "#dddddd", width=1.6),
+                showlegend=False), row=r, col=c)
+    fig.update_xaxes(title_text="azimuth (°)")
+    fig.update_yaxes(title_text="2θ (°)")
+    fig.update_layout(height=row_height * nrows, margin=dict(l=60, r=20, t=40, b=50),
+                      title="2θ vs azimuth — data (points) vs simulation (line)")
     return fig

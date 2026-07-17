@@ -97,7 +97,8 @@ with col_img:
     st.image(img, width='stretch')
 
 
-tab_sim, tab_cake, tab_peaks = st.tabs(["Simulation", "Cake Import & Background", "Peak Extraction"])
+tab_sim, tab_cake, tab_peaks, tab_refine = st.tabs(
+    ["Simulation", "Cake Import & Background", "Peak Extraction", "Stage 1 Refinement"])
 
 with tab_cake:
     # --- Cake Import (independent of the elastic/hkl CSV workflow) ---
@@ -974,7 +975,21 @@ with tab_sim:
             sigma_params = {}
             for key in sigma_keys:
                 sigma_params[key] = st.session_state.params.get(key)
-        
+
+            # Persist the full simulation context so the Stage 1 Refinement tab can gate on
+            # it and reuse the exact model set up here (pure UI-state; no compute change).
+            st.session_state.sim_context = {
+                "selected_hkls": selected_hkls,
+                "intensities": intensities,
+                "symmetry": symmetry,
+                "wavelength": wavelength,
+                "chi": chi,
+                "cijs": cijs,
+                "lattice_params": lattice_params,
+                "sigma_params": sigma_params,
+                "po_model": po_model,
+            }
+
             # psi_steps / phi_steps / alpha_steps come directly from the sidebar widgets
             results_dict = {}  # Store results per HKL reflection
             
@@ -1461,6 +1476,187 @@ with tab_sim:
         
                         #plot_overlay(x_exp_common, y_exp_common, x_exp_common, y_sim_common, title="Refined Fit")
                         generate_1D_XRD_overlay(XRD_df, x_exp, y_exp)
-                    
+
                     else:
                         st.error("Refinement failed.")
+
+with tab_refine:
+    st.header("Stage 1 Refinement — peak positions")
+    with st.expander("How Stage 1 refinement works", expanded=False):
+        st.markdown(cp.REFINEMENT_HELP_MD)
+
+    _sc = st.session_state.get("sim_context")
+    if not _sc or not _sc.get("selected_hkls"):
+        st.info("Set up the simulation first: on the **Simulation** tab load the elastic/hkl "
+                "CSV and set the symmetry, χ, wavelength and (optional) PO model. Those "
+                "values seed this refinement.")
+    else:
+        # --- 1) Experimental peak positions: CSV upload or the in-session extracted peaks ---
+        _src = st.radio("Experimental peak source",
+                        ["Upload peak-fit CSV", "Use current session peaks"], horizontal=True)
+        _peaks_df = None
+        if _src == "Upload peak-fit CSV":
+            _rf = st.file_uploader("Peak-fit CSV (azimuth, 2th, hkl, …)", type=["csv"],
+                                   key="refine_csv")
+            if _rf is not None:
+                try:
+                    _peaks_df = cp.load_labelled_peaks_csv(_rf, filename=_rf.name)
+                except Exception as _e:
+                    st.error(f"Could not read CSV: {_e}")
+        else:
+            _sess = st.session_state.get("extracted_peaks_final")
+            if _sess is not None and not _sess.empty and "hkl" in _sess.columns:
+                _tmp = _sess.copy()
+                _tmp["hkl"] = _tmp["hkl"].map(cp.normalize_hkl_label)
+                _tmp = _tmp[_tmp["hkl"] != ""]
+                _peaks_df = _tmp if not _tmp.empty else None
+                if _peaks_df is None:
+                    st.warning("Session peaks have no assigned hkl labels — assign them on the "
+                               "**Peak Extraction** tab first.")
+            else:
+                st.warning("No labelled in-session peaks. Extract & label them on the "
+                           "**Peak Extraction** tab, or upload a CSV.")
+
+        if _peaks_df is None or _peaks_df.empty:
+            st.caption("Load experimental peak positions to begin.")
+        else:
+            _exp_all = cp.experimental_hkl_curves(_peaks_df)
+            _sim_labels = [cp.hkl_label(h) for h in _sc["selected_hkls"]]
+            _matched = [L for L in _exp_all if L in _sim_labels]
+            _unmatched = [L for L in _exp_all if L not in _sim_labels]
+            if not _matched:
+                st.warning(f"No data hkl labels match the simulated set {_sim_labels}. "
+                           "Check the hkl labels assigned on the Peak Extraction tab.")
+            else:
+                if _unmatched:
+                    st.caption("Ignoring unmatched hkls (not in the Simulation list): "
+                               + ", ".join(_unmatched))
+
+                # --- 2) Which hkls to include in the fit ---
+                st.markdown("**Include hkls in the refinement**")
+                _inc_cols = st.columns(min(6, len(_matched)))
+                _included = []
+                for _i, _L in enumerate(_matched):
+                    with _inc_cols[_i % len(_inc_cols)]:
+                        _npts = int(_exp_all[_L]["n"].sum())
+                        if st.checkbox(f"{_L} ({_npts})", value=True, key=f"refine_inc_{_L}"):
+                            _included.append(_L)
+                # All matched hkls are always plotted; only the ticked ones enter the fit.
+                _exp_view = {_L: _exp_all[_L] for _L in _matched}
+                _exp_fit = {_L: _exp_all[_L] for _L in _included}
+
+                # --- 3) Parameters: initial value + refine toggle ---
+                st.markdown("**Refine parameters** — set the initial value and tick to refine. "
+                            "A robust first pass is `a`, `σ₁₁`, `σ₃₃` with the other stresses 0.")
+                _lat_names = cp.lattice_param_names(_sc["symmetry"])
+                _init, _flags = {}, {}
+                _pc = st.columns(3)
+                with _pc[0]:
+                    st.caption("Lattice (Å)")
+                    for _nm in ["a_val", "b_val", "c_val"]:
+                        if _nm in _lat_names:
+                            _init[_nm] = st.number_input(
+                                _nm, value=float(_sc["lattice_params"][_nm]),
+                                step=0.001, format="%.4f", key=f"ref_{_nm}")
+                            _flags[_nm] = st.checkbox(f"refine {_nm}", value=(_nm == "a_val"),
+                                                      key=f"reff_{_nm}")
+                        else:
+                            _init[_nm] = float(_sc["lattice_params"][_nm])
+                    # Show which lengths are symmetry-locked to a (b/c inherit a).
+                    _dep = [_n.replace("_val", "") for _n in ("b_val", "c_val")
+                            if _n not in _lat_names]
+                    if _dep:
+                        st.caption(f"{', '.join(_dep)} = a  ({_sc['symmetry']})")
+                with _pc[1]:
+                    st.caption("Stress (GPa)")
+                    for _nm, _on in [("sigma_11", True), ("sigma_33", True), ("sigma_22", False),
+                                     ("sigma_12", False), ("sigma_13", False), ("sigma_23", False)]:
+                        # Default the "rest" to 0; keep σ11/σ33 seeded from the Simulation tab.
+                        _base = float(_sc["sigma_params"][_nm]) if _nm in ("sigma_11", "sigma_33") else 0.0
+                        _init[_nm] = st.number_input(_nm, value=_base, step=0.1, format="%.3f",
+                                                     key=f"ref_{_nm}")
+                        _flags[_nm] = st.checkbox(f"refine {_nm}", value=_on, key=f"reff_{_nm}")
+                with _pc[2]:
+                    st.caption("Geometry / options")
+                    _init["chi"] = st.number_input("chi (deg)", value=float(_sc["chi"]),
+                                                   step=0.1, format="%.3f", key="ref_chi")
+                    _flags["chi"] = st.checkbox("refine chi", value=False, key="reff_chi")
+                    _fast = st.checkbox(
+                        "Fast (coarse 12° δ grid)", value=False,
+                        help="Use the coarse azimuth grid while iterating — faster, but the "
+                             "modulation amplitude (t) can be slightly biased. Leave off for "
+                             "the final refine.")
+                    st.metric("t = σ₃₃ − σ₁₁ (initial)",
+                              f"{_init['sigma_11']*-1 + _init['sigma_33']:.3f} GPa")
+
+                # --- 4) Compute model / run refinement (only on button press) ---
+                _sig = (tuple(sorted(_included)),
+                        tuple((k, round(float(_init[k]), 6)) for k in sorted(_init)),
+                        tuple(sorted(k for k, v in _flags.items() if v)), bool(_fast))
+                _b1, _b2 = st.columns(2)
+                with _b1:
+                    _preview = st.button("Preview model (no fit)", use_container_width=True)
+                with _b2:
+                    _run = st.button("Run Stage 1 refinement", type="primary",
+                                     use_container_width=True)
+
+                if _preview and _exp_view:
+                    with st.spinner("Evaluating model…"):
+                        _ev = cp.evaluate_curves_and_residuals(compute_strain, _sc,
+                                                               _exp_view, _init, coarse=False)
+                    st.session_state.stage1_view = {"eval": _ev, "sig": _sig, "result": None,
+                                                    "init": dict(_init), "flags": dict(_flags)}
+                if _run and _exp_fit:
+                    with st.spinner("Refining…"):
+                        _res = cp.run_stage1_refinement(compute_strain, _sc, _exp_fit,
+                                                        _init, _flags, coarse=_fast)
+                        _ev = cp.evaluate_curves_and_residuals(compute_strain, _sc, _exp_view,
+                                                               _res["values"], coarse=False)
+                    st.session_state.stage1_view = {"eval": _ev, "sig": _sig, "result": _res,
+                                                    "init": dict(_init), "flags": dict(_flags)}
+                elif _run and not _exp_fit:
+                    st.warning("Tick at least one hkl to include in the refinement.")
+
+                _view = st.session_state.get("stage1_view")
+                # --- 5) Results table ---
+                if _view and _view.get("result"):
+                    _res = _view["result"]
+                    _vi, _vr = _view["init"], _res["values"]
+                    (st.success if _res["success"] else st.warning)(
+                        f"{_res['message']}  ·  {_res['n_free']} param(s), "
+                        f"{_res['n_points']} points  ·  RMSE {_res['rmse']*1000:.2f} m°")
+                    _rows = []
+                    for _nm in [*_lat_names, *cp.SIGMA_NAMES, "chi"]:
+                        if _view["flags"].get(_nm):
+                            _rows.append({"parameter": _nm, "initial": _vi[_nm],
+                                          "refined": _vr[_nm],
+                                          "± 1σ": _res["errors"].get(_nm, float("nan"))})
+                    _rows.append({"parameter": "t = σ₃₃−σ₁₁",
+                                  "initial": _vi["sigma_33"] - _vi["sigma_11"],
+                                  "refined": _res["t"], "± 1σ": float("nan")})
+                    st.dataframe(pd.DataFrame(_rows), hide_index=True, use_container_width=True,
+                                 column_config={
+                                     "initial": st.column_config.NumberColumn(format="%.4f"),
+                                     "refined": st.column_config.NumberColumn(format="%.4f"),
+                                     "± 1σ": st.column_config.NumberColumn(format="%.4f")})
+
+                # --- 6) Overlay grid (data points + simulated line), 4 columns wide ---
+                if _view and _view.get("eval"):
+                    if _view["sig"] != _sig:
+                        st.caption("⚠️ Inputs changed since the last compute — press **Preview** "
+                                   "or **Run** to update the simulated curves.")
+                    _sim_curves = _view["eval"]["sim_curves"]
+                    _perhkl = _view["eval"]["per_hkl"]
+                    st.plotly_chart(
+                        cp.plot_refinement_grid(_exp_view, _sim_curves, ncols=4,
+                                                included=set(_included)),
+                        width='stretch')
+                    _ph = pd.DataFrame([{"hkl": _L, "in fit": _L in _included,
+                                         "points": int(_exp_all[_L]["n"].sum()),
+                                         "RMSE (°)": _perhkl.get(_L, float("nan"))}
+                                        for _L in _matched])
+                    st.dataframe(_ph, hide_index=True, use_container_width=True,
+                                 column_config={"RMSE (°)": st.column_config.NumberColumn(format="%.4f")})
+                else:
+                    st.caption("Press **Preview model** to overlay the current simulation on the "
+                               "data, or **Run Stage 1 refinement** to fit.")
