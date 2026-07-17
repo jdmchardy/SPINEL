@@ -515,9 +515,56 @@ with tab_peaks:
                     "fwhm": st.column_config.NumberColumn("fwhm (°)", disabled=True, format="%.3f"),
                     "group": st.column_config.NumberColumn("group (hkl)", min_value=-1, step=1),
                 })
-            st.session_state.extracted_peaks_final = _edited
+            # Dynamic-row edits can introduce NaN group cells (added/blanked rows);
+            # coerce to a safe int so the int(group) calls below never raise.
+            if "group" in _edited.columns:
+                _edited["group"] = _edited["group"].fillna(-1).astype(int)
+            # --- Assign hkl reflections to the groups ---
+            st.markdown("**Assign hkl reflections** — label each group with its hkl "
+                        "(and optional material/phase). The mean 2θ identifies the ring.")
+            _summary = cp.summarise_groups(_edited)
+            _saved = st.session_state.setdefault("cake_group_labels", {})
+            # Rebuild the label table only when the SET of groups changes, so edits within
+            # a fixed group set are not overwritten each rerun (avoids data_editor double-apply).
+            _grp_key = f"{st.session_state.get('extracted_peaks_ver', 0)}_" + \
+                "_".join(str(int(g)) for g in _summary["group"])
+            if st.session_state.get("cake_label_key") != _grp_key:
+                _rows = [{"group": int(_r["group"]), "points": int(_r["points"]),
+                          "mean 2θ": round(float(_r["mean_2th"]), 3),
+                          "hkl": _saved.get(int(_r["group"]), {}).get("hkl", ""),
+                          "material": _saved.get(int(_r["group"]), {}).get("material", "")}
+                         for _, _r in _summary.iterrows()]
+                st.session_state.cake_label_base = pd.DataFrame(
+                    _rows, columns=["group", "points", "mean 2θ", "hkl", "material"])
+                st.session_state.cake_label_key = _grp_key
+            _labels_edited = st.data_editor(
+                st.session_state.cake_label_base, key=f"cake_label_editor_{_grp_key}",
+                use_container_width=True, hide_index=True,
+                column_config={
+                    "group": st.column_config.NumberColumn("group", disabled=True),
+                    "points": st.column_config.NumberColumn("points", disabled=True),
+                    "mean 2θ": st.column_config.NumberColumn("mean 2θ (°)", disabled=True, format="%.3f"),
+                    "hkl": st.column_config.TextColumn("hkl", help="e.g. 111, 200, 220"),
+                    "material": st.column_config.TextColumn("material", help="optional phase / material name"),
+                })
+            # Persist labels by group and apply them to the peaks.
+            _glabels = {}
+            for _, _r in _labels_edited.iterrows():
+                _hkl, _mat = str(_r["hkl"]).strip(), str(_r["material"]).strip()
+                _saved[int(_r["group"])] = {"hkl": _hkl, "material": _mat}
+                _glabels[int(_r["group"])] = _hkl if not _mat else f"{_hkl} ({_mat})"
+            _labeled = _edited.copy()
+            _labeled["hkl"] = _labeled["group"].map(lambda g: _saved.get(int(g), {}).get("hkl", ""))
+            _labeled["material"] = _labeled["group"].map(lambda g: _saved.get(int(g), {}).get("material", ""))
+            st.session_state.extracted_peaks_final = _labeled
+
+            st.download_button(
+                "Download labelled peaks (.csv)",
+                _labeled.to_csv(index=False).encode("utf-8"),
+                file_name="extracted_peaks_labelled.csv", mime="text/csv")
             st.plotly_chart(
-                cp.plot_extracted_peaks(_xc, _grid, _edited, percentile=cake_percentile),
+                cp.plot_extracted_peaks(_xc, _grid, _labeled, percentile=cake_percentile,
+                                        group_labels=_glabels),
                 width='stretch')
 
 with tab_sim:

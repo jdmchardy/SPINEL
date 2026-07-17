@@ -991,18 +991,47 @@ def extract_and_group_peaks(
 
 
 # Distinct colours for group overlays (repeat if more groups than colours).
+def summarise_groups(peaks_df) -> pd.DataFrame:
+    """Per-group summary to help assign hkl reflections.
+
+    Returns one row per group with the number of points, the mean 2th (to identify the
+    ring), and the azimuth coverage, sorted by mean 2th (ascending).
+    """
+    cols = ["group", "points", "mean_2th", "az_min", "az_max"]
+    if peaks_df is None or peaks_df.empty or "group" not in peaks_df.columns:
+        return pd.DataFrame(columns=cols)
+    g = peaks_df.groupby("group")
+    out = pd.DataFrame({
+        "group": [int(k) for k in g.groups.keys()],
+        "points": g.size().to_numpy(),
+        "mean_2th": g["2th"].mean().to_numpy(),
+        "az_min": g["azimuth"].min().to_numpy(),
+        "az_max": g["azimuth"].max().to_numpy(),
+    }).sort_values("mean_2th").reset_index(drop=True)
+    return out
+
+
 _GROUP_COLORS = ["#e6194B", "#3cb44b", "#4363d8", "#f58231", "#911eb4", "#42d4f4",
                  "#f032e6", "#bfef45", "#fabed4", "#469990", "#9A6324", "#800000"]
 
 
-def plot_extracted_peaks(cake: CakeData, grid, peaks_df, percentile: float = 99.5) -> go.Figure:
-    """Subtracted-cake heatmap with extracted peaks scattered on top, coloured by group."""
+def plot_extracted_peaks(cake: CakeData, grid, peaks_df, percentile: float = 99.5,
+                         group_labels=None) -> go.Figure:
+    """Subtracted-cake heatmap with extracted peaks scattered on top, coloured by group.
+
+    ``group_labels`` (optional dict group->label) puts the assigned hkl label in the
+    legend, e.g. ``group 0 · 111``.
+    """
+    group_labels = group_labels or {}
     fig = _build_heatmap(cake.twotheta, cake.azimuth, grid, "Extracted peaks", percentile)
     if peaks_df is not None and not peaks_df.empty and "group" in peaks_df.columns:
         for i, g in enumerate(sorted(peaks_df["group"].unique())):
             sub = peaks_df[peaks_df["group"] == g]
             color = "#9e9e9e" if g == -1 else _GROUP_COLORS[i % len(_GROUP_COLORS)]
             name = "unassigned" if g == -1 else f"group {int(g)}"
+            label = str(group_labels.get(int(g), "")).strip()
+            if label:
+                name = f"{name} · {label}"
             fig.add_trace(go.Scatter(
                 x=sub["2th"], y=sub["azimuth"], mode="markers", name=name,
                 marker=dict(color=color, size=5, line=dict(width=0.5, color="black"))))
