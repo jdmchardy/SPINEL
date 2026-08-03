@@ -1822,6 +1822,25 @@ with tab_refine:
                                 _flags2[_nm] = st.checkbox(f"refine {_nm}", value=_on,
                                                            key=f"s2_f_{_nm}")
                         _init2["weight"] = float(_pov.get("weight", 1.0))
+
+                        # phi-integration sampling: auto from R, or forced.
+                        _nphi_c = st.columns([1, 3])
+                        with _nphi_c[0]:
+                            _nphi_in = st.number_input(
+                                "φ sampling (0 = auto)", min_value=0, max_value=4096,
+                                value=0, step=36, key="s2_nphi",
+                                help="Number of φ points the PO surface is integrated over. "
+                                     "0 picks it automatically from R — sharper texture "
+                                     "(small or large R) needs more points. Override to check "
+                                     "the result is stable against the sampling.")
+                        _nphi = int(_nphi_in) or None
+                        _nphi_auto = cp.adaptive_n_phi(_init2["R"])
+                        with _nphi_c[1]:
+                            st.caption(
+                                f"Auto for R = {_init2['R']:.3g} → **{_nphi_auto}** φ points "
+                                f"(sharpness max(R, 1/R) = {max(_init2['R'], 1/_init2['R'] if _init2['R'] else 1):.2f})."
+                                + ("" if _nphi is None else f"  Overridden to **{_nphi}**."))
+
                         if (_flags2.get("tau") or _flags2.get("omega")) and \
                                 abs(_init2["R"] - 1.0) < 1e-6:
                             st.warning("`R` starts at exactly 1.0 (isotropic), where **tau and "
@@ -1838,11 +1857,11 @@ with tab_refine:
                         _sig2 = (tuple(sorted(_inc2)), tuple(sorted(_shown2)), _measure,
                                  tuple((k, round(float(v), 6)) for k, v in sorted(_init2.items())),
                                  tuple(sorted(k for k, v in _flags2.items() if v)),
-                                 _method, int(_maxnfev))
+                                 _method, int(_maxnfev), _nphi)
 
                         if _prev2 and _eval2:
                             with st.spinner("Evaluating PO model…"):
-                                _ev2 = cp.evaluate_po_curves(_sc, _eval2, _init2)
+                                _ev2 = cp.evaluate_po_curves(_sc, _eval2, _init2, n_phi=_nphi)
                             st.session_state.stage2_view = {"eval": _ev2, "sig": _sig2,
                                                             "result": None, "init": dict(_init2),
                                                             "flags": dict(_flags2)}
@@ -1850,8 +1869,12 @@ with tab_refine:
                             with st.spinner("Refining PO parameters…"):
                                 _res2 = cp.run_stage2_refinement(
                                     _sc, _fit2, _init2, _flags2, method=_method,
-                                    max_nfev=int(_maxnfev))
-                                _ev2 = cp.evaluate_po_curves(_sc, _eval2, _res2["values"])
+                                    max_nfev=int(_maxnfev), n_phi=_nphi)
+                                # Score/plot at the sampling the refined R actually needs.
+                                _ev2 = cp.evaluate_po_curves(
+                                    _sc, _eval2, _res2["values"],
+                                    n_phi=_nphi or max(_res2["n_phi"],
+                                                       _res2["n_phi_suggested"]))
                             st.session_state.stage2_view = {"eval": _ev2, "sig": _sig2,
                                                             "result": _res2, "init": dict(_init2),
                                                             "flags": dict(_flags2)}
@@ -1878,8 +1901,16 @@ with tab_refine:
                             if _r2.get("at_limit"):
                                 st.warning("Parameter(s) stopped **at a limit**: "
                                            + ", ".join(_r2["at_limit"]))
+                            if _r2.get("n_phi_suggested", 0) > _r2.get("n_phi", 0):
+                                st.warning(
+                                    f"The refined R = {_r2['values']['R']:.3g} is sharper than "
+                                    f"the start, and needs **{_r2['n_phi_suggested']} φ points** "
+                                    f"— this fit used {_r2['n_phi']} (held fixed to keep the "
+                                    "gradients clean). **Run again** from these values to "
+                                    "refine at the finer sampling.")
                             _sc2 = st.columns(4)
-                            _sc2[0].metric("global scale", f"{_r2['scale']:.4g}")
+                            _sc2[0].metric("global scale", f"{_r2['scale']:.4g}",
+                                           help=f"φ sampling used: {_r2.get('n_phi')} points")
                             for _j, (_lab, _key, _fmt2) in enumerate(
                                     [("reduced χ²", "redchi", "{:.3e}"),
                                      ("AIC", "aic", "{:.1f}"), ("fn evals", "nfev", "{:.0f}")]):

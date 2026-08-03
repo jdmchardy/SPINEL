@@ -1625,6 +1625,35 @@ def plot_refinement_grid(exp_curves, sim_curves, ncols=4, included=None,
 PO_PARAM_BOUNDS = {"R": (0.05, 5.0), "tau": (-180.0, 180.0),
                    "omega": (-180.0, 180.0), "baseline": (0.0, 1.0)}
 
+#: phi-integration sampling tiers as (max MD sharpness, n_phi). The March-Dollase peak
+#: contrast goes as max(R, 1/R)**4.5 -- sharp for SMALL R (peak at eta=0, P(0)=R^-3) and
+#: also for LARGE R (band at eta=90, P=R^1.5) -- so the requirement is symmetric in
+#: max(R, 1/R). Measured error vs a 2880-point reference (worst hkl, % of the modulation):
+#:   R=0.5/1.5 -> 36: 0.003%   R=0.3 -> 72: 0.005%   R=5 -> 144: 0.0007%
+#:   R=0.1 -> 288: 0.055%      R=0.05 -> 576: 0.49% (extreme edge of the allowed range)
+#: A fixed 36 points would leave 1.7% error at R=0.3 and 7.6% at R=5.
+PHI_SAMPLING_TIERS = ((2.0, 36), (4.0, 72), (6.0, 144), (12.0, 288))
+PHI_SAMPLING_MAX = 576
+
+
+def adaptive_n_phi(R) -> int:
+    """Number of phi integration points needed to resolve the PO surface for a given R.
+
+    Keyed on the March-Dollase sharpness ``max(R, 1/R)`` (see :data:`PHI_SAMPLING_TIERS`),
+    which is what sets how narrow the features being integrated over are.
+    """
+    try:
+        R = float(R)
+    except (TypeError, ValueError):
+        return PHI_SAMPLING_TIERS[0][1]
+    if not np.isfinite(R) or R <= 0:
+        return PHI_SAMPLING_MAX
+    sharpness = max(R, 1.0 / R)
+    for s_max, n in PHI_SAMPLING_TIERS:
+        if sharpness <= s_max:
+            return n
+    return PHI_SAMPLING_MAX
+
 STAGE2_HELP_MD = """\
 ### Stage 2 refinement — preferred orientation from intensities
 
@@ -1662,6 +1691,16 @@ The reliable recipe is:
 Each stage starts from the previous stage's refined values (press *Run* again after
 ticking the next parameter). Skipping to "everything at once" from an isotropic start is
 the main way this refinement goes wrong.
+
+**φ sampling.** The PO intensity at each azimuth is an average over the free rotation φ,
+evaluated on a discrete grid. How fine that grid must be depends on how *peaked* the
+March–Dollase function is — sharp both for small R (a spike at η = 0) and for large R (a
+narrow band at η = 90°) — so the requirement scales with `max(R, 1/R)`. The sampling is
+therefore chosen **automatically from R** (36 points near R = 1, up to 576 at the extremes);
+a fixed 36 would leave ~1.7 % error at R = 0.3 and ~7.6 % at R = 5. Set *φ sampling* to a
+non-zero value to override and check stability. During a fit the value is held fixed
+(switching mid-refinement would corrupt the gradients); if the refined R needs finer
+sampling you'll be told to re-run.
 """
 
 
@@ -1727,7 +1766,7 @@ def build_po_model(sim_context, po_values, po_module=None):
         POD_xtal=sim_context.get("hkl_POD") or (0, 0, 1))
 
 
-def simulate_po_curves(sim_context, po_values, hkl_labels=None, n_phi=36,
+def simulate_po_curves(sim_context, po_values, hkl_labels=None, n_phi=None,
                        delta=None, po_module=None) -> dict:
     """Simulated intensity vs azimuth per hkl from the PO model.
 
@@ -1735,7 +1774,12 @@ def simulate_po_curves(sim_context, po_values, hkl_labels=None, n_phi=36,
     phi -- identical to how ``compute_strain`` forms ``Mean I @ delta`` -- then scaled by
     that hkl's structure intensity from the Simulation tab. Returns
     ``{hkl_label: (delta, intensity)}``.
+
+    ``n_phi=None`` picks the phi sampling from R via :func:`adaptive_n_phi`, so sharply
+    textured models are integrated finely enough; pass an int to force a value.
     """
+    if n_phi is None:
+        n_phi = adaptive_n_phi(po_values.get("R", 1.0))
     model = build_po_model(sim_context, po_values, po_module=po_module)
     if delta is None:
         delta = np.arange(-180.0, 180.0, 2.0)
@@ -1763,9 +1807,13 @@ def _global_scale(obs_list, sim_list):
     return float(np.sum(obs * sim) / denom)
 
 
-def evaluate_po_curves(sim_context, exp_curves, po_values, n_phi=36,
+def evaluate_po_curves(sim_context, exp_curves, po_values, n_phi=None,
                        po_module=None) -> dict:
-    """Simulate PO intensities, apply the optimal global scale, and score the match."""
+    """Simulate PO intensities, apply the optimal global scale, and score the match.
+
+    ``n_phi=None`` selects the phi sampling adaptively from R (see :func:`adaptive_n_phi`).
+    """
+    n_phi = int(n_phi) if n_phi else adaptive_n_phi(po_values.get("R", 1.0))
     sims = simulate_po_curves(sim_context, po_values, hkl_labels=set(exp_curves),
                               n_phi=n_phi, po_module=po_module)
     obs_l, sim_l = [], []
@@ -1787,20 +1835,28 @@ def evaluate_po_curves(sim_context, exp_curves, po_values, n_phi=36,
         per_hkl[label] = float(np.sqrt(np.mean(resid ** 2))) if resid.size else float("nan")
         all_res.append(resid)
     rmse = float(np.sqrt(np.mean(np.concatenate(all_res) ** 2))) if all_res else float("nan")
-    return {"sim_curves": scaled, "per_hkl": per_hkl, "rmse": rmse, "scale": scale}
+    return {"sim_curves": scaled, "per_hkl": per_hkl, "rmse": rmse, "scale": scale,
+            "n_phi": int(n_phi)}
 
 
 def run_stage2_refinement(sim_context, exp_curves, init_values, refine_flags,
-                          bounds=None, method="leastsq", max_nfev=200, n_phi=36,
+                          bounds=None, method="leastsq", max_nfev=200, n_phi=None,
                           po_module=None) -> dict:
     """Refine PO parameters (R, tau, omega, baseline) against azimuthal intensities.
 
     A single global scale factor is profiled out analytically at every iteration, so the
     relative intensities between hkls constrain the fit without costing a parameter.
+
+    ``n_phi=None`` picks the phi sampling from the STARTING R and then holds it fixed for
+    the whole fit: letting it switch tier mid-refinement would put a small step in the
+    residual and corrupt the finite-difference gradients. If the refined R ends up needing
+    finer sampling, ``n_phi_suggested`` in the result says so (re-run to tighten).
+
     Returns the same shape of result dict as :func:`run_stage1_refinement`, plus
-    ``scale``.
+    ``scale``, ``n_phi`` and ``n_phi_suggested``.
     """
     free = [n for n, on in refine_flags.items() if on and n in init_values]
+    n_phi = int(n_phi) if n_phi else adaptive_n_phi(init_values.get("R", 1.0))
     labels = list(exp_curves.keys())
     az = {L: exp_curves[L]["azimuth"].to_numpy() for L in labels}
     y = {L: exp_curves[L]["intensity"].to_numpy() for L in labels}
@@ -1830,7 +1886,9 @@ def run_stage2_refinement(sim_context, exp_curves, init_values, refine_flags,
                "message": str(message),
                "rmse": float(np.sqrt(np.mean(np.asarray(resid) ** 2))),
                "n_points": n_points, "n_free": len(free), "scale": float(scale),
-               "report": report, "at_limit": at_limit or [], "method": method}
+               "report": report, "at_limit": at_limit or [], "method": method,
+               "n_phi": int(n_phi),
+               "n_phi_suggested": adaptive_n_phi(values.get("R", 1.0))}
         out.update(stats or {})
         return out
 
