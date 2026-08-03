@@ -1532,18 +1532,29 @@ with tab_refine:
                     st.caption("Ignoring unmatched hkls (not in the Simulation list): "
                                + ", ".join(_unmatched))
 
-                # --- 2) Which hkls to include in the fit ---
-                st.markdown("**Include hkls in the refinement**")
-                _inc_cols = st.columns(min(6, len(_matched)))
-                _included = []
-                for _i, _L in enumerate(_matched):
-                    with _inc_cols[_i % len(_inc_cols)]:
+                # --- 2) hkl selection: refinement set and plotted set are independent ---
+                _sel_c = st.columns([1, 1, 2])
+                with _sel_c[0]:
+                    st.markdown("**Refine**")
+                    st.caption("hkls used in the fit")
+                    _included = []
+                    for _L in _matched:
                         _npts = int(_exp_all[_L]["n"].sum())
                         if st.checkbox(f"{_L} ({_npts})", value=True, key=f"refine_inc_{_L}"):
                             _included.append(_L)
-                # All matched hkls are always plotted; only the ticked ones enter the fit.
-                _exp_view = {_L: _exp_all[_L] for _L in _matched}
+                with _sel_c[1]:
+                    st.markdown("**Plot**")
+                    st.caption("hkls shown below")
+                    _shown = []
+                    for _L in _matched:
+                        if st.checkbox(_L, value=True, key=f"refine_show_{_L}"):
+                            _shown.append(_L)
                 _exp_fit = {_L: _exp_all[_L] for _L in _included}
+                _exp_view = {_L: _exp_all[_L] for _L in _shown}
+                # Evaluate over the union so per-hkl RMSE is reported for anything either
+                # fitted or plotted (the fit itself still uses only the "Refine" set).
+                _exp_eval = {_L: _exp_all[_L] for _L in _matched
+                             if _L in _included or _L in _shown}
 
                 # --- 3) Parameters: initial value + refine toggle ---
                 st.markdown("**Refine parameters** — set the initial value and tick to refine. "
@@ -1589,10 +1600,59 @@ with tab_refine:
                     st.metric("t = σ₃₃ − σ₁₁ (initial)",
                               f"{_init['sigma_11']*-1 + _init['sigma_33']:.3f} GPa")
 
+                # --- 3b) Engine & limits ---
+                with st.expander("Refinement engine & limits", expanded=False):
+                    st.markdown(cp.ENGINE_HELP_MD)
+                    _ec = st.columns(3)
+                    with _ec[0]:
+                        _method = st.selectbox(
+                            "Method", cp.REFINEMENT_METHODS, index=0,
+                            help="lmfit minimiser. leastsq = Levenberg–Marquardt (gives "
+                                 "uncertainties + correlations); least_squares = TRF "
+                                 "(robust near bounds); nelder = simplex (no uncertainties).")
+                    with _ec[1]:
+                        _maxnfev = st.number_input(
+                            "Max evaluations", min_value=10, max_value=100000, value=200,
+                            step=50, help="Cap on forward-model calls (lmfit max_nfev). "
+                                          "Raise if the fit stops before converging.")
+                    with _ec[2]:
+                        _latfrac = st.number_input(
+                            "Lattice limit (± fraction)", min_value=0.01, max_value=5.0,
+                            value=float(cp.LATTICE_BOUND_FRAC), step=0.05, format="%.2f",
+                            help="Lattice a/b/c are bounded to ±this fraction of their "
+                                 "STARTING value. A far-off initial guess therefore caps how "
+                                 "far the refinement can move — widen this if a refined value "
+                                 "lands on its limit.")
+                    _bounds = {}
+                    _free_now = [_n for _n, _on in _flags.items() if _on]
+                    if _free_now:
+                        st.caption("Limits applied to the refined parameters "
+                                   "(edit to override):")
+                        _blim = []
+                        for _n in _free_now:
+                            _lo, _hi = cp.default_param_bounds(_n, _init[_n], _latfrac)
+                            _blim.append({"parameter": _n, "initial": _init[_n],
+                                          "min": _lo, "max": _hi})
+                        _bedit = st.data_editor(
+                            pd.DataFrame(_blim), hide_index=True, use_container_width=True,
+                            key="refine_bounds_editor",
+                            column_config={
+                                "parameter": st.column_config.TextColumn(disabled=True),
+                                "initial": st.column_config.NumberColumn(disabled=True,
+                                                                         format="%.4f"),
+                                "min": st.column_config.NumberColumn(format="%.4f"),
+                                "max": st.column_config.NumberColumn(format="%.4f")})
+                        for _, _br in _bedit.iterrows():
+                            _bounds[str(_br["parameter"])] = (float(_br["min"]),
+                                                              float(_br["max"]))
+
                 # --- 4) Compute model / run refinement (only on button press) ---
-                _sig = (tuple(sorted(_included)),
+                _sig = (tuple(sorted(_included)), tuple(sorted(_shown)),
                         tuple((k, round(float(_init[k]), 6)) for k in sorted(_init)),
-                        tuple(sorted(k for k, v in _flags.items() if v)), bool(_fast))
+                        tuple(sorted(k for k, v in _flags.items() if v)), bool(_fast),
+                        _method, int(_maxnfev),
+                        tuple(sorted((k, round(v[0], 6), round(v[1], 6))
+                                     for k, v in _bounds.items())))
                 _b1, _b2 = st.columns(2)
                 with _b1:
                     _preview = st.button("Preview model (no fit)", use_container_width=True)
@@ -1600,17 +1660,19 @@ with tab_refine:
                     _run = st.button("Run Stage 1 refinement", type="primary",
                                      use_container_width=True)
 
-                if _preview and _exp_view:
+                if _preview and _exp_eval:
                     with st.spinner("Evaluating model…"):
                         _ev = cp.evaluate_curves_and_residuals(compute_strain, _sc,
-                                                               _exp_view, _init, coarse=False)
+                                                               _exp_eval, _init, coarse=False)
                     st.session_state.stage1_view = {"eval": _ev, "sig": _sig, "result": None,
                                                     "init": dict(_init), "flags": dict(_flags)}
                 if _run and _exp_fit:
                     with st.spinner("Refining…"):
-                        _res = cp.run_stage1_refinement(compute_strain, _sc, _exp_fit,
-                                                        _init, _flags, coarse=_fast)
-                        _ev = cp.evaluate_curves_and_residuals(compute_strain, _sc, _exp_view,
+                        _res = cp.run_stage1_refinement(
+                            compute_strain, _sc, _exp_fit, _init, _flags, coarse=_fast,
+                            max_nfev=int(_maxnfev), bounds=_bounds, method=_method,
+                            lattice_frac=float(_latfrac))
+                        _ev = cp.evaluate_curves_and_residuals(compute_strain, _sc, _exp_eval,
                                                                _res["values"], coarse=False)
                     st.session_state.stage1_view = {"eval": _ev, "sig": _sig, "result": _res,
                                                     "init": dict(_init), "flags": dict(_flags)}
@@ -1639,6 +1701,27 @@ with tab_refine:
                                      "initial": st.column_config.NumberColumn(format="%.4f"),
                                      "refined": st.column_config.NumberColumn(format="%.4f"),
                                      "± 1σ": st.column_config.NumberColumn(format="%.4f")})
+                    if _res.get("at_limit"):
+                        st.warning("Parameter(s) stopped **at a limit**: "
+                                   + ", ".join(_res["at_limit"])
+                                   + ". The refinement could not travel further — widen the "
+                                     "limits under *Refinement engine & limits* (or start "
+                                     "closer) and re-run.")
+                    _stat_c = st.columns(4)
+                    for _sc_i, (_lab, _key, _fmt) in enumerate([
+                            ("reduced χ²", "redchi", "{:.3e}"), ("χ²", "chisqr", "{:.3e}"),
+                            ("AIC", "aic", "{:.1f}"), ("fn evals", "nfev", "{:.0f}")]):
+                        _val = _res.get(_key)
+                        if _val is not None and np.isfinite(_val):
+                            _stat_c[_sc_i].metric(_lab, _fmt.format(_val))
+                    if _res.get("report"):
+                        with st.expander(f"lmfit fit report ({_res.get('method', '')})",
+                                         expanded=False):
+                            st.code(_res["report"], language="text")
+                            st.download_button("Download fit report (.txt)",
+                                               _res["report"].encode("utf-8"),
+                                               file_name="stage1_fit_report.txt",
+                                               mime="text/plain")
 
                 # --- 6) Overlay grid (data points + simulated line), 4 columns wide ---
                 if _view and _view.get("eval"):
@@ -1647,11 +1730,15 @@ with tab_refine:
                                    "or **Run** to update the simulated curves.")
                     _sim_curves = _view["eval"]["sim_curves"]
                     _perhkl = _view["eval"]["per_hkl"]
-                    st.plotly_chart(
-                        cp.plot_refinement_grid(_exp_view, _sim_curves, ncols=4,
-                                                included=set(_included)),
-                        width='stretch')
+                    if not _exp_view:
+                        st.caption("No hkls ticked under **Plot** — nothing to display.")
+                    else:
+                        st.plotly_chart(
+                            cp.plot_refinement_grid(_exp_view, _sim_curves, ncols=4,
+                                                    included=set(_included)),
+                            width='stretch')
                     _ph = pd.DataFrame([{"hkl": _L, "in fit": _L in _included,
+                                         "plotted": _L in _shown,
                                          "points": int(_exp_all[_L]["n"].sum()),
                                          "RMSE (°)": _perhkl.get(_L, float("nan"))}
                                         for _L in _matched])

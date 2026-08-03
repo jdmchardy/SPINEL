@@ -1183,7 +1183,10 @@ the model set up on the **Simulation** tab (symmetry, elastic constants, PO, wav
   `a`, `σ11`, `σ33` only, with the other stresses fixed at 0. The differential stress
   **t = σ33 − σ11** is reported from the refined values.
 - Only hkls present in **both** the CSV (with an assigned label) and the Simulation-tab
-  hkl list can be refined; untick any to exclude them.
+  hkl list can be used. The **Refine** and **Plot** tick-lists are independent, so you can
+  fit one subset while viewing another (excluded-but-plotted rings are greyed).
+- The optimiser, its limits and the fit report are described under
+  *Refinement engine & limits*.
 """
 
 SIGMA_NAMES = ["sigma_11", "sigma_22", "sigma_33", "sigma_12", "sigma_13", "sigma_23"]
@@ -1341,14 +1344,30 @@ def _assemble_params(sim_context, values):
     return lattice_params, sigma_params, chi
 
 
-def _param_bounds(name, value):
-    """Least-squares bounds per parameter (mirrors run_refinement's ranges)."""
+#: Default refinement limits. Lattice lengths are bounded RELATIVE to the starting value
+#: (a window of +/- LATTICE_BOUND_FRAC around it), so a poor initial guess restricts how
+#: far the refinement can travel -- widen the fraction, or the explicit min/max in the UI,
+#: when starting far from the answer. Stress/chi use absolute physical ranges.
+LATTICE_BOUND_FRAC = 0.25
+SIGMA_BOUNDS = (-25.0, 25.0)
+CHI_BOUNDS = (-90.0, 90.0)
+
+
+def default_param_bounds(name, value, lattice_frac=LATTICE_BOUND_FRAC):
+    """Default (min, max) refinement limits for a parameter.
+
+    Lattice lengths get ``value * (1 -/+ lattice_frac)`` — a window centred on the START
+    value, which is why a far-off initial guess can clamp the refinement. Stress components
+    use ``SIGMA_BOUNDS`` (GPa) and chi uses ``CHI_BOUNDS`` (degrees).
+    """
     if name in ("a_val", "b_val", "c_val"):
-        return (0.75 * value, 1.25 * value) if value else (0.0, np.inf)
+        if value:
+            return ((1.0 - lattice_frac) * value, (1.0 + lattice_frac) * value)
+        return (0.0, np.inf)
     if name.startswith("sigma_"):
-        return (-25.0, 25.0)
+        return SIGMA_BOUNDS
     if name == "chi":
-        return (-90.0, 90.0)
+        return CHI_BOUNDS
     return (-np.inf, np.inf)
 
 
@@ -1379,8 +1398,44 @@ def evaluate_curves_and_residuals(strain_fn, sim_context, exp_curves, values,
             "lattice_params": lattice_params, "sigma_params": sigma_params, "chi": chi}
 
 
+#: Optimiser methods offered for Stage 1 (lmfit names).
+REFINEMENT_METHODS = ["leastsq", "least_squares", "nelder"]
+
+ENGINE_HELP_MD = """\
+### Refinement engine & settings
+
+**Engine — lmfit.** Stage 1 uses [lmfit](https://lmfit.github.io/lmfit-py/)'s `minimize`,
+the same library the 1D pattern refinement uses, so the full **fit report** (parameter
+values with ±1σ, initial values, bounds, correlations, χ², reduced χ², AIC/BIC, function
+evaluations) is produced and shown below the results table.
+
+**Method**
+- `leastsq` — Levenberg–Marquardt (default). Fast, gives a covariance matrix, so
+  uncertainties and correlations are reported. Best for a well-behaved starting point.
+- `least_squares` — SciPy Trust Region Reflective. More robust when parameters sit near
+  their limits, but sometimes reports no covariance.
+- `nelder` — Nelder–Mead simplex. Derivative-free; useful when the residual is noisy or
+  the start is poor, but it gives **no uncertainties** and is slower to converge.
+
+**Parameter limits (this is a real constraint).** Every refined parameter is bounded:
+- **Lattice a/b/c** — bounded to a window of **±(fraction) of the starting value**
+  (default ±25 %). The window is centred on your *initial guess*, so if the guess is far
+  from the truth the refinement **cannot travel beyond it** — e.g. starting at 4.0 Å with
+  a ±25 % window can only reach 3.0–5.0 Å and will stop at the limit. If a refined value
+  lands exactly on its min/max, widen the fraction (or set explicit limits) and re-run.
+- **σ components** — ±25 GPa by default.
+- **χ** — ±90°.
+All limits can be overridden per parameter under *Limits*, and `Max evaluations`
+(`max_nfev`) caps the number of forward-model calls.
+
+**Convergence.** `leastsq`/`least_squares` stop on `ftol`/`xtol`/`gtol` (~1e-8). The
+report's message states which condition ended the fit; "at initial value" next to a
+parameter in the report means it never moved (usually a flat gradient or a bound).
+"""
+
+
 def _stderr_from_result(result, names):
-    """1-sigma parameter errors from the least_squares Jacobian (best effort)."""
+    """1-sigma parameter errors from a scipy least_squares Jacobian (fallback path)."""
     try:
         J = result.jac
         dof = max(1, J.shape[0] - J.shape[1])
@@ -1392,26 +1447,30 @@ def _stderr_from_result(result, names):
 
 
 def run_stage1_refinement(strain_fn, sim_context, exp_curves, init_values, refine_flags,
-                          coarse=True, max_nfev=200) -> dict:
-    """Least-squares refine peak positions across the included hkls.
+                          coarse=True, max_nfev=200, bounds=None, method="leastsq",
+                          lattice_frac=LATTICE_BOUND_FRAC) -> dict:
+    """Refine peak positions across the included hkls with lmfit.
 
     ``init_values`` holds a starting value for every refineable parameter (lattice
-    a/b/c, the six sigma components, chi); ``refine_flags`` selects which vary. The
-    forward model is evaluated on the coarse (12 deg) delta grid while iterating.
+    a/b/c, the six sigma components, chi); ``refine_flags`` selects which vary.
+    ``bounds`` optionally overrides the per-parameter ``(min, max)`` limits (see
+    :func:`default_param_bounds` — note the lattice window is relative to the START
+    value, so a far-off initial guess restricts the reachable range).
 
-    Returns a dict: ``values`` (refined, full set), ``errors`` (per free param),
-    ``success``, ``message``, ``rmse``, ``n_points``, ``n_free``, ``t``.
+    Falls back to ``scipy.optimize.least_squares`` if lmfit is unavailable.
+
+    Returns a dict with ``values`` (refined, full set), ``errors``, ``success``,
+    ``message``, ``rmse``, ``n_points``, ``n_free``, ``t``, ``report`` (lmfit fit
+    report text), ``at_limit`` (params sitting on a bound) and fit statistics.
     """
     free = [n for n, on in refine_flags.items() if on and n in init_values]
     labels = list(exp_curves.keys())
     az = {L: exp_curves[L]["azimuth"].to_numpy() for L in labels}
     y = {L: exp_curves[L]["mean_2th"].to_numpy() for L in labels}
     n_points = int(sum(v.size for v in y.values()))
+    bounds = dict(bounds or {})
 
-    def residuals(vec):
-        values = dict(init_values)
-        for n, v in zip(free, vec):
-            values[n] = v
+    def residuals_from_values(values):
         lattice_params, sigma_params, chi = _assemble_params(sim_context, values)
         sims = simulate_all_curves(strain_fn, sim_context, lattice_params, sigma_params,
                                    chi, hkl_labels=set(labels), coarse=coarse)
@@ -1423,29 +1482,77 @@ def run_stage1_refinement(strain_fn, sim_context, exp_curves, init_values, refin
             res.append(y[L] - interp_periodic(delta, sim2th, az[L]))
         return np.concatenate(res) if res else np.zeros(1)
 
+    def _package(refined, errors, success, message, resid, report="", at_limit=None,
+                 stats=None):
+        out = {"values": refined, "errors": errors, "success": bool(success),
+               "message": str(message),
+               "rmse": float(np.sqrt(np.mean(np.asarray(resid) ** 2))),
+               "n_points": n_points, "n_free": len(free),
+               "t": float(refined.get("sigma_33", 0.0) - refined.get("sigma_11", 0.0)),
+               "report": report, "at_limit": at_limit or [], "method": method}
+        out.update(stats or {})
+        return out
+
     if not free:
-        r = residuals(np.array([]))
-        return {"values": dict(init_values), "errors": {}, "success": True,
-                "message": "No parameters selected to refine.",
-                "rmse": float(np.sqrt(np.mean(r ** 2))), "n_points": n_points,
-                "n_free": 0, "t": float(init_values.get("sigma_33", 0.0)
-                                        - init_values.get("sigma_11", 0.0))}
+        return _package(dict(init_values), {}, True, "No parameters selected to refine.",
+                        residuals_from_values(dict(init_values)))
 
-    x0 = np.array([init_values[n] for n in free], dtype=float)
-    lo = np.array([_param_bounds(n, init_values[n])[0] for n in free], dtype=float)
-    hi = np.array([_param_bounds(n, init_values[n])[1] for n in free], dtype=float)
-    x0 = np.clip(x0, lo, hi)
-    result = least_squares(residuals, x0, bounds=(lo, hi), max_nfev=max_nfev)
+    limits = {n: bounds.get(n, default_param_bounds(n, init_values[n], lattice_frac))
+              for n in free}
 
+    try:
+        from lmfit import Parameters, minimize as lm_minimize, fit_report as lm_fit_report
+    except ImportError:
+        Parameters = None
+
+    if Parameters is not None:
+        lm_params = Parameters()
+        for n in free:
+            lo, hi = limits[n]
+            lm_params.add(n, value=float(np.clip(init_values[n], lo, hi)),
+                          min=lo, max=hi, vary=True)
+
+        def lm_residual(p):
+            values = dict(init_values)
+            values.update({n: p[n].value for n in free})
+            return residuals_from_values(values)
+
+        result = lm_minimize(lm_residual, lm_params, method=method, max_nfev=max_nfev)
+        refined = dict(init_values)
+        errors, at_limit = {}, []
+        for n in free:
+            par = result.params[n]
+            refined[n] = float(par.value)
+            errors[n] = float(par.stderr) if par.stderr is not None else float("nan")
+            lo, hi = limits[n]
+            if np.isfinite(lo) and np.isclose(par.value, lo, rtol=1e-6, atol=1e-9):
+                at_limit.append(f"{n} (at min {lo:g})")
+            elif np.isfinite(hi) and np.isclose(par.value, hi, rtol=1e-6, atol=1e-9):
+                at_limit.append(f"{n} (at max {hi:g})")
+        stats = {"chisqr": float(getattr(result, "chisqr", np.nan)),
+                 "redchi": float(getattr(result, "redchi", np.nan)),
+                 "aic": float(getattr(result, "aic", np.nan)),
+                 "bic": float(getattr(result, "bic", np.nan)),
+                 "nfev": int(getattr(result, "nfev", 0))}
+        return _package(refined, errors, getattr(result, "success", True),
+                        getattr(result, "message", ""), result.residual,
+                        report=lm_fit_report(result), at_limit=at_limit, stats=stats)
+
+    # --- Fallback: scipy least_squares (lmfit not installed) ---
+    def residuals_vec(vec):
+        values = dict(init_values)
+        values.update({n: v for n, v in zip(free, vec)})
+        return residuals_from_values(values)
+
+    lo = np.array([limits[n][0] for n in free], dtype=float)
+    hi = np.array([limits[n][1] for n in free], dtype=float)
+    x0 = np.clip(np.array([init_values[n] for n in free], dtype=float), lo, hi)
+    result = least_squares(residuals_vec, x0, bounds=(lo, hi), max_nfev=max_nfev)
     refined = dict(init_values)
-    for n, v in zip(free, result.x):
-        refined[n] = float(v)
-    r = result.fun
-    return {"values": refined, "errors": _stderr_from_result(result, free),
-            "success": bool(result.success), "message": str(result.message),
-            "rmse": float(np.sqrt(np.mean(r ** 2))), "n_points": n_points,
-            "n_free": len(free),
-            "t": float(refined.get("sigma_33", 0.0) - refined.get("sigma_11", 0.0))}
+    refined.update({n: float(v) for n, v in zip(free, result.x)})
+    return _package(refined, _stderr_from_result(result, free), result.success,
+                    result.message, result.fun,
+                    report="lmfit not installed — used scipy.optimize.least_squares.")
 
 
 def plot_refinement_grid(exp_curves, sim_curves, ncols=4, included=None,
