@@ -1899,7 +1899,12 @@ def run_stage2_refinement(sim_context, exp_curves, init_values, refine_flags,
 
 def plot_intensity_grid(exp_curves, sim_curves, ncols=4, included=None,
                         row_height=300) -> go.Figure:
-    """Grid of intensity-vs-azimuth panels: data points + scaled simulated PO curve."""
+    """Grid of intensity-vs-azimuth panels: data (line + markers) + PO fit (dashed).
+
+    The measured points are joined by a light line so the azimuthal modulation is
+    readable against the scatter, and the simulated PO curve is dashed to keep the two
+    clearly distinguishable.
+    """
     labels = list(exp_curves.keys())
     n = len(labels)
     if n == 0:
@@ -1915,19 +1920,25 @@ def plot_intensity_grid(exp_curves, sim_curves, ncols=4, included=None,
         r, c = i // ncols + 1, i % ncols + 1
         on = L in included
         g = exp_curves[L]
+        _dcol = "#e6194B" if on else "#c9c9c9"
+        # Data as line + markers: the joining line makes the azimuthal modulation
+        # readable where a bare scatter is hard to follow.
+        _o = np.argsort(g["azimuth"].to_numpy())
         fig.add_trace(go.Scatter(
-            x=g["azimuth"], y=g["intensity"], mode="markers", name=f"{L} data",
-            marker=dict(color="#e6194B" if on else "#c9c9c9", size=5),
+            x=g["azimuth"].to_numpy()[_o], y=g["intensity"].to_numpy()[_o],
+            mode="lines+markers", name=f"{L} data",
+            marker=dict(color=_dcol, size=5),
+            line=dict(color=_dcol, width=1),
             showlegend=False), row=r, col=c)
         if L in sim_curves:
             d, I = sim_curves[L]
             o = np.argsort(np.asarray(d, dtype=float))
             fig.add_trace(go.Scatter(
                 x=np.asarray(d)[o], y=np.asarray(I)[o], mode="lines", name=f"{L} sim",
-                line=dict(color="#4363d8" if on else "#dddddd", width=1.6),
+                line=dict(color="#4363d8" if on else "#dddddd", width=2, dash="dash"),
                 showlegend=False), row=r, col=c)
     fig.update_xaxes(title_text="azimuth (°)", title_standoff=6)
     fig.update_yaxes(title_text="intensity", title_standoff=6)
     fig.update_layout(height=row_height * nrows, margin=dict(l=60, r=20, t=70, b=50),
-                      title="Intensity vs azimuth — data (points) vs PO model (line)")
+                      title="Intensity vs azimuth — data (line + points) vs PO model (dashed)")
     return fig
