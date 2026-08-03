@@ -1555,8 +1555,22 @@ def run_stage1_refinement(strain_fn, sim_context, exp_curves, init_values, refin
                     report="lmfit not installed — used scipy.optimize.least_squares.")
 
 
+def _subplot_vspace(nrows, row_height, gap_px=120):
+    """Vertical spacing fraction giving at least ``gap_px`` between subplot rows.
+
+    Plotly's ``vertical_spacing`` is a fraction of the TOTAL figure height, so a fixed
+    fraction shrinks in absolute terms as rows are added — subplot titles then collide
+    with the axis labels of the row above. Convert a target pixel gap into the fraction
+    (never below the old 0.12 default) and respect plotly's 1/(nrows-1) ceiling.
+    """
+    if nrows <= 1:
+        return 0.0
+    frac = max(0.12, gap_px / float(row_height * nrows))
+    return float(min(frac, 0.9 / (nrows - 1)))
+
+
 def plot_refinement_grid(exp_curves, sim_curves, ncols=4, included=None,
-                         row_height=260) -> go.Figure:
+                         row_height=300) -> go.Figure:
     """Grid (``ncols`` wide) of 2θ-vs-azimuth panels: data points + simulated line.
 
     Excluded hkls (not in ``included``) are greyed. One panel per hkl in ``exp_curves``.
@@ -1571,7 +1585,7 @@ def plot_refinement_grid(exp_curves, sim_curves, ncols=4, included=None,
     fig = make_subplots(rows=nrows, cols=ncols,
                         subplot_titles=[f"hkl {L}" for L in labels],
                         horizontal_spacing=0.06,
-                        vertical_spacing=min(0.12, 0.6 / nrows))
+                        vertical_spacing=_subplot_vspace(nrows, row_height))
     for i, L in enumerate(labels):
         r, c = i // ncols + 1, i % ncols + 1
         on = L in included
@@ -1588,8 +1602,332 @@ def plot_refinement_grid(exp_curves, sim_curves, ncols=4, included=None,
                 name=f"{L} sim",
                 line=dict(color="#4363d8" if on else "#dddddd", width=1.6),
                 showlegend=False), row=r, col=c)
-    fig.update_xaxes(title_text="azimuth (°)")
-    fig.update_yaxes(title_text="2θ (°)")
-    fig.update_layout(height=row_height * nrows, margin=dict(l=60, r=20, t=40, b=50),
+    fig.update_xaxes(title_text="azimuth (°)", title_standoff=6)
+    fig.update_yaxes(title_text="2θ (°)", title_standoff=6)
+    fig.update_layout(height=row_height * nrows, margin=dict(l=60, r=20, t=70, b=50),
                       title="2θ vs azimuth — data (points) vs simulation (line)")
+    return fig
+
+
+# =========================================================================
+# Stage 2 refinement: preferred-orientation (PO) parameters from the
+# INTENSITY variation with azimuth, per hkl.
+#
+# Experimental intensity = integrated peak AREA (from the stored amp/fwhm/gl, so it is
+# unbiased when peak width varies with azimuth). Simulated intensity comes straight from
+# PO.PO_Model.intensity_for_hkl averaged over phi -- the same quantity compute_strain
+# builds into "Mean I @ delta" -- scaled by each hkl's structure intensity, then matched
+# to the data through a SINGLE GLOBAL scale solved in closed form each iteration (so the
+# relative intensities between hkls still constrain the model, at no parameter cost).
+# =========================================================================
+
+#: PO parameters Stage 2 can refine, with (min, max) limits.
+PO_PARAM_BOUNDS = {"R": (0.05, 5.0), "tau": (-180.0, 180.0),
+                   "omega": (-180.0, 180.0), "baseline": (0.0, 1.0)}
+
+STAGE2_HELP_MD = """\
+### Stage 2 refinement — preferred orientation from intensities
+
+Stage 1 fixed *where* the rings sit (2θ vs azimuth); Stage 2 fits *how strong* they are
+around each ring, which is what preferred orientation (texture) controls.
+
+**Experimental intensity.** Each extracted peak already carries an amplitude, FWHM and
+(for Pseudo-Voigt) the Gaussian↔Lorentzian fraction, so the **integrated area** is used
+rather than the raw amplitude — the physically meaningful reflection intensity, and
+unbiased when texture broadens the arcs:
+`area = amp · σ · [(1−gl)·√(π/ln2) + gl·π]` for the FITYK Pseudo-Voigt (σ = FWHM/2), and
+`area = amp · σ_G · √(2π)` for a Gaussian (σ_G = FWHM/2.35482).
+
+**Simulated intensity.** For each hkl the March–Dollase model is evaluated over
+(φ, δ) and averaged over φ, giving PO intensity vs azimuth, multiplied by that hkl's
+structure intensity from the Simulation tab.
+
+**Scaling.** Experimental intensities are on an arbitrary scale, so **one global scale
+factor** is applied across all hkls, solved analytically each iteration
+(`s = Σ I_obs·I_sim / Σ I_sim²`). Because it is *global*, the relative intensities
+between reflections still constrain the fit, and it costs no fit parameter.
+
+**Parameters.** `R` (March–Dollase strength; R = 1 is no texture), `tau`/`omega` (the
+preferred-orientation axis direction, degrees) and `baseline` (isotropic fraction, 0–1).
+
+⚠️ **Refine in stages — and do not start the axis from R = 1.** At exactly R = 1 the model
+is isotropic, so `tau` and `omega` have *zero* gradient: the axis direction is
+mathematically unidentifiable there and the optimiser will wander into a false minimum.
+The reliable recipe is:
+
+1. **R only** (from any R ≠ 1, e.g. 0.9) — sets the texture strength.
+2. **R + tau + omega** — the axis now has a real gradient to follow.
+3. **add baseline** — finally the isotropic offset.
+
+Each stage starts from the previous stage's refined values (press *Run* again after
+ticking the next parameter). Skipping to "everything at once" from an isotropic start is
+the main way this refinement goes wrong.
+"""
+
+
+def peak_area(amp, fwhm, gl=None):
+    """Integrated area of a fitted peak from its amplitude and FWHM.
+
+    Uses the FITYK Pseudo-Voigt convention (sigma = FWHM/2, area =
+    ``amp*sigma*[(1-gl)*sqrt(pi/ln2) + gl*pi]``) when ``gl`` is given and finite,
+    otherwise the Gaussian result (``amp*sigma_G*sqrt(2*pi)``, sigma_G = FWHM/2.35482).
+    """
+    amp = np.asarray(amp, dtype=float)
+    fwhm = np.asarray(fwhm, dtype=float)
+    gauss_area = amp * (fwhm / 2.35482) * np.sqrt(2.0 * np.pi)
+    if gl is None:
+        return gauss_area
+    gl = np.asarray(gl, dtype=float)
+    sigma = fwhm / 2.0
+    pv_area = amp * sigma * ((1.0 - gl) * np.sqrt(np.pi / np.log(2.0)) + gl * np.pi)
+    return np.where(np.isfinite(gl), pv_area, gauss_area)
+
+
+def experimental_intensity_curves(peaks_df, measure="area", azimuth_col="azimuth",
+                                  hkl_col="hkl") -> dict:
+    """Group labelled peaks by hkl and average their intensity per azimuth bin.
+
+    ``measure`` is ``"area"`` (integrated, from amp/fwhm/gl) or ``"amplitude"``.
+    Returns ``{hkl_label: DataFrame[azimuth, intensity, n]}`` sorted by azimuth.
+    """
+    out = {}
+    if peaks_df is None or peaks_df.empty or hkl_col not in peaks_df.columns:
+        return out
+    df = peaks_df.copy()
+    if measure == "area" and {"intensity", "fwhm"} <= set(df.columns):
+        df["_I"] = peak_area(df["intensity"], df["fwhm"],
+                             df["gl"] if "gl" in df.columns else None)
+    else:
+        df["_I"] = df["intensity"].astype(float)
+    df = df[np.isfinite(df["_I"])]
+    for hkl, sub in df.groupby(hkl_col):
+        g = (sub.groupby(azimuth_col)["_I"].agg(["mean", "size"]).reset_index()
+             .rename(columns={azimuth_col: "azimuth", "mean": "intensity", "size": "n"})
+             .sort_values("azimuth").reset_index(drop=True))
+        out[str(hkl)] = g
+    return out
+
+
+def build_po_model(sim_context, po_values, po_module=None):
+    """Construct a ``PO.PO_Model`` from the simulation context + current PO values."""
+    if po_module is None:
+        import PO as po_module
+    comps = [{"tau": float(po_values.get("tau", 0.0)),
+              "omega": float(po_values.get("omega", 0.0)),
+              "R": float(po_values.get("R", 1.0)),
+              "weight": float(po_values.get("weight", 1.0))}]
+    return po_module.PO_Model(
+        po_model=sim_context.get("po_model") or "March-Dollase",
+        components=comps,
+        baseline=float(po_values.get("baseline", 0.0)),
+        symmetry=sim_context["symmetry"],
+        wavelength=sim_context["wavelength"],
+        lattice_params=sim_context["lattice_params"],
+        chi_deg=sim_context["chi"],
+        POD_xtal=sim_context.get("hkl_POD") or (0, 0, 1))
+
+
+def simulate_po_curves(sim_context, po_values, hkl_labels=None, n_phi=36,
+                       delta=None, po_module=None) -> dict:
+    """Simulated intensity vs azimuth per hkl from the PO model.
+
+    The March-Dollase intensity is evaluated over a (phi, delta) grid and averaged over
+    phi -- identical to how ``compute_strain`` forms ``Mean I @ delta`` -- then scaled by
+    that hkl's structure intensity from the Simulation tab. Returns
+    ``{hkl_label: (delta, intensity)}``.
+    """
+    model = build_po_model(sim_context, po_values, po_module=po_module)
+    if delta is None:
+        delta = np.arange(-180.0, 180.0, 2.0)
+    delta = np.asarray(delta, dtype=float)
+    phi = np.linspace(0.0, 360.0, int(n_phi), endpoint=False)
+    out = {}
+    for hkl, inten in zip(sim_context["selected_hkls"], sim_context["intensities"]):
+        label = hkl_label(hkl)
+        if hkl_labels is not None and label not in hkl_labels:
+            continue
+        I_grid, _phi_grid, _delta_grid = model.intensity_for_hkl(tuple(hkl), phi, delta)
+        out[label] = (delta, float(inten) * np.asarray(I_grid, dtype=float).mean(axis=0))
+    return out
+
+
+def _global_scale(obs_list, sim_list):
+    """Closed-form least-squares scale s minimising sum((obs - s*sim)^2) over all hkls."""
+    if not obs_list:
+        return 1.0
+    obs = np.concatenate(obs_list)
+    sim = np.concatenate(sim_list)
+    denom = float(np.sum(sim * sim))
+    if denom <= 0 or not np.isfinite(denom):
+        return 1.0
+    return float(np.sum(obs * sim) / denom)
+
+
+def evaluate_po_curves(sim_context, exp_curves, po_values, n_phi=36,
+                       po_module=None) -> dict:
+    """Simulate PO intensities, apply the optimal global scale, and score the match."""
+    sims = simulate_po_curves(sim_context, po_values, hkl_labels=set(exp_curves),
+                              n_phi=n_phi, po_module=po_module)
+    obs_l, sim_l = [], []
+    for label, g in exp_curves.items():
+        if label not in sims:
+            continue
+        d, I = sims[label]
+        obs_l.append(g["intensity"].to_numpy())
+        sim_l.append(interp_periodic(d, I, g["azimuth"].to_numpy()))
+    scale = _global_scale(obs_l, sim_l)
+    scaled = {L: (d, scale * I) for L, (d, I) in sims.items()}
+    per_hkl, all_res = {}, []
+    for label, g in exp_curves.items():
+        if label not in scaled:
+            per_hkl[label] = float("nan")
+            continue
+        d, I = scaled[label]
+        resid = g["intensity"].to_numpy() - interp_periodic(d, I, g["azimuth"].to_numpy())
+        per_hkl[label] = float(np.sqrt(np.mean(resid ** 2))) if resid.size else float("nan")
+        all_res.append(resid)
+    rmse = float(np.sqrt(np.mean(np.concatenate(all_res) ** 2))) if all_res else float("nan")
+    return {"sim_curves": scaled, "per_hkl": per_hkl, "rmse": rmse, "scale": scale}
+
+
+def run_stage2_refinement(sim_context, exp_curves, init_values, refine_flags,
+                          bounds=None, method="leastsq", max_nfev=200, n_phi=36,
+                          po_module=None) -> dict:
+    """Refine PO parameters (R, tau, omega, baseline) against azimuthal intensities.
+
+    A single global scale factor is profiled out analytically at every iteration, so the
+    relative intensities between hkls constrain the fit without costing a parameter.
+    Returns the same shape of result dict as :func:`run_stage1_refinement`, plus
+    ``scale``.
+    """
+    free = [n for n, on in refine_flags.items() if on and n in init_values]
+    labels = list(exp_curves.keys())
+    az = {L: exp_curves[L]["azimuth"].to_numpy() for L in labels}
+    y = {L: exp_curves[L]["intensity"].to_numpy() for L in labels}
+    n_points = int(sum(v.size for v in y.values()))
+    bounds = dict(bounds or {})
+    limits = {n: bounds.get(n, PO_PARAM_BOUNDS.get(n, (-np.inf, np.inf))) for n in free}
+
+    def residuals_from_values(values):
+        sims = simulate_po_curves(sim_context, values, hkl_labels=set(labels),
+                                  n_phi=n_phi, po_module=po_module)
+        obs_l, sim_l, order = [], [], []
+        for L in labels:
+            if L not in sims:
+                continue
+            d, I = sims[L]
+            obs_l.append(y[L])
+            sim_l.append(interp_periodic(d, I, az[L]))
+            order.append(L)
+        if not obs_l:
+            return np.zeros(1), 1.0
+        s = _global_scale(obs_l, sim_l)
+        return np.concatenate([o - s * m for o, m in zip(obs_l, sim_l)]), s
+
+    def _package(values, errors, success, message, resid, scale, report="",
+                 at_limit=None, stats=None):
+        out = {"values": values, "errors": errors, "success": bool(success),
+               "message": str(message),
+               "rmse": float(np.sqrt(np.mean(np.asarray(resid) ** 2))),
+               "n_points": n_points, "n_free": len(free), "scale": float(scale),
+               "report": report, "at_limit": at_limit or [], "method": method}
+        out.update(stats or {})
+        return out
+
+    if not free:
+        r, s = residuals_from_values(dict(init_values))
+        return _package(dict(init_values), {}, True,
+                        "No parameters selected to refine.", r, s)
+
+    try:
+        from lmfit import Parameters, minimize as lm_minimize, fit_report as lm_fit_report
+    except ImportError:
+        Parameters = None
+
+    if Parameters is not None:
+        lm_params = Parameters()
+        for n in free:
+            lo, hi = limits[n]
+            lm_params.add(n, value=float(np.clip(init_values[n], lo, hi)),
+                          min=lo, max=hi, vary=True)
+
+        def lm_residual(p):
+            values = dict(init_values)
+            values.update({n: p[n].value for n in free})
+            return residuals_from_values(values)[0]
+
+        result = lm_minimize(lm_residual, lm_params, method=method, max_nfev=max_nfev)
+        refined = dict(init_values)
+        errors, at_limit = {}, []
+        for n in free:
+            par = result.params[n]
+            refined[n] = float(par.value)
+            errors[n] = float(par.stderr) if par.stderr is not None else float("nan")
+            lo, hi = limits[n]
+            if np.isfinite(lo) and np.isclose(par.value, lo, rtol=1e-6, atol=1e-9):
+                at_limit.append(f"{n} (at min {lo:g})")
+            elif np.isfinite(hi) and np.isclose(par.value, hi, rtol=1e-6, atol=1e-9):
+                at_limit.append(f"{n} (at max {hi:g})")
+        _r, _s = residuals_from_values(refined)
+        stats = {"chisqr": float(getattr(result, "chisqr", np.nan)),
+                 "redchi": float(getattr(result, "redchi", np.nan)),
+                 "aic": float(getattr(result, "aic", np.nan)),
+                 "bic": float(getattr(result, "bic", np.nan)),
+                 "nfev": int(getattr(result, "nfev", 0))}
+        return _package(refined, errors, getattr(result, "success", True),
+                        getattr(result, "message", ""), _r, _s,
+                        report=lm_fit_report(result), at_limit=at_limit, stats=stats)
+
+    # --- Fallback: scipy least_squares ---
+    lo = np.array([limits[n][0] for n in free], dtype=float)
+    hi = np.array([limits[n][1] for n in free], dtype=float)
+    x0 = np.clip(np.array([init_values[n] for n in free], dtype=float), lo, hi)
+
+    def residuals_vec(vec):
+        values = dict(init_values)
+        values.update({n: v for n, v in zip(free, vec)})
+        return residuals_from_values(values)[0]
+
+    result = least_squares(residuals_vec, x0, bounds=(lo, hi), max_nfev=max_nfev)
+    refined = dict(init_values)
+    refined.update({n: float(v) for n, v in zip(free, result.x)})
+    _r, _s = residuals_from_values(refined)
+    return _package(refined, _stderr_from_result(result, free), result.success,
+                    result.message, _r, _s,
+                    report="lmfit not installed — used scipy.optimize.least_squares.")
+
+
+def plot_intensity_grid(exp_curves, sim_curves, ncols=4, included=None,
+                        row_height=300) -> go.Figure:
+    """Grid of intensity-vs-azimuth panels: data points + scaled simulated PO curve."""
+    labels = list(exp_curves.keys())
+    n = len(labels)
+    if n == 0:
+        return go.Figure()
+    ncols = int(max(1, ncols))
+    nrows = int(np.ceil(n / ncols))
+    included = set(labels) if included is None else set(included)
+    fig = make_subplots(rows=nrows, cols=ncols,
+                        subplot_titles=[f"hkl {L}" for L in labels],
+                        horizontal_spacing=0.06,
+                        vertical_spacing=_subplot_vspace(nrows, row_height))
+    for i, L in enumerate(labels):
+        r, c = i // ncols + 1, i % ncols + 1
+        on = L in included
+        g = exp_curves[L]
+        fig.add_trace(go.Scatter(
+            x=g["azimuth"], y=g["intensity"], mode="markers", name=f"{L} data",
+            marker=dict(color="#e6194B" if on else "#c9c9c9", size=5),
+            showlegend=False), row=r, col=c)
+        if L in sim_curves:
+            d, I = sim_curves[L]
+            o = np.argsort(np.asarray(d, dtype=float))
+            fig.add_trace(go.Scatter(
+                x=np.asarray(d)[o], y=np.asarray(I)[o], mode="lines", name=f"{L} sim",
+                line=dict(color="#4363d8" if on else "#dddddd", width=1.6),
+                showlegend=False), row=r, col=c)
+    fig.update_xaxes(title_text="azimuth (°)", title_standoff=6)
+    fig.update_yaxes(title_text="intensity", title_standoff=6)
+    fig.update_layout(height=row_height * nrows, margin=dict(l=60, r=20, t=70, b=50),
+                      title="Intensity vs azimuth — data (points) vs PO model (line)")
     return fig
