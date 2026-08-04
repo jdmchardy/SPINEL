@@ -1812,8 +1812,11 @@ with tab_refine:
                                       "Tilt of the preferred-orientation axis (degrees)."),
                                      ("omega", 0.0, 1.0, "%.2f", False,
                                       "Rotation of the preferred-orientation axis (degrees)."),
-                                     ("baseline", 0.0, 0.05, "%.3f", False,
-                                      "Isotropic fraction added to the PO intensity (0–1).")]
+                                     ("baseline", 0.05, 0.05, "%.3f", False,
+                                      "Isotropic fraction added to the PO intensity (0–1). "
+                                      "Do not start it at exactly 0 (its limit) when "
+                                      "refining — a parameter sitting on a bound cannot "
+                                      "move. Typical 0.0–0.3.")]
                         for _i2, (_nm, _dflt, _stp, _fmt, _on, _hlp) in enumerate(_po_specs):
                             with _pc2[_i2]:
                                 _init2[_nm] = st.number_input(
@@ -1846,6 +1849,10 @@ with tab_refine:
                             st.warning("`R` starts at exactly 1.0 (isotropic), where **tau and "
                                        "omega have zero gradient** and cannot be refined. Refine "
                                        "`R` alone first, or start it away from 1.0.")
+                        if _flags2.get("baseline") and _init2["baseline"] <= 1e-9:
+                            st.warning("`baseline` starts at exactly 0, which is its lower "
+                                       "limit — a parameter sitting **on a bound cannot move**. "
+                                       "Start it slightly above 0 (e.g. 0.05) to refine it.")
 
                         _b3, _b4 = st.columns(2)
                         with _b3:

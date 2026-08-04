@@ -1692,6 +1692,10 @@ Each stage starts from the previous stage's refined values (press *Run* again af
 ticking the next parameter). Skipping to "everything at once" from an isotropic start is
 the main way this refinement goes wrong.
 
+⚠️ **Do not start a parameter on its limit.** `baseline` is bounded at 0, so starting it at
+exactly 0 freezes it — begin at ~0.05 instead. Note `baseline` is also weakly determined
+unless the data are clean: check its reported ±1σ before trusting the value.
+
 **φ sampling.** The PO intensity at each azimuth is an average over the free rotation φ,
 evaluated on a discrete grid. How fine that grid must be depends on how *peaked* the
 March–Dollase function is — sharp both for small R (a spike at η = 0) and for large R (a
@@ -1807,34 +1811,55 @@ def _global_scale(obs_list, sim_list):
     return float(np.sum(obs * sim) / denom)
 
 
+def measured_azimuth_grid(exp_curves):
+    """Sorted union of the azimuths present across all hkls (the points to score at)."""
+    if not exp_curves:
+        return None
+    return np.unique(np.concatenate([np.asarray(g["azimuth"], dtype=float)
+                                     for g in exp_curves.values()]))
+
+
 def evaluate_po_curves(sim_context, exp_curves, po_values, n_phi=None,
-                       po_module=None) -> dict:
+                       po_module=None, plot_delta=None) -> dict:
     """Simulate PO intensities, apply the optimal global scale, and score the match.
+
+    Scoring uses the model evaluated EXACTLY at the measured azimuths -- interpolating a
+    coarser curve onto them leaves a systematic residual that grows with texture strength
+    (at R=0.2 it dominates the fit). The densely sampled curve returned for PLOTTING is a
+    separate evaluation, since a smooth line needs even sampling the data does not have.
 
     ``n_phi=None`` selects the phi sampling adaptively from R (see :func:`adaptive_n_phi`).
     """
     n_phi = int(n_phi) if n_phi else adaptive_n_phi(po_values.get("R", 1.0))
-    sims = simulate_po_curves(sim_context, po_values, hkl_labels=set(exp_curves),
-                              n_phi=n_phi, po_module=po_module)
+    labels = set(exp_curves)
+    # --- scoring: evaluated on the measured azimuths (queries land on grid nodes) ---
+    az_eval = measured_azimuth_grid(exp_curves)
+    at_data = ({} if az_eval is None else
+               simulate_po_curves(sim_context, po_values, hkl_labels=labels, n_phi=n_phi,
+                                  delta=az_eval, po_module=po_module))
     obs_l, sim_l = [], []
     for label, g in exp_curves.items():
-        if label not in sims:
+        if label not in at_data:
             continue
-        d, I = sims[label]
+        d, I = at_data[label]
         obs_l.append(g["intensity"].to_numpy())
         sim_l.append(interp_periodic(d, I, g["azimuth"].to_numpy()))
     scale = _global_scale(obs_l, sim_l)
-    scaled = {L: (d, scale * I) for L, (d, I) in sims.items()}
     per_hkl, all_res = {}, []
     for label, g in exp_curves.items():
-        if label not in scaled:
+        if label not in at_data:
             per_hkl[label] = float("nan")
             continue
-        d, I = scaled[label]
-        resid = g["intensity"].to_numpy() - interp_periodic(d, I, g["azimuth"].to_numpy())
+        d, I = at_data[label]
+        resid = (g["intensity"].to_numpy()
+                 - scale * interp_periodic(d, I, g["azimuth"].to_numpy()))
         per_hkl[label] = float(np.sqrt(np.mean(resid ** 2))) if resid.size else float("nan")
         all_res.append(resid)
     rmse = float(np.sqrt(np.mean(np.concatenate(all_res) ** 2))) if all_res else float("nan")
+    # --- plotting: dense, evenly sampled curve so the model line is smooth ---
+    dense = simulate_po_curves(sim_context, po_values, hkl_labels=labels, n_phi=n_phi,
+                               delta=plot_delta, po_module=po_module)
+    scaled = {L: (d, scale * I) for L, (d, I) in dense.items()}
     return {"sim_curves": scaled, "per_hkl": per_hkl, "rmse": rmse, "scale": scale,
             "n_phi": int(n_phi)}
 
@@ -1864,9 +1889,14 @@ def run_stage2_refinement(sim_context, exp_curves, init_values, refine_flags,
     bounds = dict(bounds or {})
     limits = {n: bounds.get(n, PO_PARAM_BOUNDS.get(n, (-np.inf, np.inf))) for n in free}
 
+    # Fit against the model evaluated exactly at the measured azimuths: interpolating a
+    # coarser curve onto them leaves a residual floor that grows with texture strength and
+    # pulls the fit off the answer. It is also cheaper (fewer points than a dense grid).
+    az_eval = measured_azimuth_grid(exp_curves)
+
     def residuals_from_values(values):
         sims = simulate_po_curves(sim_context, values, hkl_labels=set(labels),
-                                  n_phi=n_phi, po_module=po_module)
+                                  n_phi=n_phi, delta=az_eval, po_module=po_module)
         obs_l, sim_l, order = [], [], []
         for L in labels:
             if L not in sims:
