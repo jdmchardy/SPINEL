@@ -98,7 +98,7 @@ with col_img:
 
 
 tab_sim, tab_cake, tab_peaks, tab_refine = st.tabs(
-    ["Simulation", "Cake Import & Background", "Peak Extraction", "Stage 1 Refinement"])
+    ["Simulation", "Cake Import & Background", "Peak Extraction", "Refinement"])
 
 with tab_cake:
     # --- Cake Import (independent of the elastic/hkl CSV workflow) ---
@@ -976,7 +976,7 @@ with tab_sim:
             for key in sigma_keys:
                 sigma_params[key] = st.session_state.params.get(key)
 
-            # Persist the full simulation context so the Stage 1 Refinement tab can gate on
+            # Persist the full simulation context so the Refinement tab can gate on
             # it and reuse the exact model set up here (pure UI-state; no compute change).
             st.session_state.sim_context = {
                 "selected_hkls": selected_hkls,
