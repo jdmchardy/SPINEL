@@ -799,16 +799,14 @@ def compute_strain(hkl, intensity, symmetry, lattice_params, wavelength, cij_par
     elif direct_PO:
         I_list = np.concatenate(I_chunks)  # aligns with strain_33_list shape
     else:
-        # Downsized coarse evaluation of PO model on (phi, delta) grid then interpolate
-        phi_PO   = np.linspace(0, 360, 72)
-        delta_PO = np.linspace(-180, 180, 180)
-        I_grid, phi_grid_PO, delta_grid_PO = PO_MODEL.intensity_for_hkl(hkl, phi_PO, delta_PO)
-        interp = RegularGridInterpolator(
-            (phi_grid_PO[:, 0], delta_grid_PO[0, :]), I_grid,
-            method='linear', bounds_error=False, fill_value=None)
-        phi_deg_flat   = np.degrees(phi_grid).ravel(order='F')
-        delta_deg_flat = delta_grid.ravel(order='F') # already degrees
-        I_list = interp(np.stack([phi_deg_flat, delta_deg_flat], axis=-1))
+        # Evaluate the PO model at the (phi, delta) points actually in use. Interpolating
+        # from a separate grid contributed most of the PO sampling error for no speed gain
+        # (that grid was the same size as this one). A cubic interpolant is not a safe
+        # alternative: it overshoots to negative values, and these weight the averages below.
+        # PO surface plots are unaffected -- they sample intensity_for_hkl on their own grid.
+        I_grid, phi_grid_PO, delta_grid_PO = PO_MODEL.intensity_for_hkl(
+            hkl, np.degrees(phi_values), deltas)
+        I_list = I_grid.ravel(order='F')
 
     # d0 and 2th
     d0 = get_d0(symmetry,h,k,l,a,b,c)
@@ -1056,9 +1054,14 @@ def cake_data(selected_hkls, intensities, symmetry, lattice_params, wavelength, 
     keys (hkl_labels) : values (df of information for this hkl)
     """
     cake_dict = {}
-    
+
+    # 72 phi points (5 deg) as standard; finer only when the March-Dollase surface is
+    # sharply peaked, which happens for both small and large R (hence max(R, 1/R)).
+    n_phi = (max(72, cp.adaptive_n_phi(st.session_state.params.get("R")))
+             if st.session_state.params.get("PO_toggle") else 72)
+
     for hkl, intensity in zip(selected_hkls, intensities):
-        phi_values = np.radians(np.arange(0, 360, 5))
+        phi_values = np.radians(np.linspace(0, 360, n_phi, endpoint=False))
         psi_values = 0  # let compute_strain calculate psi for each HKL
         hkl_label, df, psi_list, strain_33_list = compute_strain(
             hkl, intensity, symmetry, lattice_params, wavelength, cijs,
