@@ -421,6 +421,8 @@ with tab_peaks:
         st.info("Provide a subtracted image to search: compute or load a background in "
                 "the Cake tab, or upload a pre-subtracted Dioptas .txt here.")
     else:
+        # Make the resolved subtracted image available to the Refinement tab (Stage 3).
+        st.session_state.subtracted_image = (_xc, _grid)
         # Show the subtracted image so the user can inspect the data before setting params.
         st.plotly_chart(
             cp.plot_grid_heatmap(_xc, _grid, "Subtracted cake to search",
@@ -1496,6 +1498,9 @@ with tab_refine:
         st.markdown(cp.REFINEMENT_HELP_MD)
 
     _sc = st.session_state.get("sim_context")
+    # Engine defaults, so the later stages still work when Stage 1's controls (which live
+    # inside its data-loaded branch, and may override these) have not been rendered.
+    _method, _maxnfev, _bounds, _latfrac = "leastsq", 200, {}, cp.LATTICE_BOUND_FRAC
     if not _sc or not _sc.get("selected_hkls"):
         st.info("Set up the simulation first: on the **Simulation** tab load the elastic/hkl "
                 "CSV and set the symmetry, χ, wavelength and (optional) PO model. Those "
@@ -1958,3 +1963,174 @@ with tab_refine:
                             st.caption("Press **Preview PO model** to overlay the current PO "
                                        "model on the measured intensities, or **Run Stage 2 "
                                        "refinement** to fit.")
+
+    # =====================================================================
+    # STAGE 3 — fit the background-subtracted IMAGE directly
+    # =====================================================================
+    st.divider()
+    st.header("Stage 3 Refinement — image intensity")
+    with st.expander("How Stage 3 refinement works", expanded=False):
+        st.markdown(cp.STAGE3_HELP_MD)
+
+    _img = st.session_state.get("subtracted_image")
+    if not _sc or not _sc.get("selected_hkls"):
+        st.info("Set up the simulation first on the **Simulation** tab.")
+    elif _img is None:
+        st.info("No subtracted image available. Compute or load a background on the "
+                "**Cake Import & Background** tab, or upload a pre-subtracted cake on the "
+                "**Peak Extraction** tab.")
+    else:
+        _s3x, _s3grid = _img
+        _s3c = st.columns(4)
+        with _s3c[0]:
+            _s3_naz = st.number_input(
+                "Azimuth blocks", min_value=4, max_value=int(_s3x.azimuth.size), value=72,
+                step=4, key="s3_naz",
+                help="Blocks the image is averaged into along azimuth. More blocks keep "
+                     "azimuthal detail; fewer average away noise.")
+            _s3_tth = st.number_input(
+                "2θ block (°)", min_value=0.002, max_value=1.0, value=0.02, step=0.005,
+                format="%.3f", key="s3_tth",
+                help="Block width in 2θ. Aim for 4–8 blocks across a ring's FWHM — too "
+                     "coarse blurs the peak, too fine keeps the noise.")
+        with _s3c[1]:
+            _s3_fwhm = st.number_input(
+                "FWHM (°)", min_value=0.001, max_value=5.0,
+                value=float(st.session_state.get("s3_fwhm_val", 0.10)), step=0.005,
+                format="%.4f", key="s3_fwhm",
+                help="Instrumental Gaussian broadening. Combined with the strain spread "
+                     "across φ this sets the modelled ring width.")
+            _s3_ffwhm = st.checkbox("refine FWHM", value=True, key="s3_f_fwhm")
+            _s3_k = st.number_input(
+                "Window × width", min_value=1.0, max_value=20.0, value=4.0, step=0.5,
+                key="s3_k",
+                help="Window half-width as a multiple of the estimated ring width. The "
+                     "window is fixed from the starting model so the residual keeps a "
+                     "constant length.")
+        with _s3c[2]:
+            st.caption("Preferred orientation")
+            _s3_fpo = {p: st.checkbox(f"refine {p}", value=False, key=f"s3_f_{p}")
+                       for p in ("R", "tau", "omega", "baseline")}
+        with _s3c[3]:
+            st.caption("Lattice / stress")
+            _s3_lat = cp.lattice_param_names(_sc["symmetry"])
+            _s3_flat = {p: st.checkbox(f"refine {p}", value=False, key=f"s3_f_{p}")
+                        for p in _s3_lat}
+            _s3_fstress = {p: st.checkbox(f"refine {p}", value=False, key=f"s3_f_{p}")
+                           for p in ("sigma_11", "sigma_33")}
+            _s3_fchi = {"chi": st.checkbox("refine chi", value=False, key="s3_f_chi")}
+
+        # Seed values: Stage 1/2 results if present, else the Simulation tab.
+        _s1v = (st.session_state.get("stage1_view") or {}).get("result")
+        _s2v = (st.session_state.get("stage2_view") or {}).get("result")
+        _s3_init = {}
+        for _k in ("a_val", "b_val", "c_val", "alpha", "beta", "gamma"):
+            _s3_init[_k] = float(_sc["lattice_params"][_k])
+        for _k in cp.SIGMA_NAMES:
+            _s3_init[_k] = float(_sc["sigma_params"].get(_k, 0.0))
+        _s3_init["chi"] = float(_sc["chi"])
+        if _s1v:
+            _s3_init.update({k: v for k, v in _s1v["values"].items() if k in _s3_init})
+        _pov3 = dict(_sc.get("po_values") or {})
+        for _k, _d in (("R", 0.9), ("tau", 0.0), ("omega", 0.0), ("baseline", 0.05),
+                       ("weight", 1.0)):
+            _s3_init[_k] = float(_pov3.get(_k, _d))
+        if _s2v:
+            _s3_init.update({k: v for k, v in _s2v["values"].items()
+                             if k in ("R", "tau", "omega", "baseline", "weight")})
+        _s3_init["fwhm"] = float(_s3_fwhm)
+        _s3_flags = {"fwhm": bool(_s3_ffwhm), **_s3_fpo, **_s3_flat, **_s3_fstress,
+                     **_s3_fchi}
+        st.caption("Seeded from " + (", ".join(
+            [s for s, ok in (("Stage 1", _s1v), ("Stage 2", _s2v)) if ok])
+            or "the Simulation tab") + ". Refine a few parameters at a time.")
+        if _s3_flags.get("baseline") and _s3_init["baseline"] <= 1e-9:
+            st.warning("`baseline` starts at its 0 limit and cannot move — start it "
+                       "slightly above 0.")
+
+        _b5, _b6 = st.columns(2)
+        with _b5:
+            _s3_prev = st.button("Preview image model", use_container_width=True,
+                                 key="s3_preview")
+        with _b6:
+            _s3_run = st.button("Run Stage 3 refinement", type="primary",
+                                use_container_width=True, key="s3_run")
+
+        if _s3_prev or _s3_run:
+            with st.spinner("Building blocks…"):
+                _seed_dfs = cp._stage3_sim_dfs(compute_strain, _sc, _s3_init)
+                _s3_blocks = cp.build_stage3_blocks(
+                    _s3x, _s3grid, _seed_dfs, n_az_blocks=int(_s3_naz),
+                    tth_block=float(_s3_tth), fwhm=float(_s3_fwhm), roi_k=float(_s3_k))
+            if not _s3_blocks.labels:
+                st.warning("No ring windows fell inside the image 2θ range.")
+            else:
+                if _s3_run:
+                    with st.spinner("Refining against the image…"):
+                        _s3_res = cp.run_stage3_refinement(
+                            compute_strain, _sc, _s3_blocks, _s3_init, _s3_flags,
+                            method=_method, max_nfev=int(_maxnfev))
+                        _s3_ev = cp.evaluate_stage3(compute_strain, _sc, _s3_blocks,
+                                                    _s3_res["values"],
+                                                    _s3_res["values"].get("fwhm",
+                                                                          _s3_init["fwhm"]))
+                    st.session_state.s3_fwhm_val = _s3_res["values"].get("fwhm")
+                else:
+                    with st.spinner("Evaluating…"):
+                        _s3_res = None
+                        _s3_ev = cp.evaluate_stage3(compute_strain, _sc, _s3_blocks,
+                                                    _s3_init, float(_s3_fwhm))
+                st.session_state.stage3_view = {"blocks": _s3_blocks, "eval": _s3_ev,
+                                                "result": _s3_res, "init": dict(_s3_init),
+                                                "flags": dict(_s3_flags)}
+
+        _v3 = st.session_state.get("stage3_view")
+        if _v3:
+            _bl, _ev3, _r3 = _v3["blocks"], _v3["eval"], _v3.get("result")
+            _m3 = st.columns(4)
+            _m3[0].metric("blocks compared", f"{_bl.n_points:,}")
+            _m3[1].metric("global scale", f"{_ev3['scale']:.4g}")
+            _m3[2].metric("RMSE", f"{_ev3['rmse']:.4g}")
+            _m3[3].metric("rings", f"{len(_bl.labels)}")
+            if _r3:
+                (st.success if _r3["success"] else st.warning)(
+                    f"{_r3['message']}  ·  {_r3['n_free']} param(s), "
+                    f"{_r3['n_points']:,} blocks  ·  RMSE {_r3['rmse']:.4g}")
+                _rows3 = [{"parameter": _n, "initial": _v3["init"][_n],
+                           "refined": _r3["values"][_n],
+                           "± 1σ": _r3["errors"].get(_n, float("nan"))}
+                          for _n in _v3["flags"] if _v3["flags"][_n]]
+                if _rows3:
+                    st.dataframe(pd.DataFrame(_rows3), hide_index=True,
+                                 use_container_width=True,
+                                 column_config={
+                                     "initial": st.column_config.NumberColumn(format="%.4f"),
+                                     "refined": st.column_config.NumberColumn(format="%.4f"),
+                                     "± 1σ": st.column_config.NumberColumn(format="%.4f")})
+                if _r3.get("at_limit"):
+                    st.warning("Parameter(s) stopped **at a limit**: "
+                               + ", ".join(_r3["at_limit"]))
+                if _r3.get("report"):
+                    with st.expander(f"lmfit fit report ({_r3.get('method','')})",
+                                     expanded=False):
+                        st.code(_r3["report"], language="text")
+                        st.download_button("Download fit report (.txt)",
+                                           _r3["report"].encode("utf-8"),
+                                           file_name="stage3_fit_report.txt",
+                                           mime="text/plain", key="s3_dl")
+                st.caption("Apply the refined values on the **Simulation** tab to carry "
+                           "them into the model.")
+            st.plotly_chart(
+                cp.plot_stage3_comparison(_bl, _ev3["sim"], percentile=cake_percentile),
+                width='stretch')
+            st.dataframe(
+                pd.DataFrame([{"hkl": _L,
+                               "2θ window": f"{_bl.windows[_L][0]:.3f}–{_bl.windows[_L][1]:.3f}",
+                               "blocks": int(_bl.data[_L].size),
+                               "RMSE": _ev3["per_hkl"].get(_L, float("nan"))}
+                              for _L in _bl.labels]),
+                hide_index=True, use_container_width=True,
+                column_config={"RMSE": st.column_config.NumberColumn(format="%.4g")})
+        else:
+            st.caption("Press **Preview image model** to overlay the current model on the "
+                       "blocked image, or **Run Stage 3 refinement** to fit.")
