@@ -2114,13 +2114,23 @@ with tab_refine:
             _s3_run = st.button("Run Stage 3 refinement", type="primary",
                                 use_container_width=True, key="s3_run")
 
+        # compute_strain reads the PO parameters from st.session_state.params, not from its
+        # arguments, so they must be written there before every forward-model call or a
+        # refinement of R/tau/omega/baseline would leave the simulation unchanged.
+        def _s3_po_apply(_v):
+            _p = st.session_state.get("params")
+            if _p is not None:
+                for _k in ("R", "tau", "omega", "weight", "baseline"):
+                    if _k in _v:
+                        _p[_k] = float(_v[_k])
+
         if (_s3_prev or _s3_run) and not _s3_inc:
             st.warning("Tick at least one hkl to include.")
         elif _s3_prev or _s3_run:
             _s3_nphi = int(_s3_nphi_in) or None
             with st.spinner("Building the comparison grid…"):
                 _seed_dfs = cp._stage3_sim_dfs(compute_strain, _sc3, _s3_init,
-                                               n_phi=_s3_nphi)
+                                               n_phi=_s3_nphi, po_apply=_s3_po_apply)
                 _s3_blocks = cp.build_stage3_grid(
                     _s3x, _s3grid, _seed_dfs, az_step=float(_s3_az),
                     tth_step=float(_s3_tth), fwhm=float(_s3_fwhm), roi_k=float(_s3_k),
@@ -2132,19 +2142,22 @@ with tab_refine:
                     with st.spinner("Refining against the image…"):
                         _s3_res = cp.run_stage3_refinement(
                             compute_strain, _sc3, _s3_blocks, _s3_init, _s3_flags,
-                            method=_method, max_nfev=int(_maxnfev), n_phi=_s3_nphi)
+                            method=_method, max_nfev=int(_maxnfev), n_phi=_s3_nphi,
+                            po_apply=_s3_po_apply)
                         # Score/display at the sampling the refined R actually needs.
                         _s3_ev = cp.evaluate_stage3(
                             compute_strain, _sc3, _s3_blocks, _s3_res["values"],
                             _s3_res["values"].get("fwhm", _s3_init["fwhm"]),
                             n_phi=_s3_nphi or max(_s3_res["n_phi"],
-                                                  _s3_res["n_phi_suggested"]))
+                                                  _s3_res["n_phi_suggested"]),
+                            po_apply=_s3_po_apply)
                 else:
                     with st.spinner("Evaluating…"):
                         _s3_res = None
                         _s3_ev = cp.evaluate_stage3(compute_strain, _sc3, _s3_blocks,
                                                     _s3_init, float(_s3_fwhm),
-                                                    n_phi=_s3_nphi)
+                                                    n_phi=_s3_nphi,
+                                                    po_apply=_s3_po_apply)
                 st.session_state.stage3_view = {"blocks": _s3_blocks, "eval": _s3_ev,
                                                 "result": _s3_res, "init": dict(_s3_init),
                                                 "flags": dict(_s3_flags)}

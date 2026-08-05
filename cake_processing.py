@@ -2296,11 +2296,20 @@ def stage3_n_phi(values) -> int:
     return max(STAGE3_MIN_N_PHI, adaptive_n_phi((values or {}).get("R", 1.0)))
 
 
-def _stage3_sim_dfs(strain_fn, sim_context, values, coarse=False, n_phi=None):
+def _stage3_sim_dfs(strain_fn, sim_context, values, coarse=False, n_phi=None,
+                    po_apply=None):
     """compute_strain DataFrames for every hkl at the given parameter values.
 
     ``n_phi=None`` picks the phi sampling from R via :func:`stage3_n_phi`.
+
+    ``po_apply`` is a callback invoked with ``values`` before the forward model runs.
+    It is REQUIRED to refine PO parameters: compute_strain reads R/tau/omega/weight/
+    baseline from Streamlit session state rather than from its arguments, so without this
+    hook those parameters never reach the simulation and the optimiser reports that they
+    "did not affect the fit". The callback is injected so this module stays UI-free.
     """
+    if po_apply is not None:
+        po_apply(values)
     lattice_params, sigma_params, chi = _assemble_params(sim_context, values)
     n_phi = int(n_phi) if n_phi else stage3_n_phi(values)
     phi_values = np.radians(np.linspace(0.0, 360.0, n_phi, endpoint=False))
@@ -2316,14 +2325,15 @@ def _stage3_sim_dfs(strain_fn, sim_context, values, coarse=False, n_phi=None):
 
 
 def evaluate_stage3(strain_fn, sim_context, g: Stage3Grid, values, fwhm,
-                    coarse=False, n_phi=None) -> dict:
+                    coarse=False, n_phi=None, po_apply=None) -> dict:
     """Render the model on the full block grid, scale it, and score it inside the windows.
 
     ``sim`` is returned over the WHOLE grid (for display); the scale and residuals use only
     the blocks in ``g.fit_mask``. ``n_phi=None`` selects the phi sampling from R.
     """
     n_phi = int(n_phi) if n_phi else stage3_n_phi(values)
-    sim_dfs = _stage3_sim_dfs(strain_fn, sim_context, values, coarse=coarse, n_phi=n_phi)
+    sim_dfs = _stage3_sim_dfs(strain_fn, sim_context, values, coarse=coarse, n_phi=n_phi,
+                              po_apply=po_apply)
     sim = render_stage3(g, sim_dfs, fwhm)
     m = g.fit_mask
     scale = _global_scale([g.data[m]], [sim[m]]) if m.any() else 1.0
@@ -2340,7 +2350,7 @@ def evaluate_stage3(strain_fn, sim_context, g: Stage3Grid, values, fwhm,
 def run_stage3_refinement(strain_fn, sim_context, g: Stage3Grid, init_values,
                           refine_flags, bounds=None, method="leastsq", max_nfev=200,
                           coarse=False, lattice_frac=LATTICE_BOUND_FRAC,
-                          n_phi=None) -> dict:
+                          n_phi=None, po_apply=None) -> dict:
     """Refine against the blocked image. ``fwhm`` participates like any other parameter.
 
     The grid and its ``fit_mask`` are fixed, so the residual vector keeps a constant length
@@ -2367,7 +2377,8 @@ def run_stage3_refinement(strain_fn, sim_context, g: Stage3Grid, init_values,
 
     def residuals_from_values(values):
         ev = evaluate_stage3(strain_fn, sim_context, g, values,
-                             values.get("fwhm", 0.1), coarse=coarse, n_phi=n_phi)
+                             values.get("fwhm", 0.1), coarse=coarse, n_phi=n_phi,
+                             po_apply=po_apply)
         return (g.data[g.fit_mask] - ev["sim"][g.fit_mask]), ev["scale"]
 
     def _package(values, errors, success, message, resid, scale, report="", at_limit=None,
