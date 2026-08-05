@@ -1649,7 +1649,7 @@ with tab_refine:
                                    "(edit to override):")
                         _blim = []
                         for _n in _free_now:
-                            _lo, _hi = cp.default_param_bounds(_n, _init[_n], _latfrac)
+                            _lo, _hi = cp.param_bounds(_n, _init[_n], _latfrac)
                             _blim.append({"parameter": _n, "initial": _init[_n],
                                           "min": _lo, "max": _hi})
                         _bedit = st.data_editor(

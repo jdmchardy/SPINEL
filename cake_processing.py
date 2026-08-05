@@ -1159,14 +1159,24 @@ def plot_bin_peak_fits(cake: CakeData, grid, peaks_df, *, bin_index, n_bins,
 
 
 # =========================================================================
-# Stage 1 refinement: match simulated Mean two_th @ delta to experimental
-# peak positions (2th vs azimuth), per hkl reflection.
+# REFINEMENT STAGES
 #
-# The forward model is spinel_core.compute_strain, INJECTED as ``strain_fn`` so
-# this module never imports spinel_core (which pulls in pyFAI/lmfit and imports
-# cake_processing itself -> would be circular). The optimiser is
-# scipy.optimize.least_squares, so refinement runs anywhere scipy is available.
+# Three stages fit progressively more of the model, each seeded from the last:
+#   1  peak POSITIONS   2th vs azimuth      -> lattice, stress, chi
+#   2  peak INTENSITIES integrated area     -> preferred orientation
+#   3  the IMAGE itself blocked 2th/azimuth -> all of the above plus peak width
+#
+# Shared machinery, so a fix lands in one place for all three:
+#   _run_refinement   the lmfit/scipy driver, at-limit reporting and fit statistics
+#   param_bounds      every parameter's default limits
+#   _plot_panel_grid  the per-hkl data-vs-model panel grids
+#
+# spinel_core.compute_strain is INJECTED as ``strain_fn`` rather than imported: it pulls
+# in pyFAI and lmfit and itself imports this module, so importing it here would be
+# circular and would stop cake_processing loading in a bare environment.
 # =========================================================================
+
+# --- Stage 1: simulated "Mean two_th @ delta" vs the extracted peak positions -----------
 
 REFINEMENT_HELP_MD = """\
 ### Stage 1 refinement — peak positions
@@ -1344,21 +1354,24 @@ def _assemble_params(sim_context, values):
     return lattice_params, sigma_params, chi
 
 
-#: Default refinement limits. Lattice lengths are bounded RELATIVE to the starting value
-#: (a window of +/- LATTICE_BOUND_FRAC around it), so a poor initial guess restricts how
-#: far the refinement can travel -- widen the fraction, or the explicit min/max in the UI,
-#: when starting far from the answer. Stress/chi use absolute physical ranges.
+#: Lattice lengths are bounded RELATIVE to the starting value (+/- this fraction), so a
+#: poor initial guess limits how far the refinement can travel -- widen it, or set explicit
+#: limits in the UI, when starting far from the answer. Everything else is absolute.
 LATTICE_BOUND_FRAC = 0.25
-SIGMA_BOUNDS = (-25.0, 25.0)
-CHI_BOUNDS = (-90.0, 90.0)
+SIGMA_BOUNDS = (-25.0, 25.0)          # GPa
+CHI_BOUNDS = (-90.0, 90.0)            # degrees
+FWHM_BOUNDS = (1e-3, 5.0)             # degrees
+#: March-Dollase limits (Stage 2 and 3). R = 1 is isotropic.
+PO_PARAM_BOUNDS = {"R": (0.05, 5.0), "tau": (-180.0, 180.0),
+                   "omega": (-180.0, 180.0), "baseline": (0.0, 1.0)}
 
 
-def default_param_bounds(name, value, lattice_frac=LATTICE_BOUND_FRAC):
-    """Default (min, max) refinement limits for a parameter.
+def param_bounds(name, value, lattice_frac=LATTICE_BOUND_FRAC):
+    """Default ``(min, max)`` refinement limits for any parameter, in any stage.
 
-    Lattice lengths get ``value * (1 -/+ lattice_frac)`` — a window centred on the START
-    value, which is why a far-off initial guess can clamp the refinement. Stress components
-    use ``SIGMA_BOUNDS`` (GPa) and chi uses ``CHI_BOUNDS`` (degrees).
+    One table for all three stages so a limit cannot drift between them. Lattice lengths
+    get a window around the START value; stress, chi, fwhm and the PO parameters use fixed
+    physical ranges. Unknown names are unbounded.
     """
     if name in ("a_val", "b_val", "c_val"):
         if value:
@@ -1368,7 +1381,10 @@ def default_param_bounds(name, value, lattice_frac=LATTICE_BOUND_FRAC):
         return SIGMA_BOUNDS
     if name == "chi":
         return CHI_BOUNDS
-    return (-np.inf, np.inf)
+    if name == "fwhm":
+        return FWHM_BOUNDS
+    return PO_PARAM_BOUNDS.get(name, (-np.inf, np.inf))
+
 
 
 def evaluate_curves_and_residuals(strain_fn, sim_context, exp_curves, values,
@@ -1434,71 +1450,50 @@ parameter in the report means it never moved (usually a flat gradient or a bound
 """
 
 
-def _stderr_from_result(result, names):
-    """1-sigma parameter errors from a scipy least_squares Jacobian (fallback path)."""
-    try:
-        J = result.jac
-        dof = max(1, J.shape[0] - J.shape[1])
-        cov = np.linalg.inv(J.T @ J) * (2.0 * result.cost / dof)
-        se = np.sqrt(np.abs(np.diag(cov)))
-        return {n: float(s) for n, s in zip(names, se)}
-    except Exception:
-        return {n: float("nan") for n in names}
+def _run_refinement(init_values, refine_flags, residual_fn, *, limits_fn,
+                    method="leastsq", max_nfev=200, n_points=0, derived=None) -> dict:
+    """Least-squares driver shared by all three refinement stages.
 
+    Each stage supplies only what makes it different:
 
-def run_stage1_refinement(strain_fn, sim_context, exp_curves, init_values, refine_flags,
-                          coarse=True, max_nfev=200, bounds=None, method="leastsq",
-                          lattice_frac=LATTICE_BOUND_FRAC) -> dict:
-    """Refine peak positions across the included hkls with lmfit.
+    - ``residual_fn(values)`` -> the residual array, or ``(array, extras)`` when the stage
+      computes something worth reporting alongside it (Stages 2 and 3 profile out a global
+      scale this way, so it comes back without a second forward-model call).
+    - ``limits_fn(name, value)`` -> that parameter's ``(min, max)``.
+    - ``derived(values)`` -> optional cheap extra result fields (Stage 1's ``t``, the
+      phi-sampling advice in Stages 2 and 3).
 
-    ``init_values`` holds a starting value for every refineable parameter (lattice
-    a/b/c, the six sigma components, chi); ``refine_flags`` selects which vary.
-    ``bounds`` optionally overrides the per-parameter ``(min, max)`` limits (see
-    :func:`default_param_bounds` — note the lattice window is relative to the START
-    value, so a far-off initial guess restricts the reachable range).
-
-    Falls back to ``scipy.optimize.least_squares`` if lmfit is unavailable.
-
-    Returns a dict with ``values`` (refined, full set), ``errors``, ``success``,
-    ``message``, ``rmse``, ``n_points``, ``n_free``, ``t``, ``report`` (lmfit fit
-    report text), ``at_limit`` (params sitting on a bound) and fit statistics.
+    Uses lmfit when installed, for the fit report, uncertainties and correlations; falls
+    back to ``scipy.optimize.least_squares`` otherwise. Always returns the same shape of
+    dict: ``values, errors, success, message, rmse, n_points, n_free, report, at_limit,
+    method`` plus the fit statistics and whatever the stage contributed.
     """
     free = [n for n, on in refine_flags.items() if on and n in init_values]
-    labels = list(exp_curves.keys())
-    az = {L: exp_curves[L]["azimuth"].to_numpy() for L in labels}
-    y = {L: exp_curves[L]["mean_2th"].to_numpy() for L in labels}
-    n_points = int(sum(v.size for v in y.values()))
-    bounds = dict(bounds or {})
+    limits = {n: limits_fn(n, init_values[n]) for n in free}
 
-    def residuals_from_values(values):
-        lattice_params, sigma_params, chi = _assemble_params(sim_context, values)
-        sims = simulate_all_curves(strain_fn, sim_context, lattice_params, sigma_params,
-                                   chi, hkl_labels=set(labels), coarse=coarse)
-        res = []
-        for L in labels:
-            if L not in sims:
-                continue
-            delta, sim2th = sims[L]
-            res.append(y[L] - interp_periodic(delta, sim2th, az[L]))
-        return np.concatenate(res) if res else np.zeros(1)
+    def resid_and_extras(values):
+        out = residual_fn(values)
+        if isinstance(out, tuple):
+            return np.asarray(out[0], dtype=float), dict(out[1] or {})
+        return np.asarray(out, dtype=float), {}
 
-    def _package(refined, errors, success, message, resid, report="", at_limit=None,
-                 stats=None):
-        out = {"values": refined, "errors": errors, "success": bool(success),
+    def package(values, errors, success, message, resid, extras, report="",
+                at_limit=None, stats=None):
+        out = {"values": values, "errors": errors, "success": bool(success),
                "message": str(message),
                "rmse": float(np.sqrt(np.mean(np.asarray(resid) ** 2))),
-               "n_points": n_points, "n_free": len(free),
-               "t": float(refined.get("sigma_33", 0.0) - refined.get("sigma_11", 0.0)),
+               "n_points": int(n_points), "n_free": len(free),
                "report": report, "at_limit": at_limit or [], "method": method}
+        out.update(extras)
+        if derived is not None:
+            out.update(derived(values))
         out.update(stats or {})
         return out
 
     if not free:
-        return _package(dict(init_values), {}, True, "No parameters selected to refine.",
-                        residuals_from_values(dict(init_values)))
-
-    limits = {n: bounds.get(n, default_param_bounds(n, init_values[n], lattice_frac))
-              for n in free}
+        resid, extras = resid_and_extras(dict(init_values))
+        return package(dict(init_values), {}, True,
+                       "No parameters selected to refine.", resid, extras)
 
     try:
         from lmfit import Parameters, minimize as lm_minimize, fit_report as lm_fit_report
@@ -1515,11 +1510,10 @@ def run_stage1_refinement(strain_fn, sim_context, exp_curves, init_values, refin
         def lm_residual(p):
             values = dict(init_values)
             values.update({n: p[n].value for n in free})
-            return residuals_from_values(values)
+            return resid_and_extras(values)[0]
 
         result = lm_minimize(lm_residual, lm_params, method=method, max_nfev=max_nfev)
-        refined = dict(init_values)
-        errors, at_limit = {}, []
+        refined, errors, at_limit = dict(init_values), {}, []
         for n in free:
             par = result.params[n]
             refined[n] = float(par.value)
@@ -1529,30 +1523,75 @@ def run_stage1_refinement(strain_fn, sim_context, exp_curves, init_values, refin
                 at_limit.append(f"{n} (at min {lo:g})")
             elif np.isfinite(hi) and np.isclose(par.value, hi, rtol=1e-6, atol=1e-9):
                 at_limit.append(f"{n} (at max {hi:g})")
-        stats = {"chisqr": float(getattr(result, "chisqr", np.nan)),
-                 "redchi": float(getattr(result, "redchi", np.nan)),
-                 "aic": float(getattr(result, "aic", np.nan)),
-                 "bic": float(getattr(result, "bic", np.nan)),
-                 "nfev": int(getattr(result, "nfev", 0))}
-        return _package(refined, errors, getattr(result, "success", True),
-                        getattr(result, "message", ""), result.residual,
-                        report=lm_fit_report(result), at_limit=at_limit, stats=stats)
-
-    # --- Fallback: scipy least_squares (lmfit not installed) ---
-    def residuals_vec(vec):
-        values = dict(init_values)
-        values.update({n: v for n, v in zip(free, vec)})
-        return residuals_from_values(values)
+        resid, extras = resid_and_extras(refined)
+        stats = {k: float(getattr(result, k, np.nan))
+                 for k in ("chisqr", "redchi", "aic", "bic")}
+        stats["nfev"] = int(getattr(result, "nfev", 0))
+        return package(refined, errors, getattr(result, "success", True),
+                       getattr(result, "message", ""), resid, extras,
+                       report=lm_fit_report(result), at_limit=at_limit, stats=stats)
 
     lo = np.array([limits[n][0] for n in free], dtype=float)
     hi = np.array([limits[n][1] for n in free], dtype=float)
     x0 = np.clip(np.array([init_values[n] for n in free], dtype=float), lo, hi)
+
+    def residuals_vec(vec):
+        values = dict(init_values)
+        values.update({n: v for n, v in zip(free, vec)})
+        return resid_and_extras(values)[0]
+
     result = least_squares(residuals_vec, x0, bounds=(lo, hi), max_nfev=max_nfev)
     refined = dict(init_values)
     refined.update({n: float(v) for n, v in zip(free, result.x)})
-    return _package(refined, _stderr_from_result(result, free), result.success,
-                    result.message, result.fun,
-                    report="lmfit not installed — used scipy.optimize.least_squares.")
+    resid, extras = resid_and_extras(refined)
+    return package(refined, _stderr_from_result(result, free), result.success,
+                   result.message, resid, extras,
+                   report="lmfit not installed — used scipy.optimize.least_squares.")
+
+
+def _stderr_from_result(result, names):
+    """1-sigma parameter errors from a scipy least_squares Jacobian (fallback path)."""
+    try:
+        J = result.jac
+        dof = max(1, J.shape[0] - J.shape[1])
+        cov = np.linalg.inv(J.T @ J) * (2.0 * result.cost / dof)
+        se = np.sqrt(np.abs(np.diag(cov)))
+        return {n: float(s) for n, s in zip(names, se)}
+    except Exception:
+        return {n: float("nan") for n in names}
+
+
+def run_stage1_refinement(strain_fn, sim_context, exp_curves, init_values, refine_flags,
+                          coarse=True, max_nfev=200, bounds=None, method="leastsq",
+                          lattice_frac=LATTICE_BOUND_FRAC) -> dict:
+    """Refine peak POSITIONS (2th vs azimuth) across the included hkls.
+
+    ``init_values`` holds a start for every refineable parameter (lattice a/b/c, the six
+    sigma components, chi); ``refine_flags`` selects which vary. ``bounds`` overrides the
+    per-parameter limits -- note the lattice window is relative to the START value, so a
+    far-off initial guess restricts how far the fit can travel.
+
+    Adds ``t`` (= sigma_33 - sigma_11) to the shared result dict; see
+    :func:`_run_refinement`.
+    """
+    bounds = dict(bounds or {})
+    labels = list(exp_curves.keys())
+    az = {L: exp_curves[L]["azimuth"].to_numpy() for L in labels}
+    y = {L: exp_curves[L]["mean_2th"].to_numpy() for L in labels}
+
+    def residual(values):
+        lattice_params, sigma_params, chi = _assemble_params(sim_context, values)
+        sims = simulate_all_curves(strain_fn, sim_context, lattice_params, sigma_params,
+                                   chi, hkl_labels=set(labels), coarse=coarse)
+        res = [y[L] - interp_periodic(*sims[L], az[L]) for L in labels if L in sims]
+        return np.concatenate(res) if res else np.zeros(1)
+
+    return _run_refinement(
+        init_values, refine_flags, residual,
+        limits_fn=lambda n, v: bounds.get(n, param_bounds(n, v, lattice_frac)),
+        method=method, max_nfev=max_nfev,
+        n_points=int(sum(v.size for v in y.values())),
+        derived=lambda v: {"t": float(v.get("sigma_33", 0.0) - v.get("sigma_11", 0.0))})
 
 
 def _subplot_vspace(nrows, row_height, gap_px=120):
@@ -1569,18 +1608,26 @@ def _subplot_vspace(nrows, row_height, gap_px=120):
     return float(min(frac, 0.9 / (nrows - 1)))
 
 
-def plot_refinement_grid(exp_curves, sim_curves, ncols=4, included=None,
-                         row_height=300) -> go.Figure:
-    """Grid (``ncols`` wide) of 2θ-vs-azimuth panels: data points + simulated line.
+#: Panel colours shared by every data-vs-model grid. Greyed = excluded from the fit.
+_DATA_COLOR, _MODEL_COLOR = "#e6194B", "#4363d8"
+_OFF_DATA_COLOR, _OFF_MODEL_COLOR = "#c9c9c9", "#dddddd"
 
-    Excluded hkls (not in ``included``) are greyed. One panel per hkl in ``exp_curves``.
+
+def _plot_panel_grid(panels, *, title, y_title, x_title="azimuth (°)", ncols=4,
+                     included=None, row_height=300, data_mode="lines+markers",
+                     model_dash="dash") -> go.Figure:
+    """One panel per hkl, ``ncols`` wide, each comparing measured data to the model.
+
+    ``panels`` maps label -> ``(x_data, y_data, x_model, y_model)``; either pair may be
+    None. Both series are sorted by x, so callers need not. Labels missing from
+    ``included`` are greyed, marking rings shown but not fitted. Shared by the Stage 1,
+    2 and 3 grids so they stay visually consistent and there is one place to fix.
     """
-    labels = list(exp_curves.keys())
-    n = len(labels)
-    if n == 0:
+    labels = list(panels.keys())
+    if not labels:
         return go.Figure()
     ncols = int(max(1, ncols))
-    nrows = int(np.ceil(n / ncols))
+    nrows = int(np.ceil(len(labels) / ncols))
     included = set(labels) if included is None else set(included)
     fig = make_subplots(rows=nrows, cols=ncols,
                         subplot_titles=[f"hkl {L}" for L in labels],
@@ -1589,41 +1636,49 @@ def plot_refinement_grid(exp_curves, sim_curves, ncols=4, included=None,
     for i, L in enumerate(labels):
         r, c = i // ncols + 1, i % ncols + 1
         on = L in included
-        g = exp_curves[L]
-        fig.add_trace(go.Scatter(
-            x=g["azimuth"], y=g["mean_2th"], mode="markers", name=f"{L} data",
-            marker=dict(color="#e6194B" if on else "#c9c9c9", size=5),
-            showlegend=False), row=r, col=c)
-        if L in sim_curves:
-            delta, sim2th = sim_curves[L]
-            o = np.argsort(np.asarray(delta, dtype=float))
+        xd, yd, xm, ym = panels[L]
+        if xd is not None:
+            col = _DATA_COLOR if on else _OFF_DATA_COLOR
+            o = np.argsort(np.asarray(xd, dtype=float))
             fig.add_trace(go.Scatter(
-                x=np.asarray(delta)[o], y=np.asarray(sim2th)[o], mode="lines",
-                name=f"{L} sim",
-                line=dict(color="#4363d8" if on else "#dddddd", width=1.6),
-                showlegend=False), row=r, col=c)
-    fig.update_xaxes(title_text="azimuth (°)", title_standoff=6)
-    fig.update_yaxes(title_text="2θ (°)", title_standoff=6)
-    fig.update_layout(height=row_height * nrows, margin=dict(l=60, r=20, t=70, b=50),
-                      title="2θ vs azimuth — data (points) vs simulation (line)")
+                x=np.asarray(xd)[o], y=np.asarray(yd)[o], mode=data_mode,
+                name=f"{L} data", showlegend=False,
+                marker=dict(color=col, size=5), line=dict(color=col, width=1)),
+                row=r, col=c)
+        if xm is not None:
+            o = np.argsort(np.asarray(xm, dtype=float))
+            fig.add_trace(go.Scatter(
+                x=np.asarray(xm)[o], y=np.asarray(ym)[o], mode="lines",
+                name=f"{L} model", showlegend=False,
+                line=dict(color=_MODEL_COLOR if on else _OFF_MODEL_COLOR, width=2,
+                          dash=model_dash)), row=r, col=c)
+    fig.update_xaxes(title_text=x_title, title_standoff=6)
+    fig.update_yaxes(title_text=y_title, title_standoff=6)
+    fig.update_layout(height=row_height * nrows, margin=dict(l=70, r=20, t=70, b=50),
+                      title=title)
     return fig
 
 
-# =========================================================================
-# Stage 2 refinement: preferred-orientation (PO) parameters from the
-# INTENSITY variation with azimuth, per hkl.
-#
-# Experimental intensity = integrated peak AREA (from the stored amp/fwhm/gl, so it is
-# unbiased when peak width varies with azimuth). Simulated intensity comes straight from
-# PO.PO_Model.intensity_for_hkl averaged over phi -- the same quantity compute_strain
-# builds into "Mean I @ delta" -- scaled by each hkl's structure intensity, then matched
-# to the data through a SINGLE GLOBAL scale solved in closed form each iteration (so the
-# relative intensities between hkls still constrain the model, at no parameter cost).
-# =========================================================================
+def plot_refinement_grid(exp_curves, sim_curves, ncols=4, included=None,
+                         row_height=300) -> go.Figure:
+    """Stage 1: 2th vs azimuth per hkl, measured points against the simulated curve."""
+    return _plot_panel_grid(
+        {L: (g["azimuth"].to_numpy(), g["mean_2th"].to_numpy(),
+             *(sim_curves[L] if L in sim_curves else (None, None)))
+         for L, g in exp_curves.items()},
+        title="2θ vs azimuth — data (points) vs model (dashed)",
+        y_title="2θ (°)", ncols=ncols, included=included, row_height=row_height,
+        data_mode="markers")
 
-#: PO parameters Stage 2 can refine, with (min, max) limits.
-PO_PARAM_BOUNDS = {"R": (0.05, 5.0), "tau": (-180.0, 180.0),
-                   "omega": (-180.0, 180.0), "baseline": (0.0, 1.0)}
+
+# --- Stage 2: preferred orientation from the azimuthal intensity variation -------------
+#
+# Measured intensity is the integrated peak AREA (from amp/fwhm/gl), so it is unbiased
+# when texture broadens the arcs. The model calls PO.PO_Model directly and averages over
+# phi -- the same quantity compute_strain builds into "Mean I @ delta", but reached
+# without going through it, which is why PO parameters here need no session-state hook.
+# A single global scale, solved in closed form each iteration, absorbs the arbitrary
+# experimental units while leaving the relative hkl intensities to constrain the fit.
 
 #: phi-integration sampling tiers as (max MD sharpness, n_phi). The March-Dollase peak
 #: contrast goes as max(R, 1/R)**4.5 -- sharp for SMALL R (peak at eta=0, P(0)=R^-3) and
@@ -1867,182 +1922,65 @@ def evaluate_po_curves(sim_context, exp_curves, po_values, n_phi=None,
 def run_stage2_refinement(sim_context, exp_curves, init_values, refine_flags,
                           bounds=None, method="leastsq", max_nfev=200, n_phi=None,
                           po_module=None) -> dict:
-    """Refine PO parameters (R, tau, omega, baseline) against azimuthal intensities.
+    """Refine PO parameters (R, tau, omega, baseline) against azimuthal INTENSITIES.
 
-    A single global scale factor is profiled out analytically at every iteration, so the
-    relative intensities between hkls constrain the fit without costing a parameter.
+    A single global scale is profiled out analytically each iteration, so the relative
+    intensities between hkls constrain the fit without costing a parameter.
 
-    ``n_phi=None`` picks the phi sampling from the STARTING R and then holds it fixed for
-    the whole fit: letting it switch tier mid-refinement would put a small step in the
-    residual and corrupt the finite-difference gradients. If the refined R ends up needing
-    finer sampling, ``n_phi_suggested`` in the result says so (re-run to tighten).
+    ``n_phi=None`` picks the phi sampling from the STARTING R and holds it fixed: letting
+    it switch tier mid-fit would step the residual and corrupt the gradients. If the
+    refined R wants finer sampling, ``n_phi_suggested`` says so -- re-run to tighten.
 
-    Returns the same shape of result dict as :func:`run_stage1_refinement`, plus
-    ``scale``, ``n_phi`` and ``n_phi_suggested``.
+    Adds ``scale``, ``n_phi`` and ``n_phi_suggested`` to the shared result dict.
     """
-    free = [n for n, on in refine_flags.items() if on and n in init_values]
+    bounds = dict(bounds or {})
     n_phi = int(n_phi) if n_phi else adaptive_n_phi(init_values.get("R", 1.0))
     labels = list(exp_curves.keys())
     az = {L: exp_curves[L]["azimuth"].to_numpy() for L in labels}
     y = {L: exp_curves[L]["intensity"].to_numpy() for L in labels}
-    n_points = int(sum(v.size for v in y.values()))
-    bounds = dict(bounds or {})
-    limits = {n: bounds.get(n, PO_PARAM_BOUNDS.get(n, (-np.inf, np.inf))) for n in free}
-
-    # Fit against the model evaluated exactly at the measured azimuths: interpolating a
-    # coarser curve onto them leaves a residual floor that grows with texture strength and
-    # pulls the fit off the answer. It is also cheaper (fewer points than a dense grid).
+    # Evaluate at the measured azimuths: interpolating a coarser curve onto them leaves a
+    # residual floor that grows with texture strength and pulls the fit off the answer.
     az_eval = measured_azimuth_grid(exp_curves)
 
-    def residuals_from_values(values):
+    def residual(values):
         sims = simulate_po_curves(sim_context, values, hkl_labels=set(labels),
                                   n_phi=n_phi, delta=az_eval, po_module=po_module)
-        obs_l, sim_l, order = [], [], []
-        for L in labels:
-            if L not in sims:
-                continue
-            d, I = sims[L]
-            obs_l.append(y[L])
-            sim_l.append(interp_periodic(d, I, az[L]))
-            order.append(L)
-        if not obs_l:
-            return np.zeros(1), 1.0
-        s = _global_scale(obs_l, sim_l)
-        return np.concatenate([o - s * m for o, m in zip(obs_l, sim_l)]), s
+        obs = [y[L] for L in labels if L in sims]
+        mod = [interp_periodic(*sims[L], az[L]) for L in labels if L in sims]
+        if not obs:
+            return np.zeros(1), {"scale": 1.0}
+        s = _global_scale(obs, mod)
+        return np.concatenate([o - s * m for o, m in zip(obs, mod)]), {"scale": float(s)}
 
-    def _package(values, errors, success, message, resid, scale, report="",
-                 at_limit=None, stats=None):
-        out = {"values": values, "errors": errors, "success": bool(success),
-               "message": str(message),
-               "rmse": float(np.sqrt(np.mean(np.asarray(resid) ** 2))),
-               "n_points": n_points, "n_free": len(free), "scale": float(scale),
-               "report": report, "at_limit": at_limit or [], "method": method,
-               "n_phi": int(n_phi),
-               "n_phi_suggested": adaptive_n_phi(values.get("R", 1.0))}
-        out.update(stats or {})
-        return out
-
-    if not free:
-        r, s = residuals_from_values(dict(init_values))
-        return _package(dict(init_values), {}, True,
-                        "No parameters selected to refine.", r, s)
-
-    try:
-        from lmfit import Parameters, minimize as lm_minimize, fit_report as lm_fit_report
-    except ImportError:
-        Parameters = None
-
-    if Parameters is not None:
-        lm_params = Parameters()
-        for n in free:
-            lo, hi = limits[n]
-            lm_params.add(n, value=float(np.clip(init_values[n], lo, hi)),
-                          min=lo, max=hi, vary=True)
-
-        def lm_residual(p):
-            values = dict(init_values)
-            values.update({n: p[n].value for n in free})
-            return residuals_from_values(values)[0]
-
-        result = lm_minimize(lm_residual, lm_params, method=method, max_nfev=max_nfev)
-        refined = dict(init_values)
-        errors, at_limit = {}, []
-        for n in free:
-            par = result.params[n]
-            refined[n] = float(par.value)
-            errors[n] = float(par.stderr) if par.stderr is not None else float("nan")
-            lo, hi = limits[n]
-            if np.isfinite(lo) and np.isclose(par.value, lo, rtol=1e-6, atol=1e-9):
-                at_limit.append(f"{n} (at min {lo:g})")
-            elif np.isfinite(hi) and np.isclose(par.value, hi, rtol=1e-6, atol=1e-9):
-                at_limit.append(f"{n} (at max {hi:g})")
-        _r, _s = residuals_from_values(refined)
-        stats = {"chisqr": float(getattr(result, "chisqr", np.nan)),
-                 "redchi": float(getattr(result, "redchi", np.nan)),
-                 "aic": float(getattr(result, "aic", np.nan)),
-                 "bic": float(getattr(result, "bic", np.nan)),
-                 "nfev": int(getattr(result, "nfev", 0))}
-        return _package(refined, errors, getattr(result, "success", True),
-                        getattr(result, "message", ""), _r, _s,
-                        report=lm_fit_report(result), at_limit=at_limit, stats=stats)
-
-    # --- Fallback: scipy least_squares ---
-    lo = np.array([limits[n][0] for n in free], dtype=float)
-    hi = np.array([limits[n][1] for n in free], dtype=float)
-    x0 = np.clip(np.array([init_values[n] for n in free], dtype=float), lo, hi)
-
-    def residuals_vec(vec):
-        values = dict(init_values)
-        values.update({n: v for n, v in zip(free, vec)})
-        return residuals_from_values(values)[0]
-
-    result = least_squares(residuals_vec, x0, bounds=(lo, hi), max_nfev=max_nfev)
-    refined = dict(init_values)
-    refined.update({n: float(v) for n, v in zip(free, result.x)})
-    _r, _s = residuals_from_values(refined)
-    return _package(refined, _stderr_from_result(result, free), result.success,
-                    result.message, _r, _s,
-                    report="lmfit not installed — used scipy.optimize.least_squares.")
+    return _run_refinement(
+        init_values, refine_flags, residual,
+        limits_fn=lambda n, v: bounds.get(n, param_bounds(n, v)),
+        method=method, max_nfev=max_nfev,
+        n_points=int(sum(v.size for v in y.values())),
+        derived=lambda v: {"n_phi": int(n_phi),
+                           "n_phi_suggested": adaptive_n_phi(v.get("R", 1.0))})
 
 
 def plot_intensity_grid(exp_curves, sim_curves, ncols=4, included=None,
                         row_height=300) -> go.Figure:
-    """Grid of intensity-vs-azimuth panels: data (line + markers) + PO fit (dashed).
-
-    The measured points are joined by a light line so the azimuthal modulation is
-    readable against the scatter, and the simulated PO curve is dashed to keep the two
-    clearly distinguishable.
-    """
-    labels = list(exp_curves.keys())
-    n = len(labels)
-    if n == 0:
-        return go.Figure()
-    ncols = int(max(1, ncols))
-    nrows = int(np.ceil(n / ncols))
-    included = set(labels) if included is None else set(included)
-    fig = make_subplots(rows=nrows, cols=ncols,
-                        subplot_titles=[f"hkl {L}" for L in labels],
-                        horizontal_spacing=0.06,
-                        vertical_spacing=_subplot_vspace(nrows, row_height))
-    for i, L in enumerate(labels):
-        r, c = i // ncols + 1, i % ncols + 1
-        on = L in included
-        g = exp_curves[L]
-        _dcol = "#e6194B" if on else "#c9c9c9"
-        # Data as line + markers: the joining line makes the azimuthal modulation
-        # readable where a bare scatter is hard to follow.
-        _o = np.argsort(g["azimuth"].to_numpy())
-        fig.add_trace(go.Scatter(
-            x=g["azimuth"].to_numpy()[_o], y=g["intensity"].to_numpy()[_o],
-            mode="lines+markers", name=f"{L} data",
-            marker=dict(color=_dcol, size=5),
-            line=dict(color=_dcol, width=1),
-            showlegend=False), row=r, col=c)
-        if L in sim_curves:
-            d, I = sim_curves[L]
-            o = np.argsort(np.asarray(d, dtype=float))
-            fig.add_trace(go.Scatter(
-                x=np.asarray(d)[o], y=np.asarray(I)[o], mode="lines", name=f"{L} sim",
-                line=dict(color="#4363d8" if on else "#dddddd", width=2, dash="dash"),
-                showlegend=False), row=r, col=c)
-    fig.update_xaxes(title_text="azimuth (°)", title_standoff=6)
-    fig.update_yaxes(title_text="intensity", title_standoff=6)
-    fig.update_layout(height=row_height * nrows, margin=dict(l=60, r=20, t=70, b=50),
-                      title="Intensity vs azimuth — data (line + points) vs PO model (dashed)")
-    return fig
+    """Stage 2: intensity vs azimuth per hkl, measured against the scaled PO model."""
+    return _plot_panel_grid(
+        {L: (g["azimuth"].to_numpy(), g["intensity"].to_numpy(),
+             *(sim_curves[L] if L in sim_curves else (None, None)))
+         for L, g in exp_curves.items()},
+        title="Intensity vs azimuth — data (line + points) vs PO model (dashed)",
+        y_title="intensity", ncols=ncols, included=included, row_height=row_height)
 
 
-# =========================================================================
-# Stage 3 refinement: fit the background-subtracted IMAGE directly.
+# --- Stage 3: fit the background-subtracted image directly -----------------------------
 #
-# The image is blocked onto a regular (azimuth x 2th) grid, restricted to a window around
-# each included ring -- everywhere else the model is zero and the data is only background
-# noise, so comparing there would just dilute the residual. The simulated block intensity
-# uses the same forward model as the validated 1D path (Generate_XRD): histogram the
-# (phi, delta) points' 2th weighted by intensity x PO_intensity, then convolve along 2th
-# with the instrumental Gaussian. Peak width therefore comes from the physics (strain
-# spread across phi) plus the instrument, with no invented shape parameters.
-# =========================================================================
+# The image is blocked onto a regular (azimuth x 2th) grid and compared only inside a
+# window around each ring; elsewhere the model is zero and the data is background, so
+# including it would just dilute the residual. The model reuses the forward model of the
+# validated 1D path (Generate_XRD): histogram the (phi, delta) 2th values weighted by
+# intensity x PO_intensity, then convolve along 2th with the instrumental Gaussian -- so
+# ring width is predicted from the strain spread plus the instrument, not fitted as a
+# free shape.
 
 STAGE3_HELP_MD = """\
 ### Stage 3 refinement — fit the image directly
@@ -2358,106 +2296,29 @@ def run_stage3_refinement(strain_fn, sim_context, g: Stage3Grid, init_values,
                           refine_flags, bounds=None, method="leastsq", max_nfev=200,
                           coarse=False, lattice_frac=LATTICE_BOUND_FRAC,
                           n_phi=None, po_apply=None) -> dict:
-    """Refine against the blocked image. ``fwhm`` participates like any other parameter.
+    """Refine against the blocked IMAGE; ``fwhm`` participates like any other parameter.
 
-    The grid and its ``fit_mask`` are fixed, so the residual vector keeps a constant length
-    throughout -- required by the least-squares minimisers.
+    The grid and its ``fit_mask`` are fixed, so the residual keeps a constant length --
+    required by the least-squares minimisers. ``n_phi`` is likewise fixed from the
+    starting R (see :func:`run_stage2_refinement`), and ``po_apply`` is required for PO
+    parameters to reach the model at all (see :func:`_stage3_sim_dfs`).
 
-    ``n_phi=None`` picks the phi sampling from the STARTING R and holds it fixed for the
-    whole fit (a mid-refinement tier switch would step the residual and corrupt the
-    finite-difference gradients); ``n_phi_suggested`` reports if the refined R wants finer.
+    Adds ``scale``, ``n_phi`` and ``n_phi_suggested`` to the shared result dict.
     """
-    free = [n for n, on in refine_flags.items() if on and n in init_values]
     bounds = dict(bounds or {})
     n_phi = int(n_phi) if n_phi else stage3_n_phi(init_values)
 
-    def limits_for(name, value):
-        if name in bounds:
-            return bounds[name]
-        if name == "fwhm":
-            return (1e-3, 5.0)
-        if name in PO_PARAM_BOUNDS:
-            return PO_PARAM_BOUNDS[name]
-        return default_param_bounds(name, value, lattice_frac)
-
-    limits = {n: limits_for(n, init_values[n]) for n in free}
-
-    def residuals_from_values(values):
+    def residual(values):
         ev = evaluate_stage3(strain_fn, sim_context, g, values,
                              values.get("fwhm", 0.1), coarse=coarse, n_phi=n_phi,
                              po_apply=po_apply)
-        return (g.data[g.fit_mask] - ev["sim"][g.fit_mask]), ev["scale"]
+        return (g.data[g.fit_mask] - ev["sim"][g.fit_mask]), {"scale": ev["scale"]}
 
-    def _package(values, errors, success, message, resid, scale, report="", at_limit=None,
-                 stats=None):
-        out = {"values": values, "errors": errors, "success": bool(success),
-               "message": str(message),
-               "rmse": float(np.sqrt(np.mean(np.asarray(resid) ** 2))),
-               "n_points": g.n_points, "n_free": len(free), "scale": float(scale),
-               "report": report, "at_limit": at_limit or [], "method": method,
-               "n_phi": int(n_phi), "n_phi_suggested": stage3_n_phi(values)}
-        out.update(stats or {})
-        return out
-
-    if not free:
-        r, s = residuals_from_values(dict(init_values))
-        return _package(dict(init_values), {}, True, "No parameters selected to refine.",
-                        r, s)
-
-    try:
-        from lmfit import Parameters, minimize as lm_minimize, fit_report as lm_fit_report
-    except ImportError:
-        Parameters = None
-
-    if Parameters is not None:
-        lm_params = Parameters()
-        for n in free:
-            lo, hi = limits[n]
-            lm_params.add(n, value=float(np.clip(init_values[n], lo, hi)),
-                          min=lo, max=hi, vary=True)
-
-        def lm_residual(p):
-            values = dict(init_values)
-            values.update({n: p[n].value for n in free})
-            return residuals_from_values(values)[0]
-
-        result = lm_minimize(lm_residual, lm_params, method=method, max_nfev=max_nfev)
-        refined = dict(init_values)
-        errors, at_limit = {}, []
-        for n in free:
-            par = result.params[n]
-            refined[n] = float(par.value)
-            errors[n] = float(par.stderr) if par.stderr is not None else float("nan")
-            lo, hi = limits[n]
-            if np.isfinite(lo) and np.isclose(par.value, lo, rtol=1e-6, atol=1e-9):
-                at_limit.append(f"{n} (at min {lo:g})")
-            elif np.isfinite(hi) and np.isclose(par.value, hi, rtol=1e-6, atol=1e-9):
-                at_limit.append(f"{n} (at max {hi:g})")
-        _r, _s = residuals_from_values(refined)
-        stats = {"chisqr": float(getattr(result, "chisqr", np.nan)),
-                 "redchi": float(getattr(result, "redchi", np.nan)),
-                 "aic": float(getattr(result, "aic", np.nan)),
-                 "nfev": int(getattr(result, "nfev", 0))}
-        return _package(refined, errors, getattr(result, "success", True),
-                        getattr(result, "message", ""), _r, _s,
-                        report=lm_fit_report(result), at_limit=at_limit, stats=stats)
-
-    lo = np.array([limits[n][0] for n in free], dtype=float)
-    hi = np.array([limits[n][1] for n in free], dtype=float)
-    x0 = np.clip(np.array([init_values[n] for n in free], dtype=float), lo, hi)
-
-    def residuals_vec(vec):
-        values = dict(init_values)
-        values.update({n: v for n, v in zip(free, vec)})
-        return residuals_from_values(values)[0]
-
-    result = least_squares(residuals_vec, x0, bounds=(lo, hi), max_nfev=max_nfev)
-    refined = dict(init_values)
-    refined.update({n: float(v) for n, v in zip(free, result.x)})
-    _r, _s = residuals_from_values(refined)
-    return _package(refined, _stderr_from_result(result, free), result.success,
-                    result.message, _r, _s,
-                    report="lmfit not installed — used scipy.optimize.least_squares.")
+    return _run_refinement(
+        init_values, refine_flags, residual,
+        limits_fn=lambda n, v: bounds.get(n, param_bounds(n, v, lattice_frac)),
+        method=method, max_nfev=max_nfev, n_points=g.n_points,
+        derived=lambda v: {"n_phi": int(n_phi), "n_phi_suggested": stage3_n_phi(v)})
 
 
 def _nudge_colour(colour):
@@ -2509,39 +2370,14 @@ def stage3_azimuthal_profiles(g: Stage3Grid, sim, measure="integrated") -> dict:
 
 def plot_stage3_azimuthal(profiles, ncols=4, row_height=280,
                           measure="integrated") -> go.Figure:
-    """Grid of intensity-vs-azimuth panels per hkl: data (line + markers) vs model (dashed)."""
-    labels = list(profiles.keys())
-    n = len(labels)
-    if n == 0:
-        return go.Figure()
-    ncols = int(max(1, ncols))
-    nrows = int(np.ceil(n / ncols))
+    """Stage 3: each ring's collapsed 2th window vs azimuth, data against model."""
     ylab = "peak intensity" if measure == "peak" else "integrated intensity"
-    fig = make_subplots(rows=nrows, cols=ncols,
-                        subplot_titles=[f"hkl {L}" for L in labels],
-                        horizontal_spacing=0.06,
-                        vertical_spacing=_subplot_vspace(nrows, row_height))
-    for i, L in enumerate(labels):
-        r, c = i // ncols + 1, i % ncols + 1
-        p = profiles[L]
-        o = np.argsort(p["azimuth"].to_numpy())
-        # No legend: it collides with the subplot titles. The convention is named in the
-        # figure title instead, matching plot_intensity_grid.
-        fig.add_trace(go.Scatter(
-            x=p["azimuth"].to_numpy()[o], y=p["data"].to_numpy()[o],
-            mode="lines+markers", name=f"{L} data", showlegend=False,
-            marker=dict(color="#e6194B", size=4),
-            line=dict(color="#e6194B", width=1)), row=r, col=c)
-        fig.add_trace(go.Scatter(
-            x=p["azimuth"].to_numpy()[o], y=p["model"].to_numpy()[o], mode="lines",
-            name=f"{L} model", showlegend=False,
-            line=dict(color="#4363d8", width=2, dash="dash")), row=r, col=c)
-    fig.update_xaxes(title_text="azimuth (°)", title_standoff=6)
-    fig.update_yaxes(title_text=ylab, title_standoff=6)
-    fig.update_layout(height=row_height * nrows, margin=dict(l=70, r=20, t=70, b=50),
-                      title=f"Ring {ylab} vs azimuth — "
-                            "data (line + points) vs model (dashed)")
-    return fig
+    return _plot_panel_grid(
+        {L: (p["azimuth"].to_numpy(), p["data"].to_numpy(),
+             p["azimuth"].to_numpy(), p["model"].to_numpy())
+         for L, p in profiles.items()},
+        title=f"Ring {ylab} vs azimuth — data (line + points) vs model (dashed)",
+        y_title=ylab, ncols=ncols, row_height=row_height)
 
 
 def _explicit_colorscale(name):
