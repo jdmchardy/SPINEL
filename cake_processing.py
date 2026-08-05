@@ -2111,6 +2111,64 @@ def _wrap_into(angles, start, period=360.0):
 EXCLUDE_REGION_COLUMNS = ["az_from", "az_to", "tth_from", "tth_to"]
 
 
+def selection_to_region(selection) -> dict:
+    """Turn a Streamlit plotly box-selection into an exclusion-table row.
+
+    ``st.plotly_chart(..., on_select="rerun", selection_mode="box")`` reports the drag as
+    ``selection["box"] = [{"x": [x0, x1], "y": [y0, y1]}]`` in DATA coordinates. Note that
+    ``points`` comes back empty for a heatmap -- Plotly does not hit-test its cells -- so
+    the box bounds are the only usable signal, and they are all that is needed here.
+    Bounds arrive in drag order, hence the sort. Returns ``{}`` if there is no box.
+    """
+    boxes = (selection or {}).get("box") or []
+    if not boxes:
+        return {}
+    b = boxes[0]
+    xs, ys = sorted(float(v) for v in b["x"]), sorted(float(v) for v in b["y"])
+    return {"az_from": round(ys[0], 2), "az_to": round(ys[1], 2),
+            "tth_from": round(xs[0], 4), "tth_to": round(xs[1], 4)}
+
+
+def plot_mask_editor(cake, grid, regions=(), percentile=99.5, height=420,
+                     max_cols=1200, colorscale="Inferno") -> go.Figure:
+    """Subtracted image with the current exclusion regions drawn, set up for box-select.
+
+    Paired with ``st.plotly_chart(..., on_select="rerun", selection_mode="box")`` so a
+    drag defines a region; see :func:`selection_to_region`. Wide images are decimated in
+    2th to ``max_cols`` columns for responsiveness -- display only, the mask itself is
+    always computed from the full-resolution data.
+    """
+    twotheta = np.asarray(cake.twotheta, dtype=float)
+    z = np.asarray(grid, dtype=float)
+    stride = max(1, int(np.ceil(twotheta.size / float(max_cols))))
+    twotheta, z = twotheta[::stride], z[:, ::stride]
+    finite = z[np.isfinite(z)]
+    zmax = float(np.nanpercentile(finite, percentile)) if finite.size else 1.0
+    fig = go.Figure(go.Heatmap(
+        z=z, x=twotheta, y=np.asarray(cake.azimuth, dtype=float),
+        colorscale=_explicit_colorscale(colorscale), zmin=0.0,
+        zmax=zmax if zmax > 0 else 1.0, colorbar=dict(thickness=12),
+        hovertemplate="2θ %{x:.3f}°<br>azimuth %{y:.1f}°<extra></extra>"))
+    for reg in regions or ():
+        get = reg.get if hasattr(reg, "get") else (lambda k, d=None: getattr(reg, k, d))
+        a0, a1 = get("az_from"), get("az_to")
+        if a0 is None or a1 is None or not np.isfinite(a0) or not np.isfinite(a1):
+            continue
+        t0, t1 = get("tth_from"), get("tth_to")
+        x0 = float(twotheta.min()) if t0 is None or not np.isfinite(t0) else float(t0)
+        x1 = float(twotheta.max()) if t1 is None or not np.isfinite(t1) else float(t1)
+        # A range with az_from > az_to wraps through +/-180, so draw it as two rectangles.
+        spans = [(a0, a1)] if a0 <= a1 else [(a0, 180.0), (-180.0, a1)]
+        for y0, y1 in spans:
+            fig.add_shape(type="rect", x0=min(x0, x1), x1=max(x0, x1), y0=y0, y1=y1,
+                          line=dict(color="#00e5ff", width=1),
+                          fillcolor="rgba(0,229,255,0.25)", layer="above")
+    fig.update_layout(dragmode="select", height=height,
+                      margin=dict(l=70, r=20, t=30, b=50),
+                      xaxis_title="2θ (degrees)", yaxis_title="azimuth (°)")
+    return fig
+
+
 def region_exclusion_mask(az_centres, tth_centres, regions) -> np.ndarray:
     """Boolean ``(n_az, n_tth)`` mask, True where a box falls in an excluded region.
 

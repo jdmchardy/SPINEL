@@ -2115,7 +2115,20 @@ with tab_refine:
                                 use_container_width=True, key="s3_run")
 
         # --- Masking: drop boxes with no usable data from the residual ---
-        with st.expander("Mask regions with no data", expanded=False):
+        # Gated by a checkbox rather than an expander: Streamlit fixes a plotly chart's
+        # width at first render, and inside a collapsed expander that width is tiny, so
+        # the mask editor would come back 60px wide and never resize.
+        # Settings persist in session state, so the mask keeps applying while the editor
+        # is hidden; the widgets below just overwrite these when it is open.
+        _s3_excl = list(st.session_state.get("s3_exclude_rows", []))
+        _s3_minvalid = float(st.session_state.get("s3_minvalid", 0.5))
+        _s3_zero_missing = bool(st.session_state.get("s3_zeromiss", True))
+        _s3_show_mask = st.checkbox(
+            "🚫 Edit data mask (detector gaps / cut-off azimuths)", value=False,
+            key="s3_show_mask")
+        if not _s3_show_mask and _s3_excl:
+            st.caption(f"Mask active: {len(_s3_excl)} exclusion region(s).")
+        if _s3_show_mask:
             st.markdown(
                 "Detector gaps and cut-off azimuth wedges must be kept out of the "
                 "residual, or the fit chases empty boxes. Missing pixels (non-finite, and "
@@ -2138,9 +2151,29 @@ with tab_refine:
                     key="s3_minvalid",
                     help="A box is dropped when fewer than this fraction of its pixels "
                          "carry data. Box means always use the surviving pixels only.")
+            # Draw a region straight onto the image. Streamlit reports the drag as data
+            # coordinates; a heatmap yields no points, but the box bounds are all we need.
+            st.caption("**Drag a box on the image** to add an exclusion region, or edit "
+                       "the table directly. Existing regions are shaded cyan.")
+            _mask_sel = st.plotly_chart(
+                cp.plot_mask_editor(_s3x, _s3grid,
+                                    st.session_state.get("s3_exclude_rows", []),
+                                    percentile=cake_percentile),
+                key="s3_mask_editor", on_select="rerun", selection_mode="box",
+                use_container_width=True)
+            _new_reg = cp.selection_to_region((_mask_sel or {}).get("selection", {}))
+            # Streamlit replays the same selection on every rerun, so only act on a change.
+            if _new_reg and _new_reg != st.session_state.get("s3_last_box"):
+                st.session_state.s3_last_box = _new_reg
+                st.session_state.s3_exclude_rows = (
+                    st.session_state.get("s3_exclude_rows", []) + [_new_reg])
+                st.session_state.pop("s3_exclude_df", None)   # rebuild the table below
+                st.rerun()
             _s3_regions = st.data_editor(
-                st.session_state.get("s3_exclude_df",
-                                     pd.DataFrame(columns=cp.EXCLUDE_REGION_COLUMNS)),
+                st.session_state.get(
+                    "s3_exclude_df",
+                    pd.DataFrame(st.session_state.get("s3_exclude_rows", []),
+                                 columns=cp.EXCLUDE_REGION_COLUMNS)),
                 num_rows="dynamic", use_container_width=True, key="s3_exclude_editor",
                 column_config={
                     "az_from": st.column_config.NumberColumn("azimuth from (°)", format="%.1f"),
@@ -2150,8 +2183,15 @@ with tab_refine:
             st.session_state.s3_exclude_df = _s3_regions
             _s3_excl = [r for r in _s3_regions.to_dict("records")
                         if pd.notna(r.get("az_from")) and pd.notna(r.get("az_to"))]
-            if _s3_excl:
-                st.caption(f"{len(_s3_excl)} exclusion region(s) active.")
+            # Table edits (including row deletion) are the source of truth for the shading.
+            st.session_state.s3_exclude_rows = _s3_excl
+            _mc = st.columns([3, 1])
+            _mc[0].caption(f"{len(_s3_excl)} exclusion region(s) active."
+                           if _s3_excl else "No exclusion regions — drag one above to add.")
+            if _mc[1].button("Clear all", use_container_width=True, key="s3_clear_regions"):
+                for _k in ("s3_exclude_rows", "s3_exclude_df", "s3_last_box"):
+                    st.session_state.pop(_k, None)
+                st.rerun()
 
         # compute_strain reads the PO parameters from st.session_state.params, not from its
         # arguments, so they must be written there before every forward-model call or a
