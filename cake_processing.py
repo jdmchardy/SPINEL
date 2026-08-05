@@ -2093,9 +2093,15 @@ and `R` — starting far away with everything free will not converge sensibly.
 """
 
 
-#: Smallest usable azimuth box (degrees). compute_strain samples delta every 2 deg, so
-#: finer boxes cannot all be filled by the model.
-MIN_AZ_STEP = 2.0
+#: Azimuth sampling of the simulation: compute_strain evaluates delta on
+#: ``np.arange(-180, 180, 2)``. The comparison boxes span -180..+180 and tile it with a
+#: whole number of boxes, so they stay aligned with these samples.
+SIM_DELTA_STEP = 2.0
+SIM_DELTA_ORIGIN = -180.0
+
+#: Smallest usable azimuth box (degrees) -- the model cannot resolve finer than its own
+#: delta sampling, so finer boxes could not all be filled.
+MIN_AZ_STEP = SIM_DELTA_STEP
 
 #: Floor on the phi sampling for Stage 3. Unlike Stage 2, phi here does double duty --
 #: it is the PO integration axis AND the source of the strain broadening (the spread of
@@ -2141,6 +2147,11 @@ class Stage3Grid:
         return int(self.fit_mask.sum())
 
 
+def _wrap_into(angles, start, period=360.0):
+    """Wrap angles into ``[start, start + period)`` -- azimuth is periodic."""
+    return start + np.mod(np.asarray(angles, dtype=float) - start, period)
+
+
 def _ring_width_estimate(df_hkl, fwhm):
     """Expected total ring width: strain spread across phi, plus the instrument."""
     spread = 0.0
@@ -2160,10 +2171,12 @@ def build_stage3_grid(cake, grid, sim_dfs, *, az_step=5.0, tth_step=0.02, fwhm=0
     comparison grid for both the measurement and the model. ``sim_dfs`` (seed
     ``compute_strain`` output) only places the windows, which are then fixed.
 
-    ``az_step`` is clamped to :data:`MIN_AZ_STEP`: ``compute_strain`` samples azimuth on a
-    2 deg delta grid, so finer boxes cannot all be populated by the model -- at 1 deg only
-    half of them receive any signal, and the empty ones would contribute a spurious
-    ``data - 0`` residual.
+    The azimuth boxes span the physical range -180 to +180 and are ALIGNED to the
+    simulation's delta grid: a whole number of boxes tiles the period, so every box
+    captures the same number of delta samples (at 2 deg exactly one each, at 10 deg five
+    each) and none falls between them. ``az_step`` is clamped to :data:`MIN_AZ_STEP` --
+    the model cannot resolve finer than its own delta spacing -- and then rounded to the
+    nearest step that divides 360 deg evenly.
     """
     twotheta = np.asarray(cake.twotheta, dtype=float)
     az = np.asarray(cake.azimuth, dtype=float)
@@ -2171,15 +2184,15 @@ def build_stage3_grid(cake, grid, sim_dfs, *, az_step=5.0, tth_step=0.02, fwhm=0
 
     az_step = max(float(az_step), MIN_AZ_STEP)
     tth_step = max(float(tth_step), 1e-6)
-    az_edges = np.arange(az.min(), az.max() + az_step, az_step)
-    if az_edges.size < 2:
-        az_edges = np.array([az.min(), az.max()])
+    # Boundaries stay at +/-180; the box COUNT is what adapts to the requested step.
+    n_az = max(1, int(round(360.0 / az_step)))
+    az_edges = SIM_DELTA_ORIGIN + (360.0 / n_az) * np.arange(n_az + 1)
     tth_edges = np.arange(twotheta.min(), twotheta.max() + tth_step, tth_step)
     if tth_edges.size < 2:
         tth_edges = np.array([twotheta.min(), twotheta.max()])
-    n_az, n_tth = az_edges.size - 1, tth_edges.size - 1
+    n_tth = tth_edges.size - 1
 
-    row = np.clip(np.digitize(az, az_edges) - 1, 0, n_az - 1)
+    row = np.clip(np.digitize(_wrap_into(az, az_edges[0]), az_edges) - 1, 0, n_az - 1)
     col = np.clip(np.digitize(twotheta, tth_edges) - 1, 0, n_tth - 1)
     block_sum = np.zeros((n_az, n_tth))
     block_cnt = np.zeros((n_az, n_tth))
@@ -2243,28 +2256,32 @@ def render_stage3(g: Stage3Grid, sim_dfs, fwhm) -> np.ndarray:
         n_cols = c1 - c0
         fine0 = float(g.tth_edges[c0])
         n_fine = n_cols * g.n_sub
-        a_idx = np.clip(np.digitize(delta, g.az_edges) - 1, 0, n_az - 1)
+        # Split each delta between the two azimuth boxes whose CENTRES bracket it, weighted
+        # by distance (the bilinear convention cake_dict_to_2Dcake uses). Dropping a delta
+        # into whichever box merely contains it would place the model at a box edge, a
+        # half-box phase error against the data -- which is a box mean. Wrapping the index
+        # keeps the +/-180 seam continuous.
+        az_box = 360.0 / n_az
+        centre0 = float(g.az_edges[0]) + 0.5 * az_box
+        pos = (_wrap_into(delta, centre0) - centre0) / az_box
+        i0 = np.floor(pos).astype(int)
+        frac = pos - i0
+        i0m, i1m = i0 % n_az, (i0 + 1) % n_az
+
         f_idx = np.floor((tth - fine0) / step).astype(int)
         ok = (f_idx >= 0) & (f_idx < n_fine)
         if not ok.any():
             continue
         hist = np.zeros((n_az, n_fine))
-        np.add.at(hist, (a_idx[ok], f_idx[ok]), w[ok])
-        # Measured blocks are MEANS over their pixels, so average over the delta samples
-        # in each azimuth block rather than summing them.
-        uniq_ad = np.unique(np.stack([a_idx, delta]), axis=1)[0].astype(int)
-        counts = np.bincount(uniq_ad, minlength=n_az)
-        hist /= np.maximum(counts, 1)[:, None]
-        # A box that received NO delta sample is a sampling gap (the delta grid is 2 deg
-        # and can be offset from the azimuth boxes), not a dark part of the ring -- fill it
-        # from the nearest sampled box so it does not contribute a false `data - 0`
-        # residual. Boxes that were sampled but came out dark are left alone.
-        missing = np.flatnonzero(counts == 0)
-        if missing.size:
-            have = np.flatnonzero(counts > 0)
-            if have.size:
-                hist[missing] = hist[have[np.abs(missing[:, None]
-                                                 - have[None, :]).argmin(axis=1)]]
+        np.add.at(hist, (i0m[ok], f_idx[ok]), w[ok] * (1.0 - frac[ok]))
+        np.add.at(hist, (i1m[ok], f_idx[ok]), w[ok] * frac[ok])
+        # Measured blocks are MEANS over their pixels, so divide by the effective number of
+        # delta samples reaching each box, accumulated with the same weights.
+        _, first = np.unique(delta, return_index=True)
+        wsum = np.zeros(n_az)
+        np.add.at(wsum, i0m[first], 1.0 - frac[first])
+        np.add.at(wsum, i1m[first], frac[first])
+        hist /= np.maximum(wsum, 1e-9)[:, None]
         conv = fftconvolve(hist, kern[None, :], mode="same", axes=1)
         # Sum the fine samples in each box and divide by the box width, giving an
         # intensity DENSITY. Taking the mean instead would make the model amplitude scale
