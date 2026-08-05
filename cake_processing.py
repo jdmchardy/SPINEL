@@ -2057,13 +2057,22 @@ the (φ, δ) orientation points are histogrammed by their 2θ, weighted by
 (`FWHM`). The ring width is therefore *predicted* — from the strain spread across φ plus
 the instrument — rather than fitted as a free shape.
 
-**Blocks.** The image is averaged onto a regular grid of azimuth × 2θ blocks. Bigger
-blocks average away noise but blur the peak: aim for **4–8 blocks across a ring's FWHM**.
+**Grid.** You set the **azimuth step** and **2θ step** in degrees; both the measured image
+and the model are averaged into those same boxes, so the comparison is like-for-like.
+Bigger boxes average away noise but blur the peak: aim for **4–8 boxes across a ring's
+FWHM**.
 
-**Windows (ROI).** Only blocks within a window around each ring are compared. The window
+**Simulation sub-sampling.** The model is *evaluated* on a finer grid than it is compared
+on — `sub-samples per 2θ box` sets how much finer. The peak profile is built and convolved
+at that resolution and only then averaged into the comparison boxes, so a coarse
+comparison grid does not degrade the model's accuracy. Raise it if the boxes are wide
+relative to the peak.
+
+**Windows (ROI).** Only boxes within a window around each ring enter the fit. The window
 is `k × (ring width)` wide, computed from the *starting* model and then **held fixed** for
 the whole fit — the residual vector must keep a constant length, and a window that moved
-with the parameters would change what is being compared mid-fit.
+with the parameters would change what is being compared mid-fit. The **display always
+shows the full image**, with the fitted windows outlined.
 
 **Scaling.** A single global scale is solved analytically each iteration, exactly as in
 Stage 2, so relative intensities across rings and azimuths all constrain the model.
@@ -2075,38 +2084,41 @@ and `R` — starting far away with everything free will not converge sensibly.
 
 
 @dataclass
-class Stage3Blocks:
-    """Fixed comparison geometry + blocked measurement for Stage 3.
+class Stage3Grid:
+    """Blocked measurement + fixed fit windows for Stage 3.
+
+    The image is blocked ONCE over its full range; the per-ring fit windows are then just
+    column spans of that same grid, so what is fitted and what is displayed are identical.
 
     Attributes
     ----------
-    labels : list of str
-    az_edges, az_centres : np.ndarray
-        Azimuth block edges/centres (degrees), shared by every hkl.
+    az_edges, az_centres, tth_edges, tth_centres : np.ndarray
+        Block edges/centres (degrees) covering the whole image.
+    data : np.ndarray
+        ``(n_az, n_tth)`` block means of the measured image.
     windows : dict
-        ``hkl_label -> (tth_lo, tth_hi)`` fixed 2th window covering that ring.
-    tth_edges, tth_centres : dict
-        ``hkl_label -> np.ndarray`` block edges/centres inside the window.
-    data : dict
-        ``hkl_label -> 2D array (n_az, n_tth)`` of measured block means.
-    fine_tth : dict
-        ``hkl_label -> np.ndarray`` sub-block 2th grid the model is rendered on.
+        ``hkl_label -> (col_lo, col_hi)`` column span (half-open) of that ring's window.
+    fit_mask : np.ndarray
+        ``(n_az, n_tth)`` bool, the union of the windows -- the blocks actually compared.
     n_sub : int
-        Sub-samples per 2th block used when rendering before block-averaging.
+        Sub-samples per 2th block used when rendering the model before block-averaging.
     """
-    labels: list
     az_edges: np.ndarray
     az_centres: np.ndarray
+    tth_edges: np.ndarray
+    tth_centres: np.ndarray
+    data: np.ndarray
     windows: dict
-    tth_edges: dict
-    tth_centres: dict
-    data: dict
-    fine_tth: dict
+    fit_mask: np.ndarray
     n_sub: int
 
     @property
+    def labels(self) -> list:
+        return list(self.windows.keys())
+
+    @property
     def n_points(self) -> int:
-        return int(sum(v.size for v in self.data.values()))
+        return int(self.fit_mask.sum())
 
 
 def _ring_width_estimate(df_hkl, fwhm):
@@ -2120,119 +2132,109 @@ def _ring_width_estimate(df_hkl, fwhm):
     return float(np.hypot(spread, fwhm)) if spread else float(fwhm)
 
 
-def build_stage3_blocks(cake, grid, sim_dfs, *, n_az_blocks=72, tth_block=0.02,
-                        fwhm=0.1, roi_k=4.0, roi_min=0.15, roi_max=2.0,
-                        n_sub=5) -> Stage3Blocks:
-    """Define the fixed block/window geometry and block-average the measured image.
+def build_stage3_grid(cake, grid, sim_dfs, *, az_step=5.0, tth_step=0.02, fwhm=0.1,
+                      roi_k=4.0, roi_min=0.15, roi_max=2.0, n_sub=5) -> Stage3Grid:
+    """Block the whole image at the given azimuth/2th STEPS and set the fit windows.
 
-    ``sim_dfs`` maps hkl label -> the seed ``compute_strain`` DataFrame, used only to place
-    the windows (they are then fixed). ``roi_k`` multiplies the estimated ring width;
-    ``roi_min``/``roi_max`` clamp the resulting half-width in degrees.
+    ``az_step`` and ``tth_step`` are spacings in degrees (not bin counts) and define the
+    comparison grid for both the measurement and the model. ``sim_dfs`` (seed
+    ``compute_strain`` output) only places the windows, which are then fixed.
     """
     twotheta = np.asarray(cake.twotheta, dtype=float)
     az = np.asarray(cake.azimuth, dtype=float)
     grid = np.asarray(grid, dtype=float)
 
-    az_edges = np.linspace(az.min(), az.max(), int(n_az_blocks) + 1)
-    az_idx = np.clip(np.digitize(az, az_edges) - 1, 0, int(n_az_blocks) - 1)
-    az_centres = 0.5 * (az_edges[:-1] + az_edges[1:])
+    az_step = max(float(az_step), 1e-6)
+    tth_step = max(float(tth_step), 1e-6)
+    az_edges = np.arange(az.min(), az.max() + az_step, az_step)
+    if az_edges.size < 2:
+        az_edges = np.array([az.min(), az.max()])
+    tth_edges = np.arange(twotheta.min(), twotheta.max() + tth_step, tth_step)
+    if tth_edges.size < 2:
+        tth_edges = np.array([twotheta.min(), twotheta.max()])
+    n_az, n_tth = az_edges.size - 1, tth_edges.size - 1
 
-    labels, windows, tth_edges_d, tth_centres_d, data_d, fine_d = [], {}, {}, {}, {}, {}
-    for label, df in sim_dfs.items():
-        centres = df.groupby("delta (degrees)")["Mean two_th @ delta"].mean().to_numpy()
-        centres = centres[np.isfinite(centres)]
-        if centres.size == 0:
+    row = np.clip(np.digitize(az, az_edges) - 1, 0, n_az - 1)
+    col = np.clip(np.digitize(twotheta, tth_edges) - 1, 0, n_tth - 1)
+    block_sum = np.zeros((n_az, n_tth))
+    block_cnt = np.zeros((n_az, n_tth))
+    np.add.at(block_sum, (row[:, None], col[None, :]), grid)
+    np.add.at(block_cnt, (row[:, None], col[None, :]), np.ones_like(grid))
+    data = np.where(block_cnt > 0, block_sum / np.maximum(block_cnt, 1.0), 0.0)
+
+    centres_tth = 0.5 * (tth_edges[:-1] + tth_edges[1:])
+    windows, fit_mask = {}, np.zeros((n_az, n_tth), dtype=bool)
+    for label, df in (sim_dfs or {}).items():
+        c = df.groupby("delta (degrees)")["Mean two_th @ delta"].mean().to_numpy()
+        c = c[np.isfinite(c)]
+        if c.size == 0:
             continue
-        half = float(np.clip(roi_k * _ring_width_estimate(df, fwhm) / 2.0,
-                             roi_min, roi_max))
-        lo, hi = float(centres.min()) - half, float(centres.max()) + half
-        lo, hi = max(lo, twotheta.min()), min(hi, twotheta.max())
-        if hi <= lo:
+        half = float(np.clip(roi_k * _ring_width_estimate(df, fwhm) / 2.0, roi_min, roi_max))
+        lo, hi = float(c.min()) - half, float(c.max()) + half
+        cols = np.where((centres_tth >= lo) & (centres_tth <= hi))[0]
+        if cols.size == 0:
             continue
-        edges = np.arange(lo, hi + tth_block, float(tth_block))
-        if edges.size < 2:
-            continue
-        n_t = edges.size - 1
-        # Block-average the measured image over (azimuth block, 2th block).
-        col = np.clip(np.digitize(twotheta, edges) - 1, -1, n_t - 1)
-        inside = (twotheta >= edges[0]) & (twotheta <= edges[-1]) & (col >= 0)
-        block_sum = np.zeros((int(n_az_blocks), n_t))
-        block_cnt = np.zeros((int(n_az_blocks), n_t))
-        np.add.at(block_sum, (az_idx[:, None], col[None, inside]), grid[:, inside])
-        np.add.at(block_cnt, (az_idx[:, None], col[None, inside]),
-                  np.ones((az.size, int(inside.sum()))))
-        with np.errstate(invalid="ignore", divide="ignore"):
-            block_mean = np.where(block_cnt > 0, block_sum / np.maximum(block_cnt, 1), 0.0)
-        labels.append(label)
-        windows[label] = (float(edges[0]), float(edges[-1]))
-        tth_edges_d[label] = edges
-        tth_centres_d[label] = 0.5 * (edges[:-1] + edges[1:])
-        data_d[label] = block_mean
-        step = float(tth_block) / int(n_sub)
-        fine_d[label] = np.arange(edges[0] + step / 2.0, edges[-1], step)
-    return Stage3Blocks(labels=labels, az_edges=az_edges, az_centres=az_centres,
-                        windows=windows, tth_edges=tth_edges_d,
-                        tth_centres=tth_centres_d, data=data_d, fine_tth=fine_d,
-                        n_sub=int(n_sub))
+        windows[label] = (int(cols[0]), int(cols[-1]) + 1)
+        fit_mask[:, cols[0]:cols[-1] + 1] = True
+    return Stage3Grid(az_edges=az_edges, az_centres=0.5 * (az_edges[:-1] + az_edges[1:]),
+                      tth_edges=tth_edges, tth_centres=centres_tth, data=data,
+                      windows=windows, fit_mask=fit_mask, n_sub=int(max(1, n_sub)))
 
 
-def render_stage3_blocks(blocks: Stage3Blocks, sim_dfs, fwhm) -> dict:
-    """Simulated block intensities: histogram (phi, delta) 2th points, convolve, block-average.
+def render_stage3(g: Stage3Grid, sim_dfs, fwhm) -> np.ndarray:
+    """Render the model onto the FULL block grid.
 
     Mirrors ``Generate_XRD``: each orientation point contributes
-    ``intensity * PO_intensity / n_points_at_that_delta``, so a delta's total is the mean
-    PO-weighted intensity. Convolution happens on the sub-block grid, then blocks are
-    averaged -- convolving after blocking would under-resolve the profile.
+    ``intensity * PO_intensity / n_phi_at_that_delta``; the histogram is built on a
+    sub-block 2th grid (``n_sub`` per block) and convolved there, then averaged down --
+    convolving after blocking would under-resolve the profile. Only each ring's own 2th
+    span is rendered, so cost stays independent of the full image width.
     """
-    out = {}
+    n_az, n_tth = g.data.shape
+    out = np.zeros((n_az, n_tth))
     sigma = max(float(fwhm), 1e-6) / (2.0 * np.sqrt(2.0 * np.log(2.0)))
-    n_az = blocks.az_centres.size
-    for label in blocks.labels:
-        df = sim_dfs.get(label)
-        edges = blocks.tth_edges[label]
-        n_t = edges.size - 1
-        sim = np.zeros((n_az, n_t))
-        if df is None or not len(df):
-            out[label] = sim
-            continue
-        fine = blocks.fine_tth[label]
-        step = fine[1] - fine[0] if fine.size > 1 else float(edges[1] - edges[0])
-        # Gaussian kernel on the fine grid (+-5 sigma, normalised to unit area).
-        k_half = max(1, int(np.ceil(5.0 * sigma / step)))
-        kx = np.arange(-k_half, k_half + 1) * step
-        kern = np.exp(-0.5 * (kx / sigma) ** 2)
-        kern /= kern.sum()
+    tth_step = float(g.tth_edges[1] - g.tth_edges[0])
+    step = tth_step / g.n_sub
+    k_half = max(1, int(np.ceil(5.0 * sigma / step)))
+    kx = np.arange(-k_half, k_half + 1) * step
+    kern = np.exp(-0.5 * (kx / sigma) ** 2)
+    kern /= kern.sum()
 
+    for label, df in (sim_dfs or {}).items():
+        if df is None or not len(df):
+            continue
         tth = df["2th"].to_numpy(dtype=float)
         delta = df["delta (degrees)"].to_numpy(dtype=float)
         w = (df["intensity"].to_numpy(dtype=float)
              * df["PO_intensity"].to_numpy(dtype=float))
-        # Normalise by the number of phi samples at each delta so a delta's total equals
-        # intensity * mean(PO) -- i.e. "Mean I @ delta".
         _, inv, cnt = np.unique(delta, return_inverse=True, return_counts=True)
         w = w / cnt[inv]
-
-        a_idx = np.clip(np.digitize(delta, blocks.az_edges) - 1, 0, n_az - 1)
-        f_idx = np.floor((tth - fine[0] + step / 2.0) / step).astype(int)
-        ok = (f_idx >= 0) & (f_idx < fine.size)
-        hist = np.zeros((n_az, fine.size))
+        # Render over this ring's own span, padded so the convolution tails are included.
+        pad = k_half * step + tth_step
+        lo = max(float(np.nanmin(tth)) - pad, float(g.tth_edges[0]))
+        hi = min(float(np.nanmax(tth)) + pad, float(g.tth_edges[-1]))
+        c0 = int(np.clip(np.searchsorted(g.tth_edges, lo) - 1, 0, n_tth - 1))
+        c1 = int(np.clip(np.searchsorted(g.tth_edges, hi), c0 + 1, n_tth))
+        n_cols = c1 - c0
+        fine0 = float(g.tth_edges[c0])
+        n_fine = n_cols * g.n_sub
+        a_idx = np.clip(np.digitize(delta, g.az_edges) - 1, 0, n_az - 1)
+        f_idx = np.floor((tth - fine0) / step).astype(int)
+        ok = (f_idx >= 0) & (f_idx < n_fine)
+        if not ok.any():
+            continue
+        hist = np.zeros((n_az, n_fine))
         np.add.at(hist, (a_idx[ok], f_idx[ok]), w[ok])
-        # The measured blocks are MEANS over the pixels they cover, so average over the
-        # delta samples contributing to each azimuth block rather than summing them.
-        uniq_ad = np.unique(np.stack([a_idx, delta]), axis=1)[0]
-        n_delta_per_block = np.bincount(uniq_ad.astype(int), minlength=n_az)
-        hist /= np.maximum(n_delta_per_block, 1)[:, None]
-        if hist.any():
-            conv = fftconvolve(hist, kern[None, :], mode="same", axes=1)
-        else:
-            conv = hist
-        # Average the fine samples down into 2th blocks.
-        usable = (fine.size // blocks.n_sub) * blocks.n_sub
-        if usable:
-            binned = conv[:, :usable].reshape(n_az, usable // blocks.n_sub, blocks.n_sub)
-            binned = binned.mean(axis=2)
-            sim[:, :binned.shape[1]] = binned[:, :n_t]
-        out[label] = sim
+        # Measured blocks are MEANS over their pixels, so average over the delta samples
+        # in each azimuth block rather than summing them.
+        uniq_ad = np.unique(np.stack([a_idx, delta]), axis=1)[0].astype(int)
+        hist /= np.maximum(np.bincount(uniq_ad, minlength=n_az), 1)[:, None]
+        conv = fftconvolve(hist, kern[None, :], mode="same", axes=1)
+        # Sum the fine samples in each box and divide by the box width, giving an
+        # intensity DENSITY. Taking the mean instead would make the model amplitude scale
+        # with n_sub -- absorbed by the global scale, but it would leave the model values
+        # dependent on an internal sampling choice.
+        out[:, c0:c1] += conv.reshape(n_az, n_cols, g.n_sub).sum(axis=2) / tth_step
     return out
 
 
@@ -2251,31 +2253,34 @@ def _stage3_sim_dfs(strain_fn, sim_context, values, coarse=False):
     return out
 
 
-def evaluate_stage3(strain_fn, sim_context, blocks: Stage3Blocks, values, fwhm,
+def evaluate_stage3(strain_fn, sim_context, g: Stage3Grid, values, fwhm,
                     coarse=False) -> dict:
-    """Render the model on the block grid, apply the optimal global scale, and score it."""
+    """Render the model on the full block grid, scale it, and score it inside the windows.
+
+    ``sim`` is returned over the WHOLE grid (for display); the scale and residuals use only
+    the blocks in ``g.fit_mask``.
+    """
     sim_dfs = _stage3_sim_dfs(strain_fn, sim_context, values, coarse=coarse)
-    sim = render_stage3_blocks(blocks, sim_dfs, fwhm)
-    obs_l = [blocks.data[L].ravel() for L in blocks.labels]
-    sim_l = [sim[L].ravel() for L in blocks.labels]
-    scale = _global_scale(obs_l, sim_l)
-    per_hkl, all_res = {}, []
-    for L in blocks.labels:
-        resid = blocks.data[L] - scale * sim[L]
-        per_hkl[L] = float(np.sqrt(np.mean(resid ** 2)))
-        all_res.append(resid.ravel())
-    rmse = float(np.sqrt(np.mean(np.concatenate(all_res) ** 2))) if all_res else float("nan")
-    return {"sim": {L: scale * sim[L] for L in sim}, "per_hkl": per_hkl, "rmse": rmse,
-            "scale": scale, "n_points": blocks.n_points}
+    sim = render_stage3(g, sim_dfs, fwhm)
+    m = g.fit_mask
+    scale = _global_scale([g.data[m]], [sim[m]]) if m.any() else 1.0
+    sim = scale * sim
+    per_hkl = {}
+    for label, (c0, c1) in g.windows.items():
+        resid = g.data[:, c0:c1] - sim[:, c0:c1]
+        per_hkl[label] = float(np.sqrt(np.mean(resid ** 2)))
+    rmse = (float(np.sqrt(np.mean((g.data[m] - sim[m]) ** 2))) if m.any() else float("nan"))
+    return {"sim": sim, "per_hkl": per_hkl, "rmse": rmse, "scale": scale,
+            "n_points": g.n_points}
 
 
-def run_stage3_refinement(strain_fn, sim_context, blocks: Stage3Blocks, init_values,
+def run_stage3_refinement(strain_fn, sim_context, g: Stage3Grid, init_values,
                           refine_flags, bounds=None, method="leastsq", max_nfev=200,
                           coarse=False, lattice_frac=LATTICE_BOUND_FRAC) -> dict:
     """Refine against the blocked image. ``fwhm`` participates like any other parameter.
 
-    The block/window geometry in ``blocks`` is fixed, so the residual vector keeps a
-    constant length throughout -- required by the least-squares minimisers.
+    The grid and its ``fit_mask`` are fixed, so the residual vector keeps a constant length
+    throughout -- required by the least-squares minimisers.
     """
     free = [n for n, on in refine_flags.items() if on and n in init_values]
     bounds = dict(bounds or {})
@@ -2292,17 +2297,16 @@ def run_stage3_refinement(strain_fn, sim_context, blocks: Stage3Blocks, init_val
     limits = {n: limits_for(n, init_values[n]) for n in free}
 
     def residuals_from_values(values):
-        ev = evaluate_stage3(strain_fn, sim_context, blocks, values,
+        ev = evaluate_stage3(strain_fn, sim_context, g, values,
                              values.get("fwhm", 0.1), coarse=coarse)
-        return np.concatenate([(blocks.data[L] - ev["sim"][L]).ravel()
-                               for L in blocks.labels]), ev["scale"]
+        return (g.data[g.fit_mask] - ev["sim"][g.fit_mask]), ev["scale"]
 
     def _package(values, errors, success, message, resid, scale, report="", at_limit=None,
                  stats=None):
         out = {"values": values, "errors": errors, "success": bool(success),
                "message": str(message),
                "rmse": float(np.sqrt(np.mean(np.asarray(resid) ** 2))),
-               "n_points": blocks.n_points, "n_free": len(free), "scale": float(scale),
+               "n_points": g.n_points, "n_free": len(free), "scale": float(scale),
                "report": report, "at_limit": at_limit or [], "method": method}
         out.update(stats or {})
         return out
@@ -2368,29 +2372,93 @@ def run_stage3_refinement(strain_fn, sim_context, blocks: Stage3Blocks, init_val
                     report="lmfit not installed — used scipy.optimize.least_squares.")
 
 
-def plot_stage3_comparison(blocks: Stage3Blocks, sim, labels=None, row_height=260,
-                           percentile=99.5) -> go.Figure:
-    """Per-hkl data / model / residual block maps (azimuth vs 2th)."""
-    labels = list(labels if labels is not None else blocks.labels)
-    labels = [L for L in labels if L in blocks.data]
-    if not labels:
-        return go.Figure()
+def _nudge_colour(colour):
+    """Return a visually identical colour that is not byte-identical to ``colour``."""
+    try:
+        if isinstance(colour, str) and colour.startswith("#") and len(colour) == 7:
+            rgb = [int(colour[i:i + 2], 16) for i in (1, 3, 5)]
+        elif isinstance(colour, str) and colour.strip().lower().startswith("rgb"):
+            rgb = [int(float(v)) for v in colour[colour.index("(") + 1:
+                                                 colour.index(")")].split(",")[:3]]
+        else:
+            return colour
+    except Exception:
+        return colour
+    rgb[0] = rgb[0] + 1 if rgb[0] < 255 else rgb[0] - 1
+    return "#%02x%02x%02x" % tuple(max(0, min(255, v)) for v in rgb)
+
+
+def _explicit_colorscale(name):
+    """Resolve a named colorscale to an explicit ``[[pos, colour], ...]`` list.
+
+    Streamlit rewrites the darkest stop of a heatmap colorscale on its way to the browser
+    (Inferno's ``#000004`` arrives as the theme accent, or as a Plotly default under
+    ``theme=None``), turning the dark background these images rely on into a block of
+    colour. The substitution matches on the COLOUR VALUE, so the first stop is nudged by a
+    single 8-bit step -- indistinguishable to the eye, but no longer a match.
+    """
+    try:
+        import plotly.colors as _pc
+        cs = [[float(p), c] for p, c in _pc.get_colorscale(name)]
+    except Exception:
+        return name
+    if cs:
+        cs[0] = [cs[0][0], _nudge_colour(cs[0][1])]
+    return cs
+
+
+def plot_stage3_comparison(g: Stage3Grid, sim, percentile=99.5, row_height=300,
+                           colorscale="Inferno", diff_colorscale="RdBu",
+                           show_windows=True, tth_range=None) -> go.Figure:
+    """Full-image data / model / residual, stacked and zoom-linked.
+
+    Three rows over the WHOLE 2th range (not just the fitted windows) so the model can be
+    judged in context. The x axes are shared, so a click-drag zoom on any panel zooms all
+    three together. Data and model share one intensity scale (``colorscale``, clipped at
+    ``percentile`` for contrast); the residual uses a symmetric diverging scale centred on
+    zero. Fitted windows are outlined when ``show_windows``.
+    """
+    data = np.asarray(g.data, dtype=float)
+    sim = np.asarray(sim, dtype=float)
+    finite = data[np.isfinite(data)]
+    zmax = float(np.nanpercentile(finite, percentile)) if finite.size else 1.0
+    if not np.isfinite(zmax) or zmax <= 0:
+        zmax = float(np.nanmax(finite)) if finite.size else 1.0
+    diff = data - sim
+    dfin = diff[np.isfinite(diff)]
+    dmax = float(np.nanpercentile(np.abs(dfin), percentile)) if dfin.size else 1.0
+    if not np.isfinite(dmax) or dmax <= 0:
+        dmax = zmax
+
+    seq = _explicit_colorscale(colorscale)
+    div = _explicit_colorscale(diff_colorscale)
     fig = make_subplots(
-        rows=len(labels), cols=3,
-        subplot_titles=[t for L in labels for t in (f"{L} data", f"{L} model", f"{L} residual")],
-        horizontal_spacing=0.07,
-        vertical_spacing=_subplot_vspace(len(labels), row_height))
-    for i, L in enumerate(labels):
-        d, s = blocks.data[L], sim.get(L, np.zeros_like(blocks.data[L]))
-        zmax = float(np.nanpercentile(d, percentile)) if np.isfinite(d).any() else 1.0
-        x, y = blocks.tth_centres[L], blocks.az_centres
-        for j, (z, cs, zl, zh) in enumerate([
-                (d, "Greys", 0, zmax), (s, "Greys", 0, zmax),
-                (d - s, "RdBu", -zmax, zmax)]):
-            fig.add_trace(go.Heatmap(z=z, x=x, y=y, colorscale=cs, zmin=zl, zmax=zh,
-                                     showscale=False), row=i + 1, col=j + 1)
-    fig.update_xaxes(title_text="2θ (°)", title_standoff=6)
-    fig.update_yaxes(title_text="azimuth (°)", title_standoff=6)
-    fig.update_layout(height=row_height * len(labels), margin=dict(l=60, r=20, t=70, b=50),
-                      title="Stage 3 — measured blocks vs model vs residual")
+        rows=3, cols=1, shared_xaxes=True,
+        subplot_titles=("Measured (block-averaged)", "Simulated", "Difference (data − model)"),
+        vertical_spacing=0.06)
+    x, y = g.tth_centres, g.az_centres
+    for r, (z, cs, zl, zh, cbar_y) in enumerate([
+            (data, seq, 0.0, zmax, 0.86),
+            (sim, seq, 0.0, zmax, 0.5),
+            (diff, div, -dmax, dmax, 0.14)]):
+        fig.add_trace(go.Heatmap(
+            z=z, x=x, y=y, colorscale=cs, zmin=zl, zmax=zh, zsmooth=False,
+            colorbar=dict(len=0.28, y=cbar_y, thickness=12),
+            hovertemplate="2θ %{x:.3f}°<br>azimuth %{y:.1f}°<br>%{z:.4g}<extra></extra>"),
+            row=r + 1, col=1)
+    if show_windows:
+        for (c0, c1) in g.windows.values():
+            lo = float(g.tth_edges[c0])
+            hi = float(g.tth_edges[min(c1, g.tth_edges.size - 1)])
+            for r in (1, 2, 3):
+                fig.add_vrect(x0=lo, x1=hi, line_width=1, line_color="#00e5ff",
+                              fillcolor="rgba(0,0,0,0)", row=r, col=1)
+    fig.update_xaxes(title_text="2θ (degrees)", row=3, col=1)
+    for r in (1, 2, 3):
+        fig.update_yaxes(title_text="azimuth (°)", row=r, col=1)
+    if tth_range is not None:
+        fig.update_xaxes(range=list(tth_range))
+    fig.update_layout(height=row_height * 3, margin=dict(l=70, r=20, t=60, b=50),
+                      title="Stage 3 — measured vs simulated vs difference",
+                      dragmode="zoom")
     return fig

@@ -1983,16 +1983,22 @@ with tab_refine:
         _s3x, _s3grid = _img
         _s3c = st.columns(4)
         with _s3c[0]:
-            _s3_naz = st.number_input(
-                "Azimuth blocks", min_value=4, max_value=int(_s3x.azimuth.size), value=72,
-                step=4, key="s3_naz",
-                help="Blocks the image is averaged into along azimuth. More blocks keep "
-                     "azimuthal detail; fewer average away noise.")
+            _s3_az = st.number_input(
+                "Azimuth step (°)", min_value=0.1, max_value=90.0, value=5.0, step=0.5,
+                format="%.2f", key="s3_az",
+                help="Azimuth box size for the comparison grid. Both the image and the "
+                     "model are averaged into these boxes.")
             _s3_tth = st.number_input(
-                "2θ block (°)", min_value=0.002, max_value=1.0, value=0.02, step=0.005,
+                "2θ step (°)", min_value=0.002, max_value=1.0, value=0.02, step=0.005,
                 format="%.3f", key="s3_tth",
-                help="Block width in 2θ. Aim for 4–8 blocks across a ring's FWHM — too "
-                     "coarse blurs the peak, too fine keeps the noise.")
+                help="2θ box size for the comparison grid. Aim for 4–8 boxes across a "
+                     "ring's FWHM — too coarse blurs the peak, too fine keeps the noise.")
+            _s3_sub = st.number_input(
+                "Sim sub-samples / 2θ box", min_value=1, max_value=50, value=5, step=1,
+                key="s3_sub",
+                help="The model is evaluated and convolved on a grid this many times "
+                     "finer than the comparison boxes, then averaged down — so a coarse "
+                     "comparison grid does not degrade the simulation's accuracy.")
         with _s3c[1]:
             _s3_fwhm = st.number_input(
                 "FWHM (°)", min_value=0.001, max_value=5.0,
@@ -2057,11 +2063,12 @@ with tab_refine:
                                 use_container_width=True, key="s3_run")
 
         if _s3_prev or _s3_run:
-            with st.spinner("Building blocks…"):
+            with st.spinner("Building the comparison grid…"):
                 _seed_dfs = cp._stage3_sim_dfs(compute_strain, _sc, _s3_init)
-                _s3_blocks = cp.build_stage3_blocks(
-                    _s3x, _s3grid, _seed_dfs, n_az_blocks=int(_s3_naz),
-                    tth_block=float(_s3_tth), fwhm=float(_s3_fwhm), roi_k=float(_s3_k))
+                _s3_blocks = cp.build_stage3_grid(
+                    _s3x, _s3grid, _seed_dfs, az_step=float(_s3_az),
+                    tth_step=float(_s3_tth), fwhm=float(_s3_fwhm), roi_k=float(_s3_k),
+                    n_sub=int(_s3_sub))
             if not _s3_blocks.labels:
                 st.warning("No ring windows fell inside the image 2θ range.")
             else:
@@ -2088,7 +2095,8 @@ with tab_refine:
         if _v3:
             _bl, _ev3, _r3 = _v3["blocks"], _v3["eval"], _v3.get("result")
             _m3 = st.columns(4)
-            _m3[0].metric("blocks compared", f"{_bl.n_points:,}")
+            _m3[0].metric("boxes compared", f"{_bl.n_points:,}",
+                          help=f"grid {_bl.data.shape[0]} azimuth × {_bl.data.shape[1]} 2θ")
             _m3[1].metric("global scale", f"{_ev3['scale']:.4g}")
             _m3[2].metric("RMSE", f"{_ev3['rmse']:.4g}")
             _m3[3].metric("rings", f"{len(_bl.labels)}")
@@ -2120,13 +2128,34 @@ with tab_refine:
                                            mime="text/plain", key="s3_dl")
                 st.caption("Apply the refined values on the **Simulation** tab to carry "
                            "them into the model.")
+            _vc = st.columns([2, 1, 1])
+            with _vc[0]:
+                _s3_pct = st.slider(
+                    "Display contrast (percentile)", min_value=90.0, max_value=100.0,
+                    value=float(cake_percentile), step=0.1, key="s3_pct",
+                    help="Upper clip for the colour scale. Lower brightens faint rings; "
+                         "higher darkens the image by clipping fewer bright pixels.")
+            with _vc[1]:
+                _s3_cmap = st.selectbox("Colour map", ["Inferno", "Magma", "Viridis",
+                                                       "Cividis", "Hot", "Greys"],
+                                        key="s3_cmap")
+            with _vc[2]:
+                _s3_dmap = st.selectbox("Difference map", ["RdBu", "Picnic", "BrBG",
+                                                           "Spectral"], key="s3_dmap")
+            st.caption("Click-drag on any panel to zoom — all three share the 2θ axis. "
+                       "Double-click to reset. Fitted windows are outlined in cyan.")
             st.plotly_chart(
-                cp.plot_stage3_comparison(_bl, _ev3["sim"], percentile=cake_percentile),
+                cp.plot_stage3_comparison(_bl, _ev3["sim"], percentile=float(_s3_pct),
+                                          colorscale=_s3_cmap, diff_colorscale=_s3_dmap),
                 width='stretch')
             st.dataframe(
                 pd.DataFrame([{"hkl": _L,
-                               "2θ window": f"{_bl.windows[_L][0]:.3f}–{_bl.windows[_L][1]:.3f}",
-                               "blocks": int(_bl.data[_L].size),
+                               "2θ window": "{:.3f}–{:.3f}".format(
+                                   float(_bl.tth_edges[_bl.windows[_L][0]]),
+                                   float(_bl.tth_edges[min(_bl.windows[_L][1],
+                                                           _bl.tth_edges.size - 1)])),
+                               "boxes": int(_bl.data.shape[0]
+                                            * (_bl.windows[_L][1] - _bl.windows[_L][0])),
                                "RMSE": _ev3["per_hkl"].get(_L, float("nan"))}
                               for _L in _bl.labels]),
                 hide_index=True, use_container_width=True,
