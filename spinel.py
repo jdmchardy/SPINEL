@@ -2114,6 +2114,45 @@ with tab_refine:
             _s3_run = st.button("Run Stage 3 refinement", type="primary",
                                 use_container_width=True, key="s3_run")
 
+        # --- Masking: drop boxes with no usable data from the residual ---
+        with st.expander("Mask regions with no data", expanded=False):
+            st.markdown(
+                "Detector gaps and cut-off azimuth wedges must be kept out of the "
+                "residual, or the fit chases empty boxes. Missing pixels (non-finite, and "
+                "by default exactly 0 — what integration software writes outside the "
+                "detector) are found automatically; add rows below for anything else. "
+                "**Each row has its own 2θ range, so the excluded azimuths can differ at "
+                "different radii** — which is how detector shadows behave. Leave a 2θ "
+                "bound blank to cover the whole range, and set `az_from` > `az_to` for a "
+                "range that wraps through ±180.")
+            _mk = st.columns(2)
+            with _mk[0]:
+                _s3_zero_missing = st.checkbox(
+                    "Treat exactly-zero pixels as missing", value=True, key="s3_zeromiss",
+                    help="Real measured values are never exactly 0.0, so this is a safe "
+                         "marker for 'outside the detector'. Untick if your data "
+                         "legitimately contains hard zeros.")
+            with _mk[1]:
+                _s3_minvalid = st.slider(
+                    "Minimum valid fraction per box", 0.0, 1.0, 0.5, 0.05,
+                    key="s3_minvalid",
+                    help="A box is dropped when fewer than this fraction of its pixels "
+                         "carry data. Box means always use the surviving pixels only.")
+            _s3_regions = st.data_editor(
+                st.session_state.get("s3_exclude_df",
+                                     pd.DataFrame(columns=cp.EXCLUDE_REGION_COLUMNS)),
+                num_rows="dynamic", use_container_width=True, key="s3_exclude_editor",
+                column_config={
+                    "az_from": st.column_config.NumberColumn("azimuth from (°)", format="%.1f"),
+                    "az_to": st.column_config.NumberColumn("azimuth to (°)", format="%.1f"),
+                    "tth_from": st.column_config.NumberColumn("2θ from (°)", format="%.3f"),
+                    "tth_to": st.column_config.NumberColumn("2θ to (°)", format="%.3f")})
+            st.session_state.s3_exclude_df = _s3_regions
+            _s3_excl = [r for r in _s3_regions.to_dict("records")
+                        if pd.notna(r.get("az_from")) and pd.notna(r.get("az_to"))]
+            if _s3_excl:
+                st.caption(f"{len(_s3_excl)} exclusion region(s) active.")
+
         # compute_strain reads the PO parameters from st.session_state.params, not from its
         # arguments, so they must be written there before every forward-model call or a
         # refinement of R/tau/omega/baseline would leave the simulation unchanged.
@@ -2134,7 +2173,9 @@ with tab_refine:
                 _s3_blocks = cp.build_stage3_grid(
                     _s3x, _s3grid, _seed_dfs, az_step=float(_s3_az),
                     tth_step=float(_s3_tth), fwhm=float(_s3_fwhm), roi_k=float(_s3_k),
-                    n_sub=int(_s3_sub))
+                    n_sub=int(_s3_sub), exclude_regions=_s3_excl,
+                    min_valid_frac=float(_s3_minvalid),
+                    zero_is_missing=bool(_s3_zero_missing))
             if not _s3_blocks.labels:
                 st.warning("No ring windows fell inside the image 2θ range.")
             else:
@@ -2172,6 +2213,11 @@ with tab_refine:
             _m3[2].metric("RMSE", f"{_ev3['rmse']:.4g}")
             _m3[3].metric("φ samples", f"{_ev3.get('n_phi', '—')}",
                           help=f"{len(_bl.labels)} ring(s); φ chosen from R unless overridden")
+            if _bl.valid_mask is not None and not _bl.valid_mask.all():
+                _msk = int((~_bl.valid_mask).sum())
+                st.caption(f"🚫 {_msk:,} of {_bl.valid_mask.size:,} boxes masked "
+                           f"({_msk / _bl.valid_mask.size * 100:.1f}%) — shown blank below "
+                           "and excluded from the scale and residual.")
             if _r3:
                 (st.success if _r3["success"] else st.warning)(
                     f"{_r3['message']}  ·  {_r3['n_free']} param(s), "

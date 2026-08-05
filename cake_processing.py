@@ -2069,8 +2069,15 @@ class Stage3Grid:
         ``(n_az, n_tth)`` block means of the measured image.
     windows : dict
         ``hkl_label -> (col_lo, col_hi)`` column span (half-open) of that ring's window.
+    valid_mask : np.ndarray
+        ``(n_az, n_tth)`` bool, True where the box holds usable measurement -- False over
+        detector gaps, cut-off azimuth wedges and any user-excluded region. Because the
+        excluded area is a per-box mask rather than an azimuth range, it is free to change
+        with 2th, which is how detector shadows actually behave.
     fit_mask : np.ndarray
-        ``(n_az, n_tth)`` bool, the union of the windows -- the blocks actually compared.
+        ``(n_az, n_tth)`` bool, ``window_mask & valid_mask`` -- the blocks actually
+        compared. Everything downstream (global scale, residual, per-hkl RMSE) keys off
+        this, so masking propagates without any of them needing to know about it.
     n_sub : int
         Sub-samples per 2th block used when rendering the model before block-averaging.
     """
@@ -2082,6 +2089,7 @@ class Stage3Grid:
     windows: dict
     fit_mask: np.ndarray
     n_sub: int
+    valid_mask: np.ndarray = None
 
     @property
     def labels(self) -> list:
@@ -2097,6 +2105,40 @@ def _wrap_into(angles, start, period=360.0):
     return start + np.mod(np.asarray(angles, dtype=float) - start, period)
 
 
+#: Columns of the Stage 3 exclusion table. Each row blanks one azimuth range over one 2th
+#: range; leaving a 2th bound blank covers the whole range, so a wedge missing at all radii
+#: is a single row. az_from > az_to wraps through +/-180.
+EXCLUDE_REGION_COLUMNS = ["az_from", "az_to", "tth_from", "tth_to"]
+
+
+def region_exclusion_mask(az_centres, tth_centres, regions) -> np.ndarray:
+    """Boolean ``(n_az, n_tth)`` mask, True where a box falls in an excluded region.
+
+    ``regions`` is an iterable of mappings with any of :data:`EXCLUDE_REGION_COLUMNS`.
+    Because each row carries its own 2th range, the excluded azimuth range can differ at
+    different radii -- which is what a detector shadow does. An azimuth range with
+    ``az_from > az_to`` is taken to wrap through +/-180.
+    """
+    az = np.asarray(az_centres, dtype=float)
+    tth = np.asarray(tth_centres, dtype=float)
+    out = np.zeros((az.size, tth.size), dtype=bool)
+    for reg in regions or ():
+        get = reg.get if hasattr(reg, "get") else (lambda k, d=None: getattr(reg, k, d))
+        a0, a1 = get("az_from"), get("az_to")
+        t0, t1 = get("tth_from"), get("tth_to")
+        if a0 is None or a1 is None or not np.isfinite(a0) or not np.isfinite(a1):
+            continue
+        a0, a1 = float(a0), float(a1)
+        # Compare in a frame starting at a0 so a wrapping range is a simple interval.
+        width = (a1 - a0) % 360.0 or 360.0
+        in_az = (_wrap_into(az, a0) - a0) <= width
+        t0 = -np.inf if t0 is None or not np.isfinite(t0) else float(t0)
+        t1 = np.inf if t1 is None or not np.isfinite(t1) else float(t1)
+        in_tth = (tth >= min(t0, t1)) & (tth <= max(t0, t1))
+        out |= in_az[:, None] & in_tth[None, :]
+    return out
+
+
 def _ring_width_estimate(df_hkl, fwhm):
     """Expected total ring width: strain spread across phi, plus the instrument."""
     spread = 0.0
@@ -2109,7 +2151,9 @@ def _ring_width_estimate(df_hkl, fwhm):
 
 
 def build_stage3_grid(cake, grid, sim_dfs, *, az_step=5.0, tth_step=0.02, fwhm=0.1,
-                      roi_k=4.0, roi_min=0.15, roi_max=2.0, n_sub=5) -> Stage3Grid:
+                      roi_k=4.0, roi_min=0.15, roi_max=2.0, n_sub=5,
+                      exclude_regions=(), min_valid_frac=0.5,
+                      zero_is_missing=True) -> Stage3Grid:
     """Block the whole image at the given azimuth/2th STEPS and set the fit windows.
 
     ``az_step`` and ``tth_step`` are spacings in degrees (not bin counts) and define the
@@ -2122,6 +2166,13 @@ def build_stage3_grid(cake, grid, sim_dfs, *, az_step=5.0, tth_step=0.02, fwhm=0
     each) and none falls between them. ``az_step`` is clamped to :data:`MIN_AZ_STEP` --
     the model cannot resolve finer than its own delta spacing -- and then rounded to the
     nearest step that divides 360 deg evenly.
+
+    Masking (see ``Stage3Grid.valid_mask``). Pixels that are non-finite, and by default
+    exactly 0.0 (what integration software writes outside the detector -- real measured
+    values are never exactly zero), count as missing; a box is dropped when fewer than
+    ``min_valid_frac`` of its pixels survive. Box means are taken over the surviving
+    pixels only, so a partly-covered box is not dragged toward zero. ``exclude_regions``
+    additionally blanks user-specified azimuth ranges, each over its own 2th range.
     """
     twotheta = np.asarray(cake.twotheta, dtype=float)
     az = np.asarray(cake.azimuth, dtype=float)
@@ -2139,13 +2190,26 @@ def build_stage3_grid(cake, grid, sim_dfs, *, az_step=5.0, tth_step=0.02, fwhm=0
 
     row = np.clip(np.digitize(_wrap_into(az, az_edges[0]), az_edges) - 1, 0, n_az - 1)
     col = np.clip(np.digitize(twotheta, tth_edges) - 1, 0, n_tth - 1)
+    good_px = np.isfinite(grid)
+    if zero_is_missing:
+        good_px &= grid != 0.0
     block_sum = np.zeros((n_az, n_tth))
+    block_good = np.zeros((n_az, n_tth))
     block_cnt = np.zeros((n_az, n_tth))
-    np.add.at(block_sum, (row[:, None], col[None, :]), grid)
-    np.add.at(block_cnt, (row[:, None], col[None, :]), np.ones_like(grid))
-    data = np.where(block_cnt > 0, block_sum / np.maximum(block_cnt, 1.0), 0.0)
+    idx = (row[:, None], col[None, :])
+    np.add.at(block_sum, idx, np.where(good_px, grid, 0.0))
+    np.add.at(block_good, idx, good_px.astype(float))
+    np.add.at(block_cnt, idx, np.ones_like(grid))
+    # Average over the pixels that carry data, so a partly-covered box is not pulled
+    # toward zero by the missing ones.
+    data = np.where(block_good > 0, block_sum / np.maximum(block_good, 1.0), 0.0)
 
     centres_tth = 0.5 * (tth_edges[:-1] + tth_edges[1:])
+    az_centres = 0.5 * (az_edges[:-1] + az_edges[1:])
+    valid_mask = (block_good >= float(min_valid_frac) * np.maximum(block_cnt, 1.0))
+    valid_mask &= block_good > 0
+    valid_mask &= ~region_exclusion_mask(az_centres, centres_tth, exclude_regions)
+
     windows, fit_mask = {}, np.zeros((n_az, n_tth), dtype=bool)
     for label, df in (sim_dfs or {}).items():
         c = df.groupby("delta (degrees)")["Mean two_th @ delta"].mean().to_numpy()
@@ -2159,9 +2223,11 @@ def build_stage3_grid(cake, grid, sim_dfs, *, az_step=5.0, tth_step=0.02, fwhm=0
             continue
         windows[label] = (int(cols[0]), int(cols[-1]) + 1)
         fit_mask[:, cols[0]:cols[-1] + 1] = True
-    return Stage3Grid(az_edges=az_edges, az_centres=0.5 * (az_edges[:-1] + az_edges[1:]),
+    fit_mask &= valid_mask          # masked boxes never reach the scale or the residual
+    return Stage3Grid(az_edges=az_edges, az_centres=az_centres,
                       tth_edges=tth_edges, tth_centres=centres_tth, data=data,
-                      windows=windows, fit_mask=fit_mask, n_sub=int(max(1, n_sub)))
+                      windows=windows, fit_mask=fit_mask, n_sub=int(max(1, n_sub)),
+                      valid_mask=valid_mask)
 
 
 def render_stage3(g: Stage3Grid, sim_dfs, fwhm) -> np.ndarray:
@@ -2285,8 +2351,9 @@ def evaluate_stage3(strain_fn, sim_context, g: Stage3Grid, values, fwhm,
     sim = scale * sim
     per_hkl = {}
     for label, (c0, c1) in g.windows.items():
-        resid = g.data[:, c0:c1] - sim[:, c0:c1]
-        per_hkl[label] = float(np.sqrt(np.mean(resid ** 2)))
+        win = g.fit_mask[:, c0:c1]
+        resid = (g.data[:, c0:c1] - sim[:, c0:c1])[win]
+        per_hkl[label] = float(np.sqrt(np.mean(resid ** 2))) if resid.size else float("nan")
     rmse = (float(np.sqrt(np.mean((g.data[m] - sim[m]) ** 2))) if m.any() else float("nan"))
     return {"sim": sim, "per_hkl": per_hkl, "rmse": rmse, "scale": scale,
             "n_points": g.n_points, "n_phi": int(n_phi)}
@@ -2359,11 +2426,23 @@ def stage3_azimuthal_profiles(g: Stage3Grid, sim, measure="integrated") -> dict:
     tth_step = float(g.tth_edges[1] - g.tth_edges[0]) if g.tth_edges.size > 1 else 1.0
     out = {}
     for label, (c0, c1) in g.windows.items():
-        d, s = g.data[:, c0:c1], sim[:, c0:c1]
-        if measure == "peak":
-            dv, sv = d.max(axis=1), s.max(axis=1)
-        else:
-            dv, sv = d.sum(axis=1) * tth_step, s.sum(axis=1) * tth_step
+        # Masked boxes are dropped, not counted as zero, so a partly-blanked azimuth is
+        # not shown as a dip. An azimuth with nothing left becomes NaN and the line breaks.
+        keep = g.fit_mask[:, c0:c1]
+        d = np.where(keep, g.data[:, c0:c1], np.nan)
+        m = np.where(keep, sim[:, c0:c1], np.nan)
+        any_left = keep.any(axis=1)
+        with np.errstate(invalid="ignore"):
+            if measure == "peak":
+                dv, sv = np.nanmax(d, axis=1), np.nanmax(m, axis=1)
+            else:
+                # Scale by the full window width so partly-masked azimuths stay comparable
+                # with fully-covered ones rather than reading low.
+                n_win = max(c1 - c0, 1)
+                dv = np.nanmean(d, axis=1) * n_win * tth_step
+                sv = np.nanmean(m, axis=1) * n_win * tth_step
+        dv = np.where(any_left, dv, np.nan)
+        sv = np.where(any_left, sv, np.nan)
         out[label] = pd.DataFrame({"azimuth": g.az_centres, "data": dv, "model": sv})
     return out
 
@@ -2412,6 +2491,11 @@ def plot_stage3_comparison(g: Stage3Grid, sim, percentile=99.5, row_height=300,
     """
     data = np.asarray(g.data, dtype=float)
     sim = np.asarray(sim, dtype=float)
+    if g.valid_mask is not None:
+        # NaN renders transparent, so masked regions read as holes rather than as zeros.
+        blank = ~np.asarray(g.valid_mask, dtype=bool)
+        data = np.where(blank, np.nan, data)
+        sim = np.where(blank, np.nan, sim)
     finite = data[np.isfinite(data)]
     zmax = float(np.nanpercentile(finite, percentile)) if finite.size else 1.0
     if not np.isfinite(zmax) or zmax <= 0:
