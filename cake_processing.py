@@ -2087,6 +2087,13 @@ shows the full image**, with the fitted windows outlined.
 **Scaling.** A single global scale is solved analytically each iteration, exactly as in
 Stage 2, so relative intensities across rings and azimuths all constrain the model.
 
+**Ring profiles.** Below the images, each ring's 2θ window is collapsed to one value per
+azimuth box and plotted against azimuth, data vs model. *Integrated* (the default) sums
+across the window — the ring's integrated intensity, unaffected by the peak drifting
+within the window. *Peak* takes the maximum instead. The two respond differently to a
+width error (too broad reads high integrated, low peak) but the same way to an intensity
+error, so switching between them tells you which you are looking at.
+
 ⚠️ **Use it as a polish stage.** Seed it from Stages 1–2 and refine a few parameters at a
 time. Fitted jointly, `a` trades against hydrostatic stress, and `FWHM` against intensity
 and `R` — starting far away with everything free will not converge sensibly.
@@ -2467,6 +2474,74 @@ def _nudge_colour(colour):
         return colour
     rgb[0] = rgb[0] + 1 if rgb[0] < 255 else rgb[0] - 1
     return "#%02x%02x%02x" % tuple(max(0, min(255, v)) for v in rgb)
+
+
+def stage3_azimuthal_profiles(g: Stage3Grid, sim, measure="integrated") -> dict:
+    """Collapse each ring's 2th window to one value per azimuth box.
+
+    ``measure``:
+
+    - ``"integrated"`` (default) -- sum across the window times the box width, i.e. the
+      ring's integrated intensity at that azimuth. This is the physically meaningful
+      quantity, it is what Stage 2 fits, and it is unaffected by the peak drifting within
+      the window as strain shifts it.
+    - ``"peak"`` -- the maximum across the window (ring height). The two respond
+      differently to a width error: too broad a model sits high on the integrated curve
+      and low on the peak curve (measured 1.19x vs 0.78x for a 60% FWHM error), whereas a
+      plain intensity error moves both the same way. Comparing them therefore tells the
+      two apart. They are not independent of the global scale, which refits either way.
+
+    Returns ``{hkl_label: DataFrame[azimuth, data, model]}``. ``sim`` is expected already
+    scaled (as :func:`evaluate_stage3` returns it), so the two are directly comparable.
+    """
+    sim = np.asarray(sim, dtype=float)
+    tth_step = float(g.tth_edges[1] - g.tth_edges[0]) if g.tth_edges.size > 1 else 1.0
+    out = {}
+    for label, (c0, c1) in g.windows.items():
+        d, s = g.data[:, c0:c1], sim[:, c0:c1]
+        if measure == "peak":
+            dv, sv = d.max(axis=1), s.max(axis=1)
+        else:
+            dv, sv = d.sum(axis=1) * tth_step, s.sum(axis=1) * tth_step
+        out[label] = pd.DataFrame({"azimuth": g.az_centres, "data": dv, "model": sv})
+    return out
+
+
+def plot_stage3_azimuthal(profiles, ncols=4, row_height=280,
+                          measure="integrated") -> go.Figure:
+    """Grid of intensity-vs-azimuth panels per hkl: data (line + markers) vs model (dashed)."""
+    labels = list(profiles.keys())
+    n = len(labels)
+    if n == 0:
+        return go.Figure()
+    ncols = int(max(1, ncols))
+    nrows = int(np.ceil(n / ncols))
+    ylab = "peak intensity" if measure == "peak" else "integrated intensity"
+    fig = make_subplots(rows=nrows, cols=ncols,
+                        subplot_titles=[f"hkl {L}" for L in labels],
+                        horizontal_spacing=0.06,
+                        vertical_spacing=_subplot_vspace(nrows, row_height))
+    for i, L in enumerate(labels):
+        r, c = i // ncols + 1, i % ncols + 1
+        p = profiles[L]
+        o = np.argsort(p["azimuth"].to_numpy())
+        # No legend: it collides with the subplot titles. The convention is named in the
+        # figure title instead, matching plot_intensity_grid.
+        fig.add_trace(go.Scatter(
+            x=p["azimuth"].to_numpy()[o], y=p["data"].to_numpy()[o],
+            mode="lines+markers", name=f"{L} data", showlegend=False,
+            marker=dict(color="#e6194B", size=4),
+            line=dict(color="#e6194B", width=1)), row=r, col=c)
+        fig.add_trace(go.Scatter(
+            x=p["azimuth"].to_numpy()[o], y=p["model"].to_numpy()[o], mode="lines",
+            name=f"{L} model", showlegend=False,
+            line=dict(color="#4363d8", width=2, dash="dash")), row=r, col=c)
+    fig.update_xaxes(title_text="azimuth (°)", title_standoff=6)
+    fig.update_yaxes(title_text=ylab, title_standoff=6)
+    fig.update_layout(height=row_height * nrows, margin=dict(l=70, r=20, t=70, b=50),
+                      title=f"Ring {ylab} vs azimuth — "
+                            "data (line + points) vs model (dashed)")
+    return fig
 
 
 def _explicit_colorscale(name):

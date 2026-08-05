@@ -2227,6 +2227,21 @@ with tab_refine:
                 cp.plot_stage3_comparison(_bl, _ev3["sim"], percentile=float(_s3_pct),
                                           colorscale=_s3_cmap, diff_colorscale=_s3_dmap),
                 width='stretch')
+
+            # --- Ring intensity vs azimuth, collapsing each 2θ window ---
+            _s3_meas = st.radio(
+                "Ring profile measure", ["Integrated", "Peak"], horizontal=True,
+                key="s3_measure",
+                help="How each ring's 2θ window is collapsed to one value per azimuth "
+                     "box. Integrated = sum across the window × box width (the ring's "
+                     "integrated intensity, unaffected by the peak drifting within the "
+                     "window). Peak = the maximum. Comparing the two separates an "
+                     "intensity error from a peak-width error.")
+            _meas = "peak" if _s3_meas == "Peak" else "integrated"
+            _s3_prof = cp.stage3_azimuthal_profiles(_bl, _ev3["sim"], measure=_meas)
+            st.plotly_chart(
+                cp.plot_stage3_azimuthal(_s3_prof, ncols=4, measure=_meas),
+                width='stretch')
             st.dataframe(
                 pd.DataFrame([{"hkl": _L,
                                "2θ window": "{:.3f}–{:.3f}".format(
