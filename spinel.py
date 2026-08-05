@@ -1984,10 +1984,12 @@ with tab_refine:
         _s3c = st.columns(4)
         with _s3c[0]:
             _s3_az = st.number_input(
-                "Azimuth step (°)", min_value=0.1, max_value=90.0, value=5.0, step=0.5,
-                format="%.2f", key="s3_az",
+                "Azimuth step (°)", min_value=float(cp.MIN_AZ_STEP), max_value=90.0,
+                value=5.0, step=0.5, format="%.2f", key="s3_az",
                 help="Azimuth box size for the comparison grid. Both the image and the "
-                     "model are averaged into these boxes.")
+                     "model are averaged into these boxes. Limited to ≥ {:g}° because the "
+                     "simulation samples azimuth on a {:g}° grid — finer boxes could not "
+                     "all be filled by the model.".format(cp.MIN_AZ_STEP, cp.MIN_AZ_STEP))
             _s3_tth = st.number_input(
                 "2θ step (°)", min_value=0.002, max_value=1.0, value=0.02, step=0.005,
                 format="%.3f", key="s3_tth",
@@ -2013,6 +2015,14 @@ with tab_refine:
                 help="Window half-width as a multiple of the estimated ring width. The "
                      "window is fixed from the starting model so the residual keeps a "
                      "constant length.")
+            _s3_nphi_in = st.number_input(
+                "φ sampling (0 = auto)", min_value=0, max_value=4096, value=0, step=72,
+                key="s3_nphi",
+                help="Orientation samples over φ. Auto scales with R (sharper texture "
+                     "needs more) with a floor of {}. φ is both the PO integration axis "
+                     "and the source of the strain broadening here, and cost scales "
+                     "linearly with it — so this is also the main speed control."
+                     .format(cp.STAGE3_MIN_N_PHI))
         with _s3c[2]:
             st.caption("Preferred orientation")
             _s3_fpo = {p: st.checkbox(f"refine {p}", value=False, key=f"s3_f_{p}")
@@ -2063,8 +2073,10 @@ with tab_refine:
                                 use_container_width=True, key="s3_run")
 
         if _s3_prev or _s3_run:
+            _s3_nphi = int(_s3_nphi_in) or None
             with st.spinner("Building the comparison grid…"):
-                _seed_dfs = cp._stage3_sim_dfs(compute_strain, _sc, _s3_init)
+                _seed_dfs = cp._stage3_sim_dfs(compute_strain, _sc, _s3_init,
+                                               n_phi=_s3_nphi)
                 _s3_blocks = cp.build_stage3_grid(
                     _s3x, _s3grid, _seed_dfs, az_step=float(_s3_az),
                     tth_step=float(_s3_tth), fwhm=float(_s3_fwhm), roi_k=float(_s3_k),
@@ -2076,17 +2088,20 @@ with tab_refine:
                     with st.spinner("Refining against the image…"):
                         _s3_res = cp.run_stage3_refinement(
                             compute_strain, _sc, _s3_blocks, _s3_init, _s3_flags,
-                            method=_method, max_nfev=int(_maxnfev))
-                        _s3_ev = cp.evaluate_stage3(compute_strain, _sc, _s3_blocks,
-                                                    _s3_res["values"],
-                                                    _s3_res["values"].get("fwhm",
-                                                                          _s3_init["fwhm"]))
+                            method=_method, max_nfev=int(_maxnfev), n_phi=_s3_nphi)
+                        # Score/display at the sampling the refined R actually needs.
+                        _s3_ev = cp.evaluate_stage3(
+                            compute_strain, _sc, _s3_blocks, _s3_res["values"],
+                            _s3_res["values"].get("fwhm", _s3_init["fwhm"]),
+                            n_phi=_s3_nphi or max(_s3_res["n_phi"],
+                                                  _s3_res["n_phi_suggested"]))
                     st.session_state.s3_fwhm_val = _s3_res["values"].get("fwhm")
                 else:
                     with st.spinner("Evaluating…"):
                         _s3_res = None
                         _s3_ev = cp.evaluate_stage3(compute_strain, _sc, _s3_blocks,
-                                                    _s3_init, float(_s3_fwhm))
+                                                    _s3_init, float(_s3_fwhm),
+                                                    n_phi=_s3_nphi)
                 st.session_state.stage3_view = {"blocks": _s3_blocks, "eval": _s3_ev,
                                                 "result": _s3_res, "init": dict(_s3_init),
                                                 "flags": dict(_s3_flags)}
@@ -2099,7 +2114,8 @@ with tab_refine:
                           help=f"grid {_bl.data.shape[0]} azimuth × {_bl.data.shape[1]} 2θ")
             _m3[1].metric("global scale", f"{_ev3['scale']:.4g}")
             _m3[2].metric("RMSE", f"{_ev3['rmse']:.4g}")
-            _m3[3].metric("rings", f"{len(_bl.labels)}")
+            _m3[3].metric("φ samples", f"{_ev3.get('n_phi', '—')}",
+                          help=f"{len(_bl.labels)} ring(s); φ chosen from R unless overridden")
             if _r3:
                 (st.success if _r3["success"] else st.warning)(
                     f"{_r3['message']}  ·  {_r3['n_free']} param(s), "
@@ -2118,6 +2134,13 @@ with tab_refine:
                 if _r3.get("at_limit"):
                     st.warning("Parameter(s) stopped **at a limit**: "
                                + ", ".join(_r3["at_limit"]))
+                if _r3.get("n_phi_suggested", 0) > _r3.get("n_phi", 0):
+                    st.warning(
+                        f"The refined R = {_r3['values'].get('R', float('nan')):.3g} is "
+                        f"sharper than the start and wants **{_r3['n_phi_suggested']} φ "
+                        f"samples** — this fit used {_r3['n_phi']} (held fixed to keep the "
+                        "gradients clean). **Run again** from these values to refine at the "
+                        "finer sampling.")
                 if _r3.get("report"):
                     with st.expander(f"lmfit fit report ({_r3.get('method','')})",
                                      expanded=False):

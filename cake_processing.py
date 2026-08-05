@@ -2060,7 +2060,17 @@ the instrument — rather than fitted as a free shape.
 **Grid.** You set the **azimuth step** and **2θ step** in degrees; both the measured image
 and the model are averaged into those same boxes, so the comparison is like-for-like.
 Bigger boxes average away noise but blur the peak: aim for **4–8 boxes across a ring's
-FWHM**.
+FWHM**. The azimuth step is limited to **≥ 2°** because the simulation samples azimuth on
+a 2° grid — finer boxes could not all be filled by the model, and the empty ones would
+contribute a spurious `data − 0` residual.
+
+**φ sampling.** The orientation average runs over φ, which in this stage does double duty:
+it is the preferred-orientation integration axis *and* the source of the strain
+broadening (the spread of 2θ across φ is what gives a ring its width). It is chosen
+**automatically from R** — sharper texture needs more points — with a floor of 72. Cost
+scales linearly with it, so it is also the main speed control. Set a non-zero value to
+override. During a fit it is held fixed; if the refined R needs finer sampling you'll be
+told to re-run.
 
 **Simulation sub-sampling.** The model is *evaluated* on a finer grid than it is compared
 on — `sub-samples per 2θ box` sets how much finer. The peak profile is built and convolved
@@ -2081,6 +2091,16 @@ Stage 2, so relative intensities across rings and azimuths all constrain the mod
 time. Fitted jointly, `a` trades against hydrostatic stress, and `FWHM` against intensity
 and `R` — starting far away with everything free will not converge sensibly.
 """
+
+
+#: Smallest usable azimuth box (degrees). compute_strain samples delta every 2 deg, so
+#: finer boxes cannot all be filled by the model.
+MIN_AZ_STEP = 2.0
+
+#: Floor on the phi sampling for Stage 3. Unlike Stage 2, phi here does double duty --
+#: it is the PO integration axis AND the source of the strain broadening (the spread of
+#: 2th across phi is the ring width) -- so never drop below the long-standing 72 points.
+STAGE3_MIN_N_PHI = 72
 
 
 @dataclass
@@ -2139,12 +2159,17 @@ def build_stage3_grid(cake, grid, sim_dfs, *, az_step=5.0, tth_step=0.02, fwhm=0
     ``az_step`` and ``tth_step`` are spacings in degrees (not bin counts) and define the
     comparison grid for both the measurement and the model. ``sim_dfs`` (seed
     ``compute_strain`` output) only places the windows, which are then fixed.
+
+    ``az_step`` is clamped to :data:`MIN_AZ_STEP`: ``compute_strain`` samples azimuth on a
+    2 deg delta grid, so finer boxes cannot all be populated by the model -- at 1 deg only
+    half of them receive any signal, and the empty ones would contribute a spurious
+    ``data - 0`` residual.
     """
     twotheta = np.asarray(cake.twotheta, dtype=float)
     az = np.asarray(cake.azimuth, dtype=float)
     grid = np.asarray(grid, dtype=float)
 
-    az_step = max(float(az_step), 1e-6)
+    az_step = max(float(az_step), MIN_AZ_STEP)
     tth_step = max(float(tth_step), 1e-6)
     az_edges = np.arange(az.min(), az.max() + az_step, az_step)
     if az_edges.size < 2:
@@ -2228,7 +2253,18 @@ def render_stage3(g: Stage3Grid, sim_dfs, fwhm) -> np.ndarray:
         # Measured blocks are MEANS over their pixels, so average over the delta samples
         # in each azimuth block rather than summing them.
         uniq_ad = np.unique(np.stack([a_idx, delta]), axis=1)[0].astype(int)
-        hist /= np.maximum(np.bincount(uniq_ad, minlength=n_az), 1)[:, None]
+        counts = np.bincount(uniq_ad, minlength=n_az)
+        hist /= np.maximum(counts, 1)[:, None]
+        # A box that received NO delta sample is a sampling gap (the delta grid is 2 deg
+        # and can be offset from the azimuth boxes), not a dark part of the ring -- fill it
+        # from the nearest sampled box so it does not contribute a false `data - 0`
+        # residual. Boxes that were sampled but came out dark are left alone.
+        missing = np.flatnonzero(counts == 0)
+        if missing.size:
+            have = np.flatnonzero(counts > 0)
+            if have.size:
+                hist[missing] = hist[have[np.abs(missing[:, None]
+                                                 - have[None, :]).argmin(axis=1)]]
         conv = fftconvolve(hist, kern[None, :], mode="same", axes=1)
         # Sum the fine samples in each box and divide by the box width, giving an
         # intensity DENSITY. Taking the mean instead would make the model amplitude scale
@@ -2238,10 +2274,19 @@ def render_stage3(g: Stage3Grid, sim_dfs, fwhm) -> np.ndarray:
     return out
 
 
-def _stage3_sim_dfs(strain_fn, sim_context, values, coarse=False):
-    """compute_strain DataFrames for every hkl at the given parameter values."""
+def stage3_n_phi(values) -> int:
+    """Phi sampling for Stage 3: adaptive in R, floored at :data:`STAGE3_MIN_N_PHI`."""
+    return max(STAGE3_MIN_N_PHI, adaptive_n_phi((values or {}).get("R", 1.0)))
+
+
+def _stage3_sim_dfs(strain_fn, sim_context, values, coarse=False, n_phi=None):
+    """compute_strain DataFrames for every hkl at the given parameter values.
+
+    ``n_phi=None`` picks the phi sampling from R via :func:`stage3_n_phi`.
+    """
     lattice_params, sigma_params, chi = _assemble_params(sim_context, values)
-    phi_values = np.radians(np.arange(0, 360, 5))
+    n_phi = int(n_phi) if n_phi else stage3_n_phi(values)
+    phi_values = np.radians(np.linspace(0.0, 360.0, n_phi, endpoint=False))
     psi_values = 1 if coarse else 0
     out = {}
     for hkl, inten in zip(sim_context["selected_hkls"], sim_context["intensities"]):
@@ -2254,13 +2299,14 @@ def _stage3_sim_dfs(strain_fn, sim_context, values, coarse=False):
 
 
 def evaluate_stage3(strain_fn, sim_context, g: Stage3Grid, values, fwhm,
-                    coarse=False) -> dict:
+                    coarse=False, n_phi=None) -> dict:
     """Render the model on the full block grid, scale it, and score it inside the windows.
 
     ``sim`` is returned over the WHOLE grid (for display); the scale and residuals use only
-    the blocks in ``g.fit_mask``.
+    the blocks in ``g.fit_mask``. ``n_phi=None`` selects the phi sampling from R.
     """
-    sim_dfs = _stage3_sim_dfs(strain_fn, sim_context, values, coarse=coarse)
+    n_phi = int(n_phi) if n_phi else stage3_n_phi(values)
+    sim_dfs = _stage3_sim_dfs(strain_fn, sim_context, values, coarse=coarse, n_phi=n_phi)
     sim = render_stage3(g, sim_dfs, fwhm)
     m = g.fit_mask
     scale = _global_scale([g.data[m]], [sim[m]]) if m.any() else 1.0
@@ -2271,19 +2317,25 @@ def evaluate_stage3(strain_fn, sim_context, g: Stage3Grid, values, fwhm,
         per_hkl[label] = float(np.sqrt(np.mean(resid ** 2)))
     rmse = (float(np.sqrt(np.mean((g.data[m] - sim[m]) ** 2))) if m.any() else float("nan"))
     return {"sim": sim, "per_hkl": per_hkl, "rmse": rmse, "scale": scale,
-            "n_points": g.n_points}
+            "n_points": g.n_points, "n_phi": int(n_phi)}
 
 
 def run_stage3_refinement(strain_fn, sim_context, g: Stage3Grid, init_values,
                           refine_flags, bounds=None, method="leastsq", max_nfev=200,
-                          coarse=False, lattice_frac=LATTICE_BOUND_FRAC) -> dict:
+                          coarse=False, lattice_frac=LATTICE_BOUND_FRAC,
+                          n_phi=None) -> dict:
     """Refine against the blocked image. ``fwhm`` participates like any other parameter.
 
     The grid and its ``fit_mask`` are fixed, so the residual vector keeps a constant length
     throughout -- required by the least-squares minimisers.
+
+    ``n_phi=None`` picks the phi sampling from the STARTING R and holds it fixed for the
+    whole fit (a mid-refinement tier switch would step the residual and corrupt the
+    finite-difference gradients); ``n_phi_suggested`` reports if the refined R wants finer.
     """
     free = [n for n, on in refine_flags.items() if on and n in init_values]
     bounds = dict(bounds or {})
+    n_phi = int(n_phi) if n_phi else stage3_n_phi(init_values)
 
     def limits_for(name, value):
         if name in bounds:
@@ -2298,7 +2350,7 @@ def run_stage3_refinement(strain_fn, sim_context, g: Stage3Grid, init_values,
 
     def residuals_from_values(values):
         ev = evaluate_stage3(strain_fn, sim_context, g, values,
-                             values.get("fwhm", 0.1), coarse=coarse)
+                             values.get("fwhm", 0.1), coarse=coarse, n_phi=n_phi)
         return (g.data[g.fit_mask] - ev["sim"][g.fit_mask]), ev["scale"]
 
     def _package(values, errors, success, message, resid, scale, report="", at_limit=None,
@@ -2307,7 +2359,8 @@ def run_stage3_refinement(strain_fn, sim_context, g: Stage3Grid, init_values,
                "message": str(message),
                "rmse": float(np.sqrt(np.mean(np.asarray(resid) ** 2))),
                "n_points": g.n_points, "n_free": len(free), "scale": float(scale),
-               "report": report, "at_limit": at_limit or [], "method": method}
+               "report": report, "at_limit": at_limit or [], "method": method,
+               "n_phi": int(n_phi), "n_phi_suggested": stage3_n_phi(values)}
         out.update(stats or {})
         return out
 
