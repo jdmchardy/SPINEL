@@ -2002,13 +2002,6 @@ with tab_refine:
                      "finer than the comparison boxes, then averaged down — so a coarse "
                      "comparison grid does not degrade the simulation's accuracy.")
         with _s3c[1]:
-            _s3_fwhm = st.number_input(
-                "FWHM (°)", min_value=0.001, max_value=5.0,
-                value=float(st.session_state.get("s3_fwhm_val", 0.10)), step=0.005,
-                format="%.4f", key="s3_fwhm",
-                help="Instrumental Gaussian broadening. Combined with the strain spread "
-                     "across φ this sets the modelled ring width.")
-            _s3_ffwhm = st.checkbox("refine FWHM", value=True, key="s3_f_fwhm")
             _s3_k = st.number_input(
                 "Window × width", min_value=1.0, max_value=20.0, value=4.0, step=0.5,
                 key="s3_k",
@@ -2024,45 +2017,85 @@ with tab_refine:
                      "linearly with it — so this is also the main speed control."
                      .format(cp.STAGE3_MIN_N_PHI))
         with _s3c[2]:
-            st.caption("Preferred orientation")
-            _s3_fpo = {p: st.checkbox(f"refine {p}", value=False, key=f"s3_f_{p}")
-                       for p in ("R", "tau", "omega", "baseline")}
+            st.markdown("**Include hkls**")
+            st.caption("rings modelled and fitted")
+            _s3_all = [cp.hkl_label(h) for h in _sc["selected_hkls"]]
+            _s3_inc = [L for L in _s3_all
+                       if st.checkbox(L, value=True, key=f"s3_inc_{L}")]
         with _s3c[3]:
-            st.caption("Lattice / stress")
-            _s3_lat = cp.lattice_param_names(_sc["symmetry"])
-            _s3_flat = {p: st.checkbox(f"refine {p}", value=False, key=f"s3_f_{p}")
-                        for p in _s3_lat}
-            _s3_fstress = {p: st.checkbox(f"refine {p}", value=False, key=f"s3_f_{p}")
-                           for p in ("sigma_11", "sigma_33")}
-            _s3_fchi = {"chi": st.checkbox("refine chi", value=False, key="s3_f_chi")}
+            st.caption("Seeding")
+            st.caption("Values below start from Stages 1–2 (or the Simulation tab). "
+                       "Press to refresh them from the latest results.")
+            _s3_reseed = st.button("↻ Reseed values", use_container_width=True,
+                                   key="s3_reseed")
 
-        # Seed values: Stage 1/2 results if present, else the Simulation tab.
+        # ---- Starting values: Stage 3 result if any, else Stages 1-2, else Simulation ----
         _s1v = (st.session_state.get("stage1_view") or {}).get("result")
         _s2v = (st.session_state.get("stage2_view") or {}).get("result")
-        _s3_init = {}
+        _s3v = (st.session_state.get("stage3_view") or {}).get("result")
+        _s3_seed = {}
         for _k in ("a_val", "b_val", "c_val", "alpha", "beta", "gamma"):
-            _s3_init[_k] = float(_sc["lattice_params"][_k])
+            _s3_seed[_k] = float(_sc["lattice_params"][_k])
         for _k in cp.SIGMA_NAMES:
-            _s3_init[_k] = float(_sc["sigma_params"].get(_k, 0.0))
-        _s3_init["chi"] = float(_sc["chi"])
-        if _s1v:
-            _s3_init.update({k: v for k, v in _s1v["values"].items() if k in _s3_init})
+            _s3_seed[_k] = float(_sc["sigma_params"].get(_k, 0.0))
+        _s3_seed["chi"] = float(_sc["chi"])
         _pov3 = dict(_sc.get("po_values") or {})
         for _k, _d in (("R", 0.9), ("tau", 0.0), ("omega", 0.0), ("baseline", 0.05),
                        ("weight", 1.0)):
-            _s3_init[_k] = float(_pov3.get(_k, _d))
+            _s3_seed[_k] = float(_pov3.get(_k, _d))
+        _s3_seed["fwhm"] = 0.10
+        if _s1v:
+            _s3_seed.update({k: v for k, v in _s1v["values"].items() if k in _s3_seed})
         if _s2v:
-            _s3_init.update({k: v for k, v in _s2v["values"].items()
+            _s3_seed.update({k: v for k, v in _s2v["values"].items()
                              if k in ("R", "tau", "omega", "baseline", "weight")})
-        _s3_init["fwhm"] = float(_s3_fwhm)
-        _s3_flags = {"fwhm": bool(_s3_ffwhm), **_s3_fpo, **_s3_flat, **_s3_fstress,
-                     **_s3_fchi}
-        st.caption("Seeded from " + (", ".join(
-            [s for s, ok in (("Stage 1", _s1v), ("Stage 2", _s2v)) if ok])
-            or "the Simulation tab") + ". Refine a few parameters at a time.")
+        if _s3v:
+            _s3_seed.update({k: v for k, v in _s3v["values"].items() if k in _s3_seed})
+        _s3_src = ", ".join([s for s, ok in (("Stage 1", _s1v), ("Stage 2", _s2v),
+                                             ("last Stage 3 fit", _s3v)) if ok]) \
+            or "the Simulation tab"
+        # Writing widget state before the widgets are built is safe; doing it after is not.
+        if _s3_reseed:
+            for _k, _v in _s3_seed.items():
+                st.session_state[f"s3_v_{_k}"] = float(_v)
+            st.rerun()
+
+        st.markdown("**Parameters** — set the starting value and tick to refine. "
+                    f"Seeded from {_s3_src}; refine a few at a time.")
+        _s3_lat = cp.lattice_param_names(_sc["symmetry"])
+        _s3_spec = [
+            ("Lattice (Å)", [(p, 0.001, "%.5f") for p in _s3_lat]),
+            ("Stress (GPa)", [(p, 0.1, "%.3f") for p in ("sigma_11", "sigma_33")]),
+            ("Preferred orientation", [("R", 0.05, "%.3f"), ("tau", 1.0, "%.2f"),
+                                       ("omega", 1.0, "%.2f"), ("baseline", 0.05, "%.3f")]),
+            ("Profile / geometry", [("fwhm", 0.005, "%.4f"), ("chi", 0.1, "%.3f")]),
+        ]
+        _s3_default_on = {"fwhm"}
+        _s3_init, _s3_flags = dict(_s3_seed), {}
+        _pcols = st.columns(len(_s3_spec))
+        for _ci, (_title, _params) in enumerate(_s3_spec):
+            with _pcols[_ci]:
+                st.caption(_title)
+                for _p, _stp, _fmt in _params:
+                    _s3_init[_p] = float(st.number_input(
+                        _p, value=float(_s3_seed[_p]), step=_stp, format=_fmt,
+                        key=f"s3_v_{_p}"))
+                    _s3_flags[_p] = st.checkbox(f"refine {_p}", value=(_p in _s3_default_on),
+                                                key=f"s3_f_{_p}")
+        _s3_fwhm = _s3_init["fwhm"]
+        # Only the ticked rings are modelled, so the windows and fit cover just those.
+        _sc3 = dict(_sc)
+        _sc3["selected_hkls"] = [h for h in _sc["selected_hkls"]
+                                 if cp.hkl_label(h) in _s3_inc]
+        _sc3["intensities"] = [i for h, i in zip(_sc["selected_hkls"], _sc["intensities"])
+                               if cp.hkl_label(h) in _s3_inc]
         if _s3_flags.get("baseline") and _s3_init["baseline"] <= 1e-9:
             st.warning("`baseline` starts at its 0 limit and cannot move — start it "
                        "slightly above 0.")
+        if _s3_flags.get("R") and abs(_s3_init["R"] - 1.0) < 1e-6 and (
+                _s3_flags.get("tau") or _s3_flags.get("omega")):
+            st.warning("`R` starts at exactly 1.0 (isotropic), where **tau and omega have "
+                       "zero gradient**. Refine `R` alone first, or start it away from 1.0.")
 
         _b5, _b6 = st.columns(2)
         with _b5:
@@ -2072,10 +2105,12 @@ with tab_refine:
             _s3_run = st.button("Run Stage 3 refinement", type="primary",
                                 use_container_width=True, key="s3_run")
 
-        if _s3_prev or _s3_run:
+        if (_s3_prev or _s3_run) and not _s3_inc:
+            st.warning("Tick at least one hkl to include.")
+        elif _s3_prev or _s3_run:
             _s3_nphi = int(_s3_nphi_in) or None
             with st.spinner("Building the comparison grid…"):
-                _seed_dfs = cp._stage3_sim_dfs(compute_strain, _sc, _s3_init,
+                _seed_dfs = cp._stage3_sim_dfs(compute_strain, _sc3, _s3_init,
                                                n_phi=_s3_nphi)
                 _s3_blocks = cp.build_stage3_grid(
                     _s3x, _s3grid, _seed_dfs, az_step=float(_s3_az),
@@ -2087,19 +2122,18 @@ with tab_refine:
                 if _s3_run:
                     with st.spinner("Refining against the image…"):
                         _s3_res = cp.run_stage3_refinement(
-                            compute_strain, _sc, _s3_blocks, _s3_init, _s3_flags,
+                            compute_strain, _sc3, _s3_blocks, _s3_init, _s3_flags,
                             method=_method, max_nfev=int(_maxnfev), n_phi=_s3_nphi)
                         # Score/display at the sampling the refined R actually needs.
                         _s3_ev = cp.evaluate_stage3(
-                            compute_strain, _sc, _s3_blocks, _s3_res["values"],
+                            compute_strain, _sc3, _s3_blocks, _s3_res["values"],
                             _s3_res["values"].get("fwhm", _s3_init["fwhm"]),
                             n_phi=_s3_nphi or max(_s3_res["n_phi"],
                                                   _s3_res["n_phi_suggested"]))
-                    st.session_state.s3_fwhm_val = _s3_res["values"].get("fwhm")
                 else:
                     with st.spinner("Evaluating…"):
                         _s3_res = None
-                        _s3_ev = cp.evaluate_stage3(compute_strain, _sc, _s3_blocks,
+                        _s3_ev = cp.evaluate_stage3(compute_strain, _sc3, _s3_blocks,
                                                     _s3_init, float(_s3_fwhm),
                                                     n_phi=_s3_nphi)
                 st.session_state.stage3_view = {"blocks": _s3_blocks, "eval": _s3_ev,
