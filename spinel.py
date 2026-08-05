@@ -1501,6 +1501,10 @@ with tab_refine:
     # Engine defaults, so the later stages still work when Stage 1's controls (which live
     # inside its data-loaded branch, and may override these) have not been rendered.
     _method, _maxnfev, _bounds, _latfrac = "leastsq", 200, {}, cp.LATTICE_BOUND_FRAC
+    # Shared by all three stages, so each renders (with its own gating) regardless of
+    # how far the previous one got.
+    _peaks_df = None
+    _sim_labels = [cp.hkl_label(h) for h in _sc["selected_hkls"]] if _sc else []
     if not _sc or not _sc.get("selected_hkls"):
         st.info("Set up the simulation first: on the **Simulation** tab load the elastic/hkl "
                 "CSV and set the symmetry, χ, wavelength and (optional) PO model. Those "
@@ -1763,206 +1767,211 @@ with tab_refine:
                     st.caption("Press **Preview model** to overlay the current simulation on the "
                                "data, or **Run Stage 1 refinement** to fit.")
 
-                # =====================================================================
-                # STAGE 2 — preferred orientation from the azimuthal INTENSITY variation
-                # =====================================================================
-                st.divider()
-                st.header("Stage 2 Refinement — preferred orientation")
-                with st.expander("How Stage 2 refinement works", expanded=False):
-                    st.markdown(cp.STAGE2_HELP_MD)
+    # =====================================================================
+    # STAGE 2 — preferred orientation from the azimuthal INTENSITY variation
+    # =====================================================================
+    st.divider()
+    st.header("Stage 2 Refinement — preferred orientation")
+    with st.expander("How Stage 2 refinement works", expanded=False):
+        st.markdown(cp.STAGE2_HELP_MD)
 
-                if not _sc.get("PO_toggle"):
-                    st.info("Enable **Preferred Orientation** on the Simulation tab (and set "
-                            "the POD hkl / model) to refine PO parameters here.")
+    if not _sc or not _sc.get("selected_hkls"):
+        st.info("Set up the simulation first on the **Simulation** tab.")
+    elif not _sc.get("PO_toggle"):
+        st.info("Enable **Preferred Orientation** on the Simulation tab (and set the "
+                "POD hkl / model) to refine PO parameters here.")
+    elif _peaks_df is None or _peaks_df.empty:
+        st.info("Load experimental peak positions in the **Stage 1** section above — "
+                "Stage 2 fits the intensities of those same extracted peaks.")
+    else:
+        _int_measure = st.radio(
+            "Experimental intensity measure",
+            ["Integrated area", "Fitted amplitude"], horizontal=True,
+            help="Integrated area (from amp, FWHM and gl) is the physical "
+                 "reflection intensity and is unbiased when texture broadens "
+                 "the arcs; amplitude is the raw fitted peak height.")
+        _measure = "area" if _int_measure.startswith("Integrated") else "amplitude"
+        _int_all = cp.experimental_intensity_curves(_peaks_df, measure=_measure)
+        _int_matched = [_L for _L in _int_all if _L in _sim_labels]
+        if not _int_matched:
+            st.warning("No hkl labels in the data match the simulated set.")
+        else:
+            _s2c = st.columns([1, 1, 2])
+            with _s2c[0]:
+                st.markdown("**Refine**")
+                st.caption("hkls used in the fit")
+                _inc2 = [_L for _L in _int_matched
+                         if st.checkbox(f"{_L} ({int(_int_all[_L]['n'].sum())})",
+                                        value=True, key=f"s2_inc_{_L}")]
+            with _s2c[1]:
+                st.markdown("**Plot**")
+                st.caption("hkls shown below")
+                _shown2 = [_L for _L in _int_matched
+                           if st.checkbox(_L, value=True, key=f"s2_show_{_L}")]
+            _fit2 = {_L: _int_all[_L] for _L in _inc2}
+            _view2 = {_L: _int_all[_L] for _L in _shown2}
+            _eval2 = {_L: _int_all[_L] for _L in _int_matched
+                      if _L in _inc2 or _L in _shown2}
+
+            # PO parameters: initial value + refine toggle
+            st.markdown("**PO parameters** — refine in stages: `R` first, then "
+                        "`tau`/`omega`, then `baseline` (see the help above).")
+            _pov = dict(_sc.get("po_values") or {})
+            _init2, _flags2 = {}, {}
+            _pc2 = st.columns(4)
+            _po_specs = [("R", 0.9, 0.05, "%.3f", True,
+                          "March–Dollase strength. R = 1 is no texture; < 1 "
+                          "platy, > 1 needle-like. Typical 0.3–1.5."),
+                         ("tau", 0.0, 1.0, "%.2f", False,
+                          "Tilt of the preferred-orientation axis (degrees)."),
+                         ("omega", 0.0, 1.0, "%.2f", False,
+                          "Rotation of the preferred-orientation axis (degrees)."),
+                         ("baseline", 0.05, 0.05, "%.3f", False,
+                          "Isotropic fraction added to the PO intensity (0–1). "
+                          "Do not start it at exactly 0 (its limit) when "
+                          "refining — a parameter sitting on a bound cannot "
+                          "move. Typical 0.0–0.3.")]
+            for _i2, (_nm, _dflt, _stp, _fmt, _on, _hlp) in enumerate(_po_specs):
+                with _pc2[_i2]:
+                    _init2[_nm] = st.number_input(
+                        _nm, value=float(_pov.get(_nm, _dflt)), step=_stp,
+                        format=_fmt, key=f"s2_v_{_nm}", help=_hlp)
+                    _flags2[_nm] = st.checkbox(f"refine {_nm}", value=_on,
+                                               key=f"s2_f_{_nm}")
+            _init2["weight"] = float(_pov.get("weight", 1.0))
+
+            # phi-integration sampling: auto from R, or forced.
+            _nphi_c = st.columns([1, 3])
+            with _nphi_c[0]:
+                _nphi_in = st.number_input(
+                    "φ sampling (0 = auto)", min_value=0, max_value=4096,
+                    value=0, step=36, key="s2_nphi",
+                    help="Number of φ points the PO surface is integrated over. "
+                         "0 picks it automatically from R — sharper texture "
+                         "(small or large R) needs more points. Override to check "
+                         "the result is stable against the sampling.")
+            _nphi = int(_nphi_in) or None
+            _nphi_auto = cp.adaptive_n_phi(_init2["R"])
+            with _nphi_c[1]:
+                st.caption(
+                    f"Auto for R = {_init2['R']:.3g} → **{_nphi_auto}** φ points "
+                    f"(sharpness max(R, 1/R) = {max(_init2['R'], 1/_init2['R'] if _init2['R'] else 1):.2f})."
+                    + ("" if _nphi is None else f"  Overridden to **{_nphi}**."))
+
+            if (_flags2.get("tau") or _flags2.get("omega")) and \
+                    abs(_init2["R"] - 1.0) < 1e-6:
+                st.warning("`R` starts at exactly 1.0 (isotropic), where **tau and "
+                           "omega have zero gradient** and cannot be refined. Refine "
+                           "`R` alone first, or start it away from 1.0.")
+            if _flags2.get("baseline") and _init2["baseline"] <= 1e-9:
+                st.warning("`baseline` starts at exactly 0, which is its lower "
+                           "limit — a parameter sitting **on a bound cannot move**. "
+                           "Start it slightly above 0 (e.g. 0.05) to refine it.")
+
+            _b3, _b4 = st.columns(2)
+            with _b3:
+                _prev2 = st.button("Preview PO model", use_container_width=True,
+                                   key="s2_preview")
+            with _b4:
+                _run2 = st.button("Run Stage 2 refinement", type="primary",
+                                  use_container_width=True, key="s2_run")
+            _sig2 = (tuple(sorted(_inc2)), tuple(sorted(_shown2)), _measure,
+                     tuple((k, round(float(v), 6)) for k, v in sorted(_init2.items())),
+                     tuple(sorted(k for k, v in _flags2.items() if v)),
+                     _method, int(_maxnfev), _nphi)
+
+            if _prev2 and _eval2:
+                with st.spinner("Evaluating PO model…"):
+                    _ev2 = cp.evaluate_po_curves(_sc, _eval2, _init2, n_phi=_nphi)
+                st.session_state.stage2_view = {"eval": _ev2, "sig": _sig2,
+                                                "result": None, "init": dict(_init2),
+                                                "flags": dict(_flags2)}
+            if _run2 and _fit2:
+                with st.spinner("Refining PO parameters…"):
+                    _res2 = cp.run_stage2_refinement(
+                        _sc, _fit2, _init2, _flags2, method=_method,
+                        max_nfev=int(_maxnfev), n_phi=_nphi)
+                    # Score/plot at the sampling the refined R actually needs.
+                    _ev2 = cp.evaluate_po_curves(
+                        _sc, _eval2, _res2["values"],
+                        n_phi=_nphi or max(_res2["n_phi"],
+                                           _res2["n_phi_suggested"]))
+                st.session_state.stage2_view = {"eval": _ev2, "sig": _sig2,
+                                                "result": _res2, "init": dict(_init2),
+                                                "flags": dict(_flags2)}
+            elif _run2 and not _fit2:
+                st.warning("Tick at least one hkl to include in the refinement.")
+
+            _v2 = st.session_state.get("stage2_view")
+            if _v2 and _v2.get("result"):
+                _r2 = _v2["result"]
+                (st.success if _r2["success"] else st.warning)(
+                    f"{_r2['message']}  ·  {_r2['n_free']} param(s), "
+                    f"{_r2['n_points']} points  ·  RMSE {_r2['rmse']:.4g}")
+                _rows2 = [{"parameter": _nm, "initial": _v2["init"][_nm],
+                           "refined": _r2["values"][_nm],
+                           "± 1σ": _r2["errors"].get(_nm, float("nan"))}
+                          for _nm, *_ in _po_specs if _v2["flags"].get(_nm)]
+                if _rows2:
+                    st.dataframe(pd.DataFrame(_rows2), hide_index=True,
+                                 use_container_width=True,
+                                 column_config={
+                                     "initial": st.column_config.NumberColumn(format="%.4f"),
+                                     "refined": st.column_config.NumberColumn(format="%.4f"),
+                                     "± 1σ": st.column_config.NumberColumn(format="%.4f")})
+                if _r2.get("at_limit"):
+                    st.warning("Parameter(s) stopped **at a limit**: "
+                               + ", ".join(_r2["at_limit"]))
+                if _r2.get("n_phi_suggested", 0) > _r2.get("n_phi", 0):
+                    st.warning(
+                        f"The refined R = {_r2['values']['R']:.3g} is sharper than "
+                        f"the start, and needs **{_r2['n_phi_suggested']} φ points** "
+                        f"— this fit used {_r2['n_phi']} (held fixed to keep the "
+                        "gradients clean). **Run again** from these values to "
+                        "refine at the finer sampling.")
+                _sc2 = st.columns(4)
+                _sc2[0].metric("global scale", f"{_r2['scale']:.4g}",
+                               help=f"φ sampling used: {_r2.get('n_phi')} points")
+                for _j, (_lab, _key, _fmt2) in enumerate(
+                        [("reduced χ²", "redchi", "{:.3e}"),
+                         ("AIC", "aic", "{:.1f}"), ("fn evals", "nfev", "{:.0f}")]):
+                    _val2 = _r2.get(_key)
+                    if _val2 is not None and np.isfinite(_val2):
+                        _sc2[_j + 1].metric(_lab, _fmt2.format(_val2))
+                if _r2.get("report"):
+                    with st.expander(f"lmfit fit report ({_r2.get('method','')})",
+                                     expanded=False):
+                        st.code(_r2["report"], language="text")
+                        st.download_button(
+                            "Download fit report (.txt)",
+                            _r2["report"].encode("utf-8"),
+                            file_name="stage2_fit_report.txt", mime="text/plain",
+                            key="s2_dl")
+                st.caption("Apply these to the model by entering the refined values "
+                           "in the PO controls on the **Simulation** tab.")
+
+            if _v2 and _v2.get("eval"):
+                if _v2["sig"] != _sig2:
+                    st.caption("⚠️ Inputs changed since the last compute — press "
+                               "**Preview PO model** or **Run** to update.")
+                if not _view2:
+                    st.caption("No hkls ticked under **Plot** — nothing to display.")
                 else:
-                    _int_measure = st.radio(
-                        "Experimental intensity measure",
-                        ["Integrated area", "Fitted amplitude"], horizontal=True,
-                        help="Integrated area (from amp, FWHM and gl) is the physical "
-                             "reflection intensity and is unbiased when texture broadens "
-                             "the arcs; amplitude is the raw fitted peak height.")
-                    _measure = "area" if _int_measure.startswith("Integrated") else "amplitude"
-                    _int_all = cp.experimental_intensity_curves(_peaks_df, measure=_measure)
-                    _int_matched = [_L for _L in _int_all if _L in _sim_labels]
-                    if not _int_matched:
-                        st.warning("No hkl labels in the data match the simulated set.")
-                    else:
-                        _s2c = st.columns([1, 1, 2])
-                        with _s2c[0]:
-                            st.markdown("**Refine**")
-                            st.caption("hkls used in the fit")
-                            _inc2 = [_L for _L in _int_matched
-                                     if st.checkbox(f"{_L} ({int(_int_all[_L]['n'].sum())})",
-                                                    value=True, key=f"s2_inc_{_L}")]
-                        with _s2c[1]:
-                            st.markdown("**Plot**")
-                            st.caption("hkls shown below")
-                            _shown2 = [_L for _L in _int_matched
-                                       if st.checkbox(_L, value=True, key=f"s2_show_{_L}")]
-                        _fit2 = {_L: _int_all[_L] for _L in _inc2}
-                        _view2 = {_L: _int_all[_L] for _L in _shown2}
-                        _eval2 = {_L: _int_all[_L] for _L in _int_matched
-                                  if _L in _inc2 or _L in _shown2}
-
-                        # PO parameters: initial value + refine toggle
-                        st.markdown("**PO parameters** — refine in stages: `R` first, then "
-                                    "`tau`/`omega`, then `baseline` (see the help above).")
-                        _pov = dict(_sc.get("po_values") or {})
-                        _init2, _flags2 = {}, {}
-                        _pc2 = st.columns(4)
-                        _po_specs = [("R", 0.9, 0.05, "%.3f", True,
-                                      "March–Dollase strength. R = 1 is no texture; < 1 "
-                                      "platy, > 1 needle-like. Typical 0.3–1.5."),
-                                     ("tau", 0.0, 1.0, "%.2f", False,
-                                      "Tilt of the preferred-orientation axis (degrees)."),
-                                     ("omega", 0.0, 1.0, "%.2f", False,
-                                      "Rotation of the preferred-orientation axis (degrees)."),
-                                     ("baseline", 0.05, 0.05, "%.3f", False,
-                                      "Isotropic fraction added to the PO intensity (0–1). "
-                                      "Do not start it at exactly 0 (its limit) when "
-                                      "refining — a parameter sitting on a bound cannot "
-                                      "move. Typical 0.0–0.3.")]
-                        for _i2, (_nm, _dflt, _stp, _fmt, _on, _hlp) in enumerate(_po_specs):
-                            with _pc2[_i2]:
-                                _init2[_nm] = st.number_input(
-                                    _nm, value=float(_pov.get(_nm, _dflt)), step=_stp,
-                                    format=_fmt, key=f"s2_v_{_nm}", help=_hlp)
-                                _flags2[_nm] = st.checkbox(f"refine {_nm}", value=_on,
-                                                           key=f"s2_f_{_nm}")
-                        _init2["weight"] = float(_pov.get("weight", 1.0))
-
-                        # phi-integration sampling: auto from R, or forced.
-                        _nphi_c = st.columns([1, 3])
-                        with _nphi_c[0]:
-                            _nphi_in = st.number_input(
-                                "φ sampling (0 = auto)", min_value=0, max_value=4096,
-                                value=0, step=36, key="s2_nphi",
-                                help="Number of φ points the PO surface is integrated over. "
-                                     "0 picks it automatically from R — sharper texture "
-                                     "(small or large R) needs more points. Override to check "
-                                     "the result is stable against the sampling.")
-                        _nphi = int(_nphi_in) or None
-                        _nphi_auto = cp.adaptive_n_phi(_init2["R"])
-                        with _nphi_c[1]:
-                            st.caption(
-                                f"Auto for R = {_init2['R']:.3g} → **{_nphi_auto}** φ points "
-                                f"(sharpness max(R, 1/R) = {max(_init2['R'], 1/_init2['R'] if _init2['R'] else 1):.2f})."
-                                + ("" if _nphi is None else f"  Overridden to **{_nphi}**."))
-
-                        if (_flags2.get("tau") or _flags2.get("omega")) and \
-                                abs(_init2["R"] - 1.0) < 1e-6:
-                            st.warning("`R` starts at exactly 1.0 (isotropic), where **tau and "
-                                       "omega have zero gradient** and cannot be refined. Refine "
-                                       "`R` alone first, or start it away from 1.0.")
-                        if _flags2.get("baseline") and _init2["baseline"] <= 1e-9:
-                            st.warning("`baseline` starts at exactly 0, which is its lower "
-                                       "limit — a parameter sitting **on a bound cannot move**. "
-                                       "Start it slightly above 0 (e.g. 0.05) to refine it.")
-
-                        _b3, _b4 = st.columns(2)
-                        with _b3:
-                            _prev2 = st.button("Preview PO model", use_container_width=True,
-                                               key="s2_preview")
-                        with _b4:
-                            _run2 = st.button("Run Stage 2 refinement", type="primary",
-                                              use_container_width=True, key="s2_run")
-                        _sig2 = (tuple(sorted(_inc2)), tuple(sorted(_shown2)), _measure,
-                                 tuple((k, round(float(v), 6)) for k, v in sorted(_init2.items())),
-                                 tuple(sorted(k for k, v in _flags2.items() if v)),
-                                 _method, int(_maxnfev), _nphi)
-
-                        if _prev2 and _eval2:
-                            with st.spinner("Evaluating PO model…"):
-                                _ev2 = cp.evaluate_po_curves(_sc, _eval2, _init2, n_phi=_nphi)
-                            st.session_state.stage2_view = {"eval": _ev2, "sig": _sig2,
-                                                            "result": None, "init": dict(_init2),
-                                                            "flags": dict(_flags2)}
-                        if _run2 and _fit2:
-                            with st.spinner("Refining PO parameters…"):
-                                _res2 = cp.run_stage2_refinement(
-                                    _sc, _fit2, _init2, _flags2, method=_method,
-                                    max_nfev=int(_maxnfev), n_phi=_nphi)
-                                # Score/plot at the sampling the refined R actually needs.
-                                _ev2 = cp.evaluate_po_curves(
-                                    _sc, _eval2, _res2["values"],
-                                    n_phi=_nphi or max(_res2["n_phi"],
-                                                       _res2["n_phi_suggested"]))
-                            st.session_state.stage2_view = {"eval": _ev2, "sig": _sig2,
-                                                            "result": _res2, "init": dict(_init2),
-                                                            "flags": dict(_flags2)}
-                        elif _run2 and not _fit2:
-                            st.warning("Tick at least one hkl to include in the refinement.")
-
-                        _v2 = st.session_state.get("stage2_view")
-                        if _v2 and _v2.get("result"):
-                            _r2 = _v2["result"]
-                            (st.success if _r2["success"] else st.warning)(
-                                f"{_r2['message']}  ·  {_r2['n_free']} param(s), "
-                                f"{_r2['n_points']} points  ·  RMSE {_r2['rmse']:.4g}")
-                            _rows2 = [{"parameter": _nm, "initial": _v2["init"][_nm],
-                                       "refined": _r2["values"][_nm],
-                                       "± 1σ": _r2["errors"].get(_nm, float("nan"))}
-                                      for _nm, *_ in _po_specs if _v2["flags"].get(_nm)]
-                            if _rows2:
-                                st.dataframe(pd.DataFrame(_rows2), hide_index=True,
-                                             use_container_width=True,
-                                             column_config={
-                                                 "initial": st.column_config.NumberColumn(format="%.4f"),
-                                                 "refined": st.column_config.NumberColumn(format="%.4f"),
-                                                 "± 1σ": st.column_config.NumberColumn(format="%.4f")})
-                            if _r2.get("at_limit"):
-                                st.warning("Parameter(s) stopped **at a limit**: "
-                                           + ", ".join(_r2["at_limit"]))
-                            if _r2.get("n_phi_suggested", 0) > _r2.get("n_phi", 0):
-                                st.warning(
-                                    f"The refined R = {_r2['values']['R']:.3g} is sharper than "
-                                    f"the start, and needs **{_r2['n_phi_suggested']} φ points** "
-                                    f"— this fit used {_r2['n_phi']} (held fixed to keep the "
-                                    "gradients clean). **Run again** from these values to "
-                                    "refine at the finer sampling.")
-                            _sc2 = st.columns(4)
-                            _sc2[0].metric("global scale", f"{_r2['scale']:.4g}",
-                                           help=f"φ sampling used: {_r2.get('n_phi')} points")
-                            for _j, (_lab, _key, _fmt2) in enumerate(
-                                    [("reduced χ²", "redchi", "{:.3e}"),
-                                     ("AIC", "aic", "{:.1f}"), ("fn evals", "nfev", "{:.0f}")]):
-                                _val2 = _r2.get(_key)
-                                if _val2 is not None and np.isfinite(_val2):
-                                    _sc2[_j + 1].metric(_lab, _fmt2.format(_val2))
-                            if _r2.get("report"):
-                                with st.expander(f"lmfit fit report ({_r2.get('method','')})",
-                                                 expanded=False):
-                                    st.code(_r2["report"], language="text")
-                                    st.download_button(
-                                        "Download fit report (.txt)",
-                                        _r2["report"].encode("utf-8"),
-                                        file_name="stage2_fit_report.txt", mime="text/plain",
-                                        key="s2_dl")
-                            st.caption("Apply these to the model by entering the refined values "
-                                       "in the PO controls on the **Simulation** tab.")
-
-                        if _v2 and _v2.get("eval"):
-                            if _v2["sig"] != _sig2:
-                                st.caption("⚠️ Inputs changed since the last compute — press "
-                                           "**Preview PO model** or **Run** to update.")
-                            if not _view2:
-                                st.caption("No hkls ticked under **Plot** — nothing to display.")
-                            else:
-                                st.plotly_chart(
-                                    cp.plot_intensity_grid(_view2, _v2["eval"]["sim_curves"],
-                                                           ncols=4, included=set(_inc2)),
-                                    width='stretch')
-                            _ph2 = pd.DataFrame(
-                                [{"hkl": _L, "in fit": _L in _inc2, "plotted": _L in _shown2,
-                                  "points": int(_int_all[_L]["n"].sum()),
-                                  "RMSE": _v2["eval"]["per_hkl"].get(_L, float("nan"))}
-                                 for _L in _int_matched])
-                            st.dataframe(_ph2, hide_index=True, use_container_width=True,
-                                         column_config={"RMSE": st.column_config.NumberColumn(format="%.4g")})
-                        else:
-                            st.caption("Press **Preview PO model** to overlay the current PO "
-                                       "model on the measured intensities, or **Run Stage 2 "
-                                       "refinement** to fit.")
+                    st.plotly_chart(
+                        cp.plot_intensity_grid(_view2, _v2["eval"]["sim_curves"],
+                                               ncols=4, included=set(_inc2)),
+                        width='stretch')
+                _ph2 = pd.DataFrame(
+                    [{"hkl": _L, "in fit": _L in _inc2, "plotted": _L in _shown2,
+                      "points": int(_int_all[_L]["n"].sum()),
+                      "RMSE": _v2["eval"]["per_hkl"].get(_L, float("nan"))}
+                     for _L in _int_matched])
+                st.dataframe(_ph2, hide_index=True, use_container_width=True,
+                             column_config={"RMSE": st.column_config.NumberColumn(format="%.4g")})
+            else:
+                st.caption("Press **Preview PO model** to overlay the current PO "
+                           "model on the measured intensities, or **Run Stage 2 "
+                           "refinement** to fit.")
 
     # =====================================================================
     # STAGE 3 — fit the background-subtracted IMAGE directly
