@@ -2069,10 +2069,13 @@ class Stage3Grid:
         ``(n_az, n_tth)`` block means of the measured image.
     windows : dict
         ``hkl_label -> (col_lo, col_hi)`` column span (half-open) of that ring's window.
+    window_mask : np.ndarray
+        ``(n_az, n_tth)`` bool, True inside any ring's 2th window. Masking only has any
+        effect here, so an exclusion drawn wider than the windows is truncated to them.
     valid_mask : np.ndarray
         ``(n_az, n_tth)`` bool, True where the box holds usable measurement -- False over
-        detector gaps, cut-off azimuth wedges and any user-excluded region. Because the
-        excluded area is a per-box mask rather than an azimuth range, it is free to change
+        excluded regions and values outside the intensity thresholds. Because it is a
+        per-box mask rather than an azimuth range, the excluded area is free to change
         with 2th, which is how detector shadows actually behave.
     fit_mask : np.ndarray
         ``(n_az, n_tth)`` bool, ``window_mask & valid_mask`` -- the blocks actually
@@ -2090,6 +2093,14 @@ class Stage3Grid:
     fit_mask: np.ndarray
     n_sub: int
     valid_mask: np.ndarray = None
+    window_mask: np.ndarray = None
+
+    @property
+    def masked_mask(self) -> np.ndarray:
+        """Boxes excluded from the fit but inside a window -- i.e. masking that matters."""
+        if self.valid_mask is None or self.window_mask is None:
+            return np.zeros_like(self.fit_mask)
+        return (~self.valid_mask) & self.window_mask
 
     @property
     def labels(self) -> list:
@@ -2130,13 +2141,14 @@ def selection_to_region(selection) -> dict:
 
 
 def plot_mask_editor(cake, grid, regions=(), percentile=99.5, height=420,
-                     max_cols=1200, colorscale="Inferno") -> go.Figure:
+                     max_cols=1200, colorscale="Inferno", windows=None) -> go.Figure:
     """Subtracted image with the current exclusion regions drawn, set up for box-select.
 
     Paired with ``st.plotly_chart(..., on_select="rerun", selection_mode="box")`` so a
-    drag defines a region; see :func:`selection_to_region`. Wide images are decimated in
-    2th to ``max_cols`` columns for responsiveness -- display only, the mask itself is
-    always computed from the full-resolution data.
+    drag defines a region; see :func:`selection_to_region`. ``windows`` (label -> (2th_lo,
+    2th_hi)) shades the ring windows, the only place masking has any effect. Wide images
+    are decimated in 2th to ``max_cols`` columns for responsiveness -- display only, the
+    mask itself is always computed from the full-resolution data.
     """
     twotheta = np.asarray(cake.twotheta, dtype=float)
     z = np.asarray(grid, dtype=float)
@@ -2149,6 +2161,9 @@ def plot_mask_editor(cake, grid, regions=(), percentile=99.5, height=420,
         colorscale=_explicit_colorscale(colorscale), zmin=0.0,
         zmax=zmax if zmax > 0 else 1.0, colorbar=dict(thickness=12),
         hovertemplate="2θ %{x:.3f}°<br>azimuth %{y:.1f}°<extra></extra>"))
+    for lo, hi in (windows or {}).values():
+        fig.add_vrect(x0=float(lo), x1=float(hi), line_width=0,
+                      fillcolor="rgba(255,255,255,0.10)", layer="below")
     for reg in regions or ():
         get = reg.get if hasattr(reg, "get") else (lambda k, d=None: getattr(reg, k, d))
         a0, a1 = get("az_from"), get("az_to")
@@ -2161,8 +2176,8 @@ def plot_mask_editor(cake, grid, regions=(), percentile=99.5, height=420,
         spans = [(a0, a1)] if a0 <= a1 else [(a0, 180.0), (-180.0, a1)]
         for y0, y1 in spans:
             fig.add_shape(type="rect", x0=min(x0, x1), x1=max(x0, x1), y0=y0, y1=y1,
-                          line=dict(color="#00e5ff", width=1),
-                          fillcolor="rgba(0,229,255,0.25)", layer="above")
+                          line=dict(color="#ff2d2d", width=1),
+                          fillcolor="rgba(255,0,0,0.35)", layer="above")
     fig.update_layout(dragmode="select", height=height,
                       margin=dict(l=70, r=20, t=30, b=50),
                       xaxis_title="2θ (degrees)", yaxis_title="azimuth (°)")
@@ -2210,8 +2225,7 @@ def _ring_width_estimate(df_hkl, fwhm):
 
 def build_stage3_grid(cake, grid, sim_dfs, *, az_step=5.0, tth_step=0.02, fwhm=0.1,
                       roi_k=4.0, roi_min=0.15, roi_max=2.0, n_sub=5,
-                      exclude_regions=(), min_valid_frac=0.5,
-                      zero_is_missing=True) -> Stage3Grid:
+                      exclude_regions=(), mask_below=None, mask_above=None) -> Stage3Grid:
     """Block the whole image at the given azimuth/2th STEPS and set the fit windows.
 
     ``az_step`` and ``tth_step`` are spacings in degrees (not bin counts) and define the
@@ -2225,12 +2239,12 @@ def build_stage3_grid(cake, grid, sim_dfs, *, az_step=5.0, tth_step=0.02, fwhm=0
     the model cannot resolve finer than its own delta spacing -- and then rounded to the
     nearest step that divides 360 deg evenly.
 
-    Masking (see ``Stage3Grid.valid_mask``). Pixels that are non-finite, and by default
-    exactly 0.0 (what integration software writes outside the detector -- real measured
-    values are never exactly zero), count as missing; a box is dropped when fewer than
-    ``min_valid_frac`` of its pixels survive. Box means are taken over the surviving
-    pixels only, so a partly-covered box is not dragged toward zero. ``exclude_regions``
-    additionally blanks user-specified azimuth ranges, each over its own 2th range.
+    Masking (see ``Stage3Grid.valid_mask``). ``exclude_regions`` blanks user-specified
+    azimuth ranges, each over its own 2th range; ``mask_below`` / ``mask_above`` blank
+    boxes whose measured value falls outside those limits. Non-finite pixels are always
+    ignored, and box means are taken over the finite pixels only so a partly-covered box
+    is not dragged toward zero. Masking is only ever applied inside the ring windows,
+    since that is the only place the residual is evaluated.
     """
     twotheta = np.asarray(cake.twotheta, dtype=float)
     az = np.asarray(cake.azimuth, dtype=float)
@@ -2249,8 +2263,6 @@ def build_stage3_grid(cake, grid, sim_dfs, *, az_step=5.0, tth_step=0.02, fwhm=0
     row = np.clip(np.digitize(_wrap_into(az, az_edges[0]), az_edges) - 1, 0, n_az - 1)
     col = np.clip(np.digitize(twotheta, tth_edges) - 1, 0, n_tth - 1)
     good_px = np.isfinite(grid)
-    if zero_is_missing:
-        good_px &= grid != 0.0
     block_sum = np.zeros((n_az, n_tth))
     block_good = np.zeros((n_az, n_tth))
     block_cnt = np.zeros((n_az, n_tth))
@@ -2264,9 +2276,12 @@ def build_stage3_grid(cake, grid, sim_dfs, *, az_step=5.0, tth_step=0.02, fwhm=0
 
     centres_tth = 0.5 * (tth_edges[:-1] + tth_edges[1:])
     az_centres = 0.5 * (az_edges[:-1] + az_edges[1:])
-    valid_mask = (block_good >= float(min_valid_frac) * np.maximum(block_cnt, 1.0))
-    valid_mask &= block_good > 0
+    valid_mask = block_good > 0
     valid_mask &= ~region_exclusion_mask(az_centres, centres_tth, exclude_regions)
+    if mask_below is not None and np.isfinite(mask_below):
+        valid_mask &= data >= float(mask_below)
+    if mask_above is not None and np.isfinite(mask_above):
+        valid_mask &= data <= float(mask_above)
 
     windows, fit_mask = {}, np.zeros((n_az, n_tth), dtype=bool)
     for label, df in (sim_dfs or {}).items():
@@ -2281,11 +2296,12 @@ def build_stage3_grid(cake, grid, sim_dfs, *, az_step=5.0, tth_step=0.02, fwhm=0
             continue
         windows[label] = (int(cols[0]), int(cols[-1]) + 1)
         fit_mask[:, cols[0]:cols[-1] + 1] = True
+    window_mask = fit_mask.copy()
     fit_mask &= valid_mask          # masked boxes never reach the scale or the residual
     return Stage3Grid(az_edges=az_edges, az_centres=az_centres,
                       tth_edges=tth_edges, tth_centres=centres_tth, data=data,
                       windows=windows, fit_mask=fit_mask, n_sub=int(max(1, n_sub)),
-                      valid_mask=valid_mask)
+                      valid_mask=valid_mask, window_mask=window_mask)
 
 
 def render_stage3(g: Stage3Grid, sim_dfs, fwhm) -> np.ndarray:
@@ -2549,11 +2565,10 @@ def plot_stage3_comparison(g: Stage3Grid, sim, percentile=99.5, row_height=300,
     """
     data = np.asarray(g.data, dtype=float)
     sim = np.asarray(sim, dtype=float)
-    if g.valid_mask is not None:
-        # NaN renders transparent, so masked regions read as holes rather than as zeros.
-        blank = ~np.asarray(g.valid_mask, dtype=bool)
-        data = np.where(blank, np.nan, data)
-        sim = np.where(blank, np.nan, sim)
+    # Masked boxes keep their values and are flagged with a red wash on top, so the
+    # underlying image is still readable. Only in-window masking is shown, because that
+    # is the only place it changes the fit.
+    masked = np.asarray(g.masked_mask, dtype=bool)
     finite = data[np.isfinite(data)]
     zmax = float(np.nanpercentile(finite, percentile)) if finite.size else 1.0
     if not np.isfinite(zmax) or zmax <= 0:
@@ -2580,6 +2595,12 @@ def plot_stage3_comparison(g: Stage3Grid, sim, percentile=99.5, row_height=300,
             colorbar=dict(len=0.28, y=cbar_y, thickness=12),
             hovertemplate="2θ %{x:.3f}°<br>azimuth %{y:.1f}°<br>%{z:.4g}<extra></extra>"),
             row=r + 1, col=1)
+        if masked.any():
+            fig.add_trace(go.Heatmap(
+                z=np.where(masked, 1.0, np.nan), x=x, y=y, showscale=False,
+                colorscale=[[0.0, "rgba(255,0,0,0.40)"], [1.0, "rgba(255,0,0,0.40)"]],
+                zmin=0.0, zmax=1.0, zsmooth=False,
+                hovertemplate="masked<extra></extra>"), row=r + 1, col=1)
     if show_windows:
         for (c0, c1) in g.windows.values():
             lo = float(g.tth_edges[c0])

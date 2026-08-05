@@ -2121,8 +2121,10 @@ with tab_refine:
         # Settings persist in session state, so the mask keeps applying while the editor
         # is hidden; the widgets below just overwrite these when it is open.
         _s3_excl = list(st.session_state.get("s3_exclude_rows", []))
-        _s3_minvalid = float(st.session_state.get("s3_minvalid", 0.5))
-        _s3_zero_missing = bool(st.session_state.get("s3_zeromiss", True))
+        _s3_below = (float(st.session_state["s3_below_val"])
+                     if st.session_state.get("s3_below_on") else None)
+        _s3_above = (float(st.session_state["s3_above_val"])
+                     if st.session_state.get("s3_above_on") else None)
         _s3_show_mask = st.checkbox(
             "🚫 Edit data mask (detector gaps / cut-off azimuths)", value=False,
             key="s3_show_mask")
@@ -2131,26 +2133,34 @@ with tab_refine:
         if _s3_show_mask:
             st.markdown(
                 "Detector gaps and cut-off azimuth wedges must be kept out of the "
-                "residual, or the fit chases empty boxes. Missing pixels (non-finite, and "
-                "by default exactly 0 — what integration software writes outside the "
-                "detector) are found automatically; add rows below for anything else. "
-                "**Each row has its own 2θ range, so the excluded azimuths can differ at "
-                "different radii** — which is how detector shadows behave. Leave a 2θ "
-                "bound blank to cover the whole range, and set `az_from` > `az_to` for a "
-                "range that wraps through ±180.")
-            _mk = st.columns(2)
+                "residual, or the fit chases empty boxes. **Each row has its own 2θ "
+                "range, so the excluded azimuths can differ at different radii** — which "
+                "is how detector shadows behave. Leave a 2θ bound blank to cover the "
+                "whole range, and set `az_from` > `az_to` for a range that wraps through "
+                "±180. Masking only takes effect inside the ring windows (shaded below), "
+                "so a region drawn wider than those is truncated to them.")
+            st.markdown("**Intensity thresholds** — mask boxes by value as well as by "
+                        "region. Useful for dead areas that read near zero, or for hot "
+                        "pixels and saturated spots.")
+            _mk = st.columns(4)
             with _mk[0]:
-                _s3_zero_missing = st.checkbox(
-                    "Treat exactly-zero pixels as missing", value=True, key="s3_zeromiss",
-                    help="Real measured values are never exactly 0.0, so this is a safe "
-                         "marker for 'outside the detector'. Untick if your data "
-                         "legitimately contains hard zeros.")
+                _below_on = st.checkbox("Mask below", value=False, key="s3_below_on",
+                                        help="Exclude boxes whose mean value is BELOW "
+                                             "the threshold (e.g. dead detector area).")
             with _mk[1]:
-                _s3_minvalid = st.slider(
-                    "Minimum valid fraction per box", 0.0, 1.0, 0.5, 0.05,
-                    key="s3_minvalid",
-                    help="A box is dropped when fewer than this fraction of its pixels "
-                         "carry data. Box means always use the surviving pixels only.")
+                _below_v = st.number_input("below threshold", value=0.0, step=1.0,
+                                           format="%.4g", key="s3_below_val",
+                                           label_visibility="collapsed")
+            with _mk[2]:
+                _above_on = st.checkbox("Mask above", value=False, key="s3_above_on",
+                                        help="Exclude boxes whose mean value is ABOVE "
+                                             "the threshold (e.g. saturated spots).")
+            with _mk[3]:
+                _above_v = st.number_input("above threshold", value=0.0, step=1.0,
+                                           format="%.4g", key="s3_above_val",
+                                           label_visibility="collapsed")
+            _s3_below = float(_below_v) if _below_on else None
+            _s3_above = float(_above_v) if _above_on else None
             # Draw a region straight onto the image. Streamlit reports the drag as data
             # coordinates; a heatmap yields no points, but the box bounds are all we need.
             st.caption("**Drag a box on the image** to add an exclusion region, or edit "
@@ -2158,7 +2168,8 @@ with tab_refine:
             _mask_sel = st.plotly_chart(
                 cp.plot_mask_editor(_s3x, _s3grid,
                                     st.session_state.get("s3_exclude_rows", []),
-                                    percentile=cake_percentile),
+                                    percentile=cake_percentile,
+                                    windows=st.session_state.get("s3_windows_deg")),
                 key="s3_mask_editor", on_select="rerun", selection_mode="box",
                 use_container_width=True)
             _new_reg = cp.selection_to_region((_mask_sel or {}).get("selection", {}))
@@ -2214,8 +2225,12 @@ with tab_refine:
                     _s3x, _s3grid, _seed_dfs, az_step=float(_s3_az),
                     tth_step=float(_s3_tth), fwhm=float(_s3_fwhm), roi_k=float(_s3_k),
                     n_sub=int(_s3_sub), exclude_regions=_s3_excl,
-                    min_valid_frac=float(_s3_minvalid),
-                    zero_is_missing=bool(_s3_zero_missing))
+                    mask_below=_s3_below, mask_above=_s3_above)
+            # Remember the windows so the mask editor can shade where masking applies.
+            st.session_state.s3_windows_deg = {
+                _L: (float(_s3_blocks.tth_edges[_c0]),
+                     float(_s3_blocks.tth_edges[min(_c1, _s3_blocks.tth_edges.size - 1)]))
+                for _L, (_c0, _c1) in _s3_blocks.windows.items()}
             if not _s3_blocks.labels:
                 st.warning("No ring windows fell inside the image 2θ range.")
             else:
@@ -2253,11 +2268,12 @@ with tab_refine:
             _m3[2].metric("RMSE", f"{_ev3['rmse']:.4g}")
             _m3[3].metric("φ samples", f"{_ev3.get('n_phi', '—')}",
                           help=f"{len(_bl.labels)} ring(s); φ chosen from R unless overridden")
-            if _bl.valid_mask is not None and not _bl.valid_mask.all():
-                _msk = int((~_bl.valid_mask).sum())
-                st.caption(f"🚫 {_msk:,} of {_bl.valid_mask.size:,} boxes masked "
-                           f"({_msk / _bl.valid_mask.size * 100:.1f}%) — shown blank below "
-                           "and excluded from the scale and residual.")
+            _msk = int(_bl.masked_mask.sum())
+            if _msk:
+                _win = int(_bl.window_mask.sum()) if _bl.window_mask is not None else 0
+                st.caption(f"🚫 {_msk:,} of {_win:,} in-window boxes masked "
+                           f"({_msk / max(_win, 1) * 100:.1f}%) — shaded red below and "
+                           "excluded from the scale and residual.")
             if _r3:
                 (st.success if _r3["success"] else st.warning)(
                     f"{_r3['message']}  ·  {_r3['n_free']} param(s), "
