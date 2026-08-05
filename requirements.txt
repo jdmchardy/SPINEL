@@ -1,4 +1,12 @@
-streamlit
+# Streamlit Cloud installs from this file.
+# streamlit declares an unbounded `starlette>=0.40.0`, so an unpinned deploy can pull a
+# starlette whose GZipResponder.__init__ requires `thread_minimum_size`, which Streamlit's
+# _MediaAwareGZipResponder subclass does not pass:
+#   TypeError: GZipResponder.__init__() missing 1 required keyword-only argument
+# Pin both to the combination this project is tested against.
+streamlit==1.60.0
+starlette==1.3.1
+
 numpy
 matplotlib
 pillow
