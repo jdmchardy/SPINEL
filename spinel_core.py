@@ -1089,6 +1089,8 @@ def run_refinement(params, refine_flags, selected_hkls, selected_indices, intens
     for name, val in params.items():
         if name in ["t",'sigma_12','sigma_13', 'sigma_23']:
             min_val, max_val = -25, 25
+        elif name == "intensity_global_multiplier":
+            min_val, max_val = 0, None   #a negative overall intensity is unphysical
         elif "c" in name.lower():  # elastic constants
             min_val, max_val = 0.5 * val, 1.5 * val
         elif name == "a_val" or name == "b_val" or name == "c_val":
@@ -1203,7 +1205,8 @@ def cost_function(lm_params, refine_flags, selected_hkls, selected_indices,
     strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_params, chi, phi_values, psi_values)
     XRD_df = Generate_XRD(selected_hkls, intensities_opt, Gaussian_FWHM, strain_sim_params, Funamori_broadening, po_model=po_model)
     twoth_sim = XRD_df["2th"]
-    intensity_sim = XRD_df["Total Intensity"]
+    #One global multiplier applied on top of the per-hkl intensities
+    intensity_sim = XRD_df["Total Intensity"] * lm_params["intensity_global_multiplier"].value
 
     interp_sim = interp1d(twoth_sim, intensity_sim, bounds_error=False, fill_value=0)
     y_sim_common = interp_sim(x_exp_common)
@@ -1333,6 +1336,10 @@ def setup_refinement_toggles(lattice_params, symmetry=None, **additional_fields)
     p_dict["sigma_13"] = combined_params["sigma_13"]
     p_dict["sigma_23"] = combined_params["sigma_23"]
     p_dict["chi"] = combined_params["chi"]
+    #Global multiplier on the whole simulated pattern, so the overall intensity level can
+    #be matched with one parameter instead of every per-hkl intensity. It is degenerate
+    #with those intensities, so refine one or the other, not both at once.
+    p_dict["intensity_global_multiplier"] = combined_params.get("intensity_global_multiplier", 1.0)
 
     #Symmetry specific refineable parameters
     if symmetry == "cubic":

@@ -1395,9 +1395,24 @@ with tab_sim:
                     generate_1D_XRD_overlay(XRD_df, x_exp, y_exp)
         
                 #Construct the default parameter dictionary for refinement
-                other = {"chi" : chi}
-        
+                other = {"chi" : chi,
+                         "intensity_global_multiplier":
+                             st.session_state.get("ref_params", {}).get(
+                                 "intensity_global_multiplier", 1.0)}
+
                 setup_refinement_toggles(lattice_params, symmetry=symmetry, cijs=cijs, stress=sigma_params, other=other)
+                # Scaling every hkl intensity is the same as scaling the whole pattern, so
+                # refining both at once leaves the fit under-determined.
+                _flags = st.session_state.get("refine_flags", {})
+                if _flags.get("intensity_global_multiplier") and _flags.get("peak_intensity"):
+                    st.warning(
+                        "**intensity_global_multiplier** and **peak intensities** are "
+                        "refining together — they are exactly degenerate (scaling every "
+                        "hkl intensity by k is the same as scaling the pattern by k), so "
+                        "the fit is under-determined and the uncertainties will be "
+                        "meaningless. Refine the global multiplier first to set the "
+                        "overall level, then hold it and unlock the individual "
+                        "intensities for relative adjustments.")
             
                 if st.button("Refine XRD"):
                     phi_values = np.radians(np.arange(0, 360, 10))
@@ -1409,6 +1424,10 @@ with tab_sim:
             
                     if result.success:
                         st.success("Refinement successful!")
+                        #Keep the refined multiplier as the next run's starting value
+                        if "intensity_global_multiplier" in result.params:
+                            st.session_state.ref_params["intensity_global_multiplier"] = \
+                                float(result.params["intensity_global_multiplier"].value)
                         # Extract refined values from result.params
                         for key in st.session_state.params:
                             if key in result.params:
@@ -1476,6 +1495,14 @@ with tab_sim:
                         )
                     
                         XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, Funamori_broadening, po_model=po_model)
+                        #Show the pattern the fit actually compared against
+                        _mult = float(result.params["intensity_global_multiplier"].value) \
+                            if "intensity_global_multiplier" in result.params else 1.0
+                        XRD_df = XRD_df.assign(**{"Total Intensity":
+                                                  XRD_df["Total Intensity"] * _mult})
+                        if abs(_mult - 1.0) > 1e-9:
+                            st.caption(f"Simulated pattern scaled by the refined "
+                                       f"intensity_global_multiplier = {_mult:.4g}.")
                         #twoth_sim = XRD_df["2th"]
                         #intensity_sim = XRD_df["Total Intensity"]
                         #x_min_sim = np.min(twoth_sim)
