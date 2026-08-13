@@ -1091,12 +1091,15 @@ def run_refinement(params, refine_flags, selected_hkls, selected_indices, intens
             min_val, max_val = -25, 25
         elif name == "intensity_global_multiplier":
             min_val, max_val = 0, None   #a negative overall intensity is unphysical
-        elif "c" in name.lower():  # elastic constants
-            min_val, max_val = 0.5 * val, 1.5 * val
         elif name == "a_val" or name == "b_val" or name == "c_val":
             min_val, max_val = 0.75 * val, 1.25 * val
         elif name == "chi":
             min_val, max_val = -90, 90
+        elif "c" in name.lower():  # elastic constants
+            #Must stay BELOW the exact-name branches above: "chi" and "c_val" also contain
+            #a "c", so testing this first caught them and gave them elastic-constant
+            #bounds -- pinning chi at (0, 0) whenever it started from 0.
+            min_val, max_val = 0.5 * val, 1.5 * val
         else:
             min_val, max_val = None, None
 
