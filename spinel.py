@@ -893,6 +893,19 @@ with tab_sim:
                         selected_indices.append(i)  # Save which index was selected
                         intensities.append(st.session_state.intensities[f"intensity_{i}"])
 
+                #One multiplier applied on top of every intensity above, so the overall
+                #level can be set with a single value. Refineable in the panel below; a
+                #refinement writes the fitted value straight back into this box.
+                st.session_state.intensity_global_multiplier = st.number_input(
+                    "Intensity global multiplier",
+                    min_value=0.0,
+                    value=float(st.session_state.get("intensity_global_multiplier", 1.0)),
+                    step=0.1,
+                    format="%.4f",
+                    help="Scales the whole simulated pattern. 1.0 leaves it unscaled. "
+                         "Applied to the 1D-XRD and Overlay XRD plots and to the "
+                         "refinement.")
+
             with col2:
                 symmetry_options = ["cubic", "hexagonal", "tetragonal_A", "tetragonal_B", "orthorhombic", "trigonal_A"]
                 if metadata['symmetry'] in symmetry_options:
@@ -1202,6 +1215,11 @@ with tab_sim:
                     strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_params, chi, phi_values, psi_values)
 
                     XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, broadening=Funamori_broadening, po_model=po_model)
+                    #Same global scaling the refinement applies, so the plotted pattern
+                    #matches the value in the multiplier box
+                    XRD_df = XRD_df.assign(**{"Total Intensity":
+                        XRD_df["Total Intensity"]
+                        * float(st.session_state.get("intensity_global_multiplier", 1.0))})
 
                     generate_1D_XRD_plot(XRD_df)
 
@@ -1392,32 +1410,18 @@ with tab_sim:
                     #t = st.session_state.params.get("sigma_33") - st.session_state.params.get("sigma_11")
                     strain_sim_params = (symmetry, lattice_params, wavelength, cijs, sigma_params, chi, phi_values, psi_values)
                     XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, Funamori_broadening, po_model=po_model)
+                    #Scale by the multiplier before overlaying, so what is drawn against
+                    #the data is the same pattern the refinement would compare
+                    XRD_df = XRD_df.assign(**{"Total Intensity":
+                        XRD_df["Total Intensity"]
+                        * float(st.session_state.get("intensity_global_multiplier", 1.0))})
                     generate_1D_XRD_overlay(XRD_df, x_exp, y_exp)
         
-                # Editable starting value for the global multiplier. Every other refinement
-                # parameter has a box in the columns above; this one is only defined here,
-                # so it needs its own. Deliberately no widget key: the value is owned by
-                # ref_params, which the edit below feeds back into (and which a refinement
-                # overwrites), so the box always shows the value actually in use.
-                _igm_val = float(st.session_state.get("ref_params", {}).get(
-                    "intensity_global_multiplier", 1.0))
-                _igm_col = st.columns([1, 2])
-                with _igm_col[0]:
-                    _igm_val = st.number_input(
-                        "Intensity global multiplier", min_value=0.0, value=_igm_val,
-                        step=0.1, format="%.4f",
-                        help="Scales the whole simulated pattern, so the overall level can "
-                             "be matched with one value instead of every per-hkl intensity. "
-                             "Edit it here to set the starting point, and tick it below to "
-                             "refine it. A refinement writes the fitted value back into "
-                             "this box.")
-                with _igm_col[1]:
-                    st.caption("Applied on top of the individual hkl intensities. "
-                               "1.0 leaves the simulated pattern unscaled.")
-
-                #Construct the default parameter dictionary for refinement
+                #Construct the default parameter dictionary for refinement. The
+                #multiplier's value comes from its box beside the hkl intensities above.
+                _igm_val = float(st.session_state.get("intensity_global_multiplier", 1.0))
                 other = {"chi" : chi,
-                         "intensity_global_multiplier": float(_igm_val)}
+                         "intensity_global_multiplier": _igm_val}
 
                 setup_refinement_toggles(lattice_params, symmetry=symmetry, cijs=cijs, stress=sigma_params, other=other)
                 # Scaling every hkl intensity is the same as scaling the whole pattern, so
@@ -1443,9 +1447,9 @@ with tab_sim:
             
                     if result.success:
                         st.success("Refinement successful!")
-                        #Keep the refined multiplier as the next run's starting value
+                        #Write the refined multiplier back into its input box
                         if "intensity_global_multiplier" in result.params:
-                            st.session_state.ref_params["intensity_global_multiplier"] = \
+                            st.session_state.intensity_global_multiplier = \
                                 float(result.params["intensity_global_multiplier"].value)
                         # Extract refined values from result.params
                         for key in st.session_state.params:
