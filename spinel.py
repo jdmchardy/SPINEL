@@ -1394,11 +1394,30 @@ with tab_sim:
                     XRD_df = Generate_XRD(selected_hkls, intensities, Gaussian_FWHM, strain_sim_params, Funamori_broadening, po_model=po_model)
                     generate_1D_XRD_overlay(XRD_df, x_exp, y_exp)
         
+                # Editable starting value for the global multiplier. Every other refinement
+                # parameter has a box in the columns above; this one is only defined here,
+                # so it needs its own. Deliberately no widget key: the value is owned by
+                # ref_params, which the edit below feeds back into (and which a refinement
+                # overwrites), so the box always shows the value actually in use.
+                _igm_val = float(st.session_state.get("ref_params", {}).get(
+                    "intensity_global_multiplier", 1.0))
+                _igm_col = st.columns([1, 2])
+                with _igm_col[0]:
+                    _igm_val = st.number_input(
+                        "Intensity global multiplier", min_value=0.0, value=_igm_val,
+                        step=0.1, format="%.4f",
+                        help="Scales the whole simulated pattern, so the overall level can "
+                             "be matched with one value instead of every per-hkl intensity. "
+                             "Edit it here to set the starting point, and tick it below to "
+                             "refine it. A refinement writes the fitted value back into "
+                             "this box.")
+                with _igm_col[1]:
+                    st.caption("Applied on top of the individual hkl intensities. "
+                               "1.0 leaves the simulated pattern unscaled.")
+
                 #Construct the default parameter dictionary for refinement
                 other = {"chi" : chi,
-                         "intensity_global_multiplier":
-                             st.session_state.get("ref_params", {}).get(
-                                 "intensity_global_multiplier", 1.0)}
+                         "intensity_global_multiplier": float(_igm_val)}
 
                 setup_refinement_toggles(lattice_params, symmetry=symmetry, cijs=cijs, stress=sigma_params, other=other)
                 # Scaling every hkl intensity is the same as scaling the whole pattern, so
